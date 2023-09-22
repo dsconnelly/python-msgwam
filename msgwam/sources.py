@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
@@ -116,7 +116,11 @@ def legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
 
     return np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
 
-def monochromatic(_, rays: RayCollection) -> np.ndarray:
+def monochromatic(
+    _,
+    rays: RayCollection,
+    wvl_ver_char: Optional[float]=None
+) -> np.ndarray:
     """
     Calculate source data for a single ray volume at presribed wavenumber.
     """
@@ -127,9 +131,12 @@ def monochromatic(_, rays: RayCollection) -> np.ndarray:
     wvn_hor = 2 * np.pi / config.wvl_hor_char
     direction = np.deg2rad(config.direction)
 
+    if wvl_ver_char is None:
+        wvl_ver_char = config.wvl_ver_char
+
     k = wvn_hor * np.cos(direction)
     l = wvn_hor * np.sin(direction)
-    m = -2 * np.pi / config.wvl_ver_char
+    m = -2 * np.pi / wvl_ver_char
 
     dk = config.dk_init
     dl = config.dl_init
@@ -150,5 +157,20 @@ def bichromatic(_, rays: RayCollection) -> np.ndarray:
     data = np.hstack((column, column))
     data[2:4, 1] *= -1
     data[-1] *= 1 / 2
+
+    return data
+
+def tetrachromatic(_, rays: RayCollection) -> np.ndarray:
+    """
+    Like bichromatic, but with two waves on each side.
+    """
+
+    a = monochromatic(None, rays, 0.95 * config.wvl_ver_char)
+    b = monochromatic(None, rays, 1.05 * config.wvl_ver_char)
+    columns = np.hstack((a, b))
+
+    data = np.hstack((columns, columns[:, ::-1]))
+    data[2:4, :2] *= -1
+    data[-1] *= 1 / 4
 
     return data

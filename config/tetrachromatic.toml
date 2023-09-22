@@ -4,7 +4,7 @@ filter_pmf = true
 hprop = false
 
 dt = 120
-n_day = 120
+n_day = 180
 
 n_grid = 101
 grid_bounds = [0, 100e3]
@@ -23,8 +23,8 @@ u0 = 8
 r0 = 60e3
 sig_r = 10e3
 
-source_method = "bichromatic"
-n_ray_max = 3500
+source_method = "tetrachromatic"
+n_ray_max = 2500
 
 wvl_hor_char = 50e3
 wvl_ver_char = 2e3
