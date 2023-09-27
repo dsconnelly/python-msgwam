@@ -4,7 +4,8 @@ filter_pmf = true
 hprop = false
 
 dt = 120
-n_day = 120
+n_day = 180
+dt_output = 21600
 
 n_grid = 101
 grid_bounds = [0, 100e3]

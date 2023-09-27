@@ -22,7 +22,9 @@ def load_config(path: str) -> None:
         
     config['phi0'] = np.deg2rad(config['phi0'])
     config['f0'] = 2 * ROT_EARTH * np.sin(config['phi0'])
+
     config['n_t_max'] = int(86400 * config['n_day'] / config['dt']) + 1
+    config['n_skip'] = round(config['dt_output'] / config['dt'])
 
     if 'r_launch' in config:
         config['r_ghost'] = config['r_launch'] - config['dr_init']

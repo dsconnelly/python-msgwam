@@ -6,9 +6,12 @@ saturate_online: bool
 filter_pmf: bool
 hprop: bool
 
-dt: float
+dt: int
 n_day: int
 n_t_max: int
+
+dt_output: int
+n_skip: int
 
 n_grid: int
 grid_bounds: tuple[float, float]

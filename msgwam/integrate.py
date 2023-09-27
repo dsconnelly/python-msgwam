@@ -67,7 +67,7 @@ class Integrator(ABC):
         mean = self.int_mean[0]
         rays = self.int_rays[0]
 
-        for _ in range(1, config.n_t_max):
+        for i in range(1, config.n_t_max):
             rays.check_boundaries(mean)
             mean, rays = self.step(mean, rays)
 
@@ -76,9 +76,10 @@ class Integrator(ABC):
                 idx = rays.dens > max_dens
                 rays.dens[idx] = max_dens[idx]
 
-            self.int_mean.append(mean)
-            self.int_rays.append(rays)
-            self.int_pmf.append(self.center(mean.pmf(rays)))
+            if i % config.n_skip == 0:
+                self.int_mean.append(mean)
+                self.int_rays.append(rays)
+                self.int_pmf.append(self.center(mean.pmf(rays)))
 
         return self
 
@@ -103,7 +104,7 @@ class Integrator(ABC):
         """
 
         data: dict[str, Any] = {
-            'time' : config.dt * np.arange(config.n_t_max),
+            'time' : config.dt * np.arange(config.n_t_max)[::config.n_skip],
             'nray' : np.arange(config.n_ray_max),
             'grid' : self.int_mean[0].r_centers
         }
@@ -165,6 +166,10 @@ class SBDF2Integrator(Integrator):
         self.A = sp.linalg.lu_factor(np.eye(m) - config.dt * D)
         self.B = sp.linalg.lu_factor((3 / 2) * np.eye(m) - config.dt * D)
 
+        self.last_u = None
+        self.last_v = None
+        self.last_rays = None
+
         self.last_du_dt = None
         self.last_dv_dt = None
         self.last_drays_dt = None
@@ -179,16 +184,19 @@ class SBDF2Integrator(Integrator):
         du_dt, dv_dt = mean.dmean_dt(rays)
         drays_dt = rays.drays_dt(mean)
 
-        if len(self.int_mean) < 2:
+        if self.last_u is None:
             mean = copy(mean)
             mean.u = sp.linalg.lu_solve(self.A, mean.u + config.dt * du_dt)
             mean.v = sp.linalg.lu_solve(self.A, mean.v + config.dt * dv_dt)
             rays = rays + config.dt * drays_dt
 
         else:
-            last_u = self.int_mean[-1].u
-            last_v = self.int_mean[-1].v
-            last_rays = self.int_rays[-1].data
+            last_u = self.last_u
+            last_v = self.last_v
+            last_rays = self.last_rays
+
+            last_du_dt = self.last_du_dt
+            last_dv_dt = self.last_dv_dt
             last_drays_dt = self.last_drays_dt
 
             idx = np.isnan(last_drays_dt[0])
@@ -196,9 +204,13 @@ class SBDF2Integrator(Integrator):
             last_drays_dt[:, idx] = 0
 
             mean, rays = copy(mean), copy(rays)
-            mean.u = self.lhs(mean.u, last_u, du_dt, self.last_du_dt, self.B)
-            mean.v = self.lhs(mean.v, last_v, dv_dt, self.last_dv_dt, self.B)
+            mean.u = self.lhs(mean.u, last_u, du_dt, last_du_dt, self.B)
+            mean.v = self.lhs(mean.v, last_v, dv_dt, last_dv_dt, self.B)
             rays.data = self.lhs(rays.data, last_rays, drays_dt, last_drays_dt)
+
+        self.last_u = mean.u
+        self.last_v = mean.v
+        self.last_rays = rays.data
 
         self.last_du_dt = du_dt
         self.last_dv_dt = dv_dt
