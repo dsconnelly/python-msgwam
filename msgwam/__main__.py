@@ -13,6 +13,6 @@ if __name__ == '__main__':
     load_config(args.config_path)
 
     start = time.time()
-    df = SBDF2Integrator().integrate()
+    ds = SBDF2Integrator().integrate().to_dataset()
     print(f'Integration took {(time.time() - start):.2f} s')
-    df.to_netcdf(args.output_path)
+    ds.to_netcdf(args.output_path)

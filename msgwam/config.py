@@ -20,6 +20,25 @@ def load_config(path: str) -> None:
     with open(path, 'rb') as f:
         config = tomllib.load(f)
         
+    refresh(config)
+
+def refresh(config: dict[str]=None) -> None:
+    """
+    Calculate internal parameters and update the module namespace. Available as
+    a separate function in case the user wishes to change parameters without
+    reloading a config file.
+
+    Parameters
+    ----------
+    config
+        Dictionary of config parameters. If None, the global module namespace
+        will be used instead.
+
+    """
+
+    if config is None:
+        config = globals().copy()
+
     config['phi0'] = np.deg2rad(config['phi0'])
     config['f0'] = 2 * ROT_EARTH * np.sin(config['phi0'])
 
@@ -29,4 +48,4 @@ def load_config(path: str) -> None:
     if 'r_launch' in config:
         config['r_ghost'] = config['r_launch'] - config['dr_init']
 
-    globals().update(config)
+    globals().update(config)    

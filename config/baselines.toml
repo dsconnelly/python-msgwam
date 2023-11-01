@@ -7,8 +7,7 @@ hprop = false
 ################################################################################
 # wave-mean interactions
 ################################################################################
-interactive_mean = false
-mean_file = 'data/extract.nc'
+interactive_mean = true
 saturate_online = false
 filter_pmf = true
 
@@ -16,7 +15,7 @@ filter_pmf = true
 # time stepping
 ################################################################################
 dt = 120
-n_day = 15
+n_day = 50
 dt_output = 7200
 
 ################################################################################
@@ -52,7 +51,7 @@ alpha = 1
 ################################################################################
 source_method = 'bimodal'
 constant_flux = true
-n_ray_max = 760
+n_ray_max = 3040
 bc_mom_flux = 3e-3
 
 wvl_hor_char = 50e3
@@ -61,12 +60,12 @@ direction = 0
 
 dk_init = 1e-4
 dl_init = 1e-4
-dm_init = 2e-7
+dm_init = 1e-7
 
 r_launch = 15e3
-dr_init = 500
+dr_init = 250
 
 ################################################################################
 # 'bimodal' source parameters
 ################################################################################
-n_per_mode = 2
+n_per_mode = 4

@@ -106,15 +106,9 @@ class Integrator(ABC):
             np.interp(r_to, r_from, pmf[1])
         ))
 
-    def to_netcdf(self, output_path: str) -> None:
+    def to_dataset(self) -> xr.Dataset:
         """
-        Save a netCDF file holding the data from the integrated system.
-
-        Parameters
-        -----------
-        output_path
-            Where to save the netCDF file.
-
+        Return a Dataset holding the data from the integrated system.
         """
 
         data: dict[str, Any] = {
@@ -135,7 +129,7 @@ class Integrator(ABC):
         data['pmf_u'] = (('time', 'grid'), stacked[0])
         data['pmf_v'] = (('time', 'grid'), stacked[1])
 
-        xr.Dataset(data).to_netcdf(output_path)
+        return xr.Dataset(data)
     
 class RK3Integrator(Integrator):
     aa = [0, -5 / 9, -153 / 128]
