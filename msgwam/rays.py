@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .mean import MeanFlow
 
 class RayCollection:
-    props = ['r', 'dr', 'k', 'l', 'm', 'dk', 'dl', 'dm', 'dens']
+    props = ['r', 'dr', 'k', 'l', 'm', 'dk', 'dl', 'dm', 'dens', 'age']
     indices = {prop: i for i, prop in enumerate(props)}
 
     r: np.ndarray; dr: np.ndarray
@@ -36,7 +36,7 @@ class RayCollection:
         self.sources: np.ndarray = source_func(mean, self)
 
         _, n_sources = self.sources.shape
-        self.data[:, :n_sources] = self.sources
+        self.data[:-1, :n_sources] = self.sources
         self.ghosts = {i : i for i in range(n_sources)}
 
     def __add__(self, other: np.ndarray) -> RayCollection:
@@ -168,7 +168,7 @@ class RayCollection:
             self.delete_rays(int(np.argmin(energy)))
 
         i = int(np.argmin(self.valid))
-        self.data[:, i] = np.array([r, dr, k, l, m, dk, dl, dm, dens])
+        self.data[:, i] = np.array([r, dr, k, l, m, dk, dl, dm, dens, 0])
 
         return i
 
@@ -203,7 +203,7 @@ class RayCollection:
         above = self.r + 0.5 * self.dr > mean.r_faces[-1]
         self.delete_rays(below | above)
 
-        if config.source_method == 'legacy':
+        if not config.constant_flux:
             return
 
         for i in list(self.ghosts.keys()):
@@ -441,6 +441,8 @@ class RayCollection:
         ddm_dt = ddr_dt * self.dm / self.dr
 
         ddens_dt = np.zeros(config.n_ray_max)
+        dage_dt = np.ones(config.n_ray_max)
+
         if config.saturate_online:
             r_next = self.r + config.dt * dr_dt
             m_next = self.m + config.dt * dm_dt
@@ -464,5 +466,6 @@ class RayCollection:
             ddk_dt,
             ddl_dt,
             ddm_dt,
-            ddens_dt
+            ddens_dt,
+            dage_dt
         ))

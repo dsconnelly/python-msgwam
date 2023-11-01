@@ -20,6 +20,16 @@ class Integrator(ABC):
 
         mean = MeanFlow()
         rays = RayCollection(mean)
+
+        self.time = config.dt * np.arange(config.n_t_max)
+        if not config.interactive_mean:
+            with xr.open_dataset(config.mean_file) as ds:
+                ds = ds.interp(time=self.time)
+                self.prescribed_u = ds['u'].values
+                self.prescribed_v = ds['v'].values
+
+            mean.u = self.prescribed_u[0]
+            mean.v = self.prescribed_v[0]
         
         self.int_mean = [mean]
         self.int_rays = [rays]
@@ -70,6 +80,10 @@ class Integrator(ABC):
         for i in range(1, config.n_t_max):
             rays.check_boundaries(mean)
             mean, rays = self.step(mean, rays)
+            
+            if not config.interactive_mean:
+                mean.u = self.prescribed_u[i]
+                mean.v = self.prescribed_v[i]
 
             if not config.saturate_online:
                 max_dens = rays.max_dens(mean)
@@ -104,7 +118,7 @@ class Integrator(ABC):
         """
 
         data: dict[str, Any] = {
-            'time' : config.dt * np.arange(config.n_t_max)[::config.n_skip],
+            'time' : self.time[::config.n_skip],
             'nray' : np.arange(config.n_ray_max),
             'grid' : self.int_mean[0].r_centers
         }

@@ -90,17 +90,17 @@ def legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
     wvn_hor = 2 * np.pi / config.wvl_hor_char
     direction = np.deg2rad(config.direction)
 
-    k = wvn_hor * np.cos(direction) * np.ones(config.n_ray)
-    l = wvn_hor * np.sin(direction) * np.ones(config.n_ray)
-    m = -2 * np.pi / config.wvl_ver_char * np.ones(config.n_ray)
+    k = wvn_hor * np.cos(direction) * np.ones(config.n_ray_max)
+    l = wvn_hor * np.sin(direction) * np.ones(config.n_ray_max)
+    m = -2 * np.pi / config.wvl_ver_char * np.ones(config.n_ray_max)
 
     r_min, r_max = config.r_init_bounds
-    r_edges = np.linspace(r_min, r_max, config.n_ray + 1)
-    dr = r_edges[1] - r_edges[0] * np.ones(config.n_ray)
+    r_edges = np.linspace(r_min, r_max, config.n_ray_max + 1)
+    dr = r_edges[1] - r_edges[0] * np.ones(config.n_ray_max)
     r = (r_edges[:-1] + r_edges[1:]) / 2
 
-    dk = config.dk_init * np.ones(config.n_ray)
-    dl = config.dl_init * np.ones(config.n_ray)
+    dk = config.dk_init * np.ones(config.n_ray_max)
+    dl = config.dl_init * np.ones(config.n_ray_max)
     dm = config.r_m_area / dr
 
     rhobar = np.interp(r, mean.r_centers, mean.rho)
@@ -116,13 +116,10 @@ def legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
 
     return np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
 
-def monochromatic(
-    _,
-    rays: RayCollection,
-    wvl_ver_char: Optional[float]=None
-) -> np.ndarray:
+def bimodal(_, rays: RayCollection) -> np.ndarray:
     """
-    Calculate source data for a single ray volume at presribed wavenumber.
+    Calculate source data for rays with horizontal wavenumbers centered around
+    two modes of opposite sign.
     """
 
     r = config.r_launch
@@ -130,47 +127,25 @@ def monochromatic(
 
     wvn_hor = 2 * np.pi / config.wvl_hor_char
     direction = np.deg2rad(config.direction)
-
-    if wvl_ver_char is None:
-        wvl_ver_char = config.wvl_ver_char
-
     k = wvn_hor * np.cos(direction)
     l = wvn_hor * np.sin(direction)
-    m = -2 * np.pi / wvl_ver_char
+
+    m_center = -2 * np.pi / config.wvl_ver_char
+    offsets = np.arange(config.n_per_mode) - config.n_per_mode // 2
+    ms = m_center * (1 + config.dm_init * offsets)
 
     dk = config.dk_init
     dl = config.dl_init
     dm = config.dm_init
-
     volume = abs(dk * dl * dm)
-    cg_r = rays.cg_r(r=r, k=k, l=l, m=m)
-    dens = config.bc_mom_flux / abs(k * volume * cg_r)
 
-    return np.array([r, dr, k, l, m, dk, dl, dm, dens]).reshape(-1, 1)
+    n_total = 2 * config.n_per_mode
+    data = np.zeros((9, n_total))
 
-def bichromatic(_, rays: RayCollection) -> np.ndarray:
-    """
-    Calculate source data for two rays with opposite horizontal wavenumbers.
-    """
-
-    column = monochromatic(None, rays)
-    data = np.hstack((column, column))
-    data[2:4, 1] *= -1
-    data[-1] *= 1 / 2
-
-    return data
-
-def tetrachromatic(_, rays: RayCollection) -> np.ndarray:
-    """
-    Like bichromatic, but with two waves on each side.
-    """
-
-    a = monochromatic(None, rays, 0.95 * config.wvl_ver_char)
-    b = monochromatic(None, rays, 1.05 * config.wvl_ver_char)
-    columns = np.hstack((a, b))
-
-    data = np.hstack((columns, columns[:, ::-1]))
-    data[2:4, :2] *= -1
-    data[-1] *= 1 / 4
+    for j, m in enumerate(ms):
+        cg_r = rays.cg_r(r=r, k=k, l=l, m=m)
+        dens = config.bc_mom_flux / abs(k * volume * cg_r * n_total)
+        data[:, 2 * j] = np.array([r, dr, k, l, m, dk, dl, dm, dens])
+        data[:, 2 * j + 1] = np.array([r, dr, -k, -l, m, dk, dl, dm, dens])
 
     return data

@@ -11,6 +11,7 @@ def animate(ds: xr.Dataset, output_path: str) -> None:
     fig, axes = plt.subplots(ncols=3)
     fig.set_size_inches(12, 4)
 
+    time = ds['time'].values
     z = ds['grid'].values / 1000
     u = ds['u'].values
 
@@ -58,7 +59,8 @@ def animate(ds: xr.Dataset, output_path: str) -> None:
         dots.set_offsets(np.vstack((m[i], r[i])).T)
         dots.set_array(dens[i])
 
-        hours = i / 30
+        seconds = time[i]
+        hours = seconds / 3600
         days = int(hours / 24)
         hours = hours - 24 * days
 
@@ -67,6 +69,8 @@ def animate(ds: xr.Dataset, output_path: str) -> None:
         return line_u, line_pmf, dots
 
     plt.tight_layout()
+    fig.subplots_adjust(top=0.88)
+
     frames = np.linspace(0, len(u) - 1, min(len(u), 1440)).astype(int)
     ani = FuncAnimation(fig, update, frames=frames, blit=True)
     ani.save(output_path, fps=24)

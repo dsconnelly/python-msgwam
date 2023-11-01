@@ -3,16 +3,17 @@ import sys
 import matplotlib.pyplot as plt
 import xarray as xr
 
-def plot_wind(ds: xr.Dataset, output_path: str) -> None:
-    fig, ax = plt.subplots()
-    fig.set_size_inches(4, 3)
+def make_plots(ds: xr.Dataset, output_path: str) -> None:
+    fig, axes = plt.subplots(ncols=2)
+    fig.set_size_inches(8, 3)
 
-    u = ds['u']
-    amax = abs(u).max()
     days = ds['time'] / (3600 * 24)
     grid = ds['grid'] / 1000
 
-    ax.pcolormesh(
+    u = ds['u']
+    amax = abs(u).max()
+
+    axes[0].pcolormesh(
         days,
         grid,
         u.T,
@@ -22,12 +23,28 @@ def plot_wind(ds: xr.Dataset, output_path: str) -> None:
         shading='nearest'
     )
 
-    ax.set_title('$u$ (m s$^{-1}$)')
-    ax.set_xlabel('time (days)')
-    ax.set_ylabel('height (km)')
+    pmf = ds['pmf_u'] * 1000
+    amax = abs(pmf).max()
 
-    ax.set_xlim(0, days.max())
-    ax.set_ylim(grid.min(), grid.max())
+    axes[1].pcolormesh(
+        days,
+        grid,
+        pmf.T,
+        vmin=-amax,
+        vmax=amax,
+        cmap='RdBu_r',
+        shading='nearest'
+    )
+
+    axes[0].set_title('$u$ (m s$^{-1}$)')
+    axes[1].set_title('$c_\mathrm{g} k\mathcal{A}$ (mPa)')
+
+    for ax in axes:
+        ax.set_xlabel('time (days)')
+        ax.set_ylabel('height (km)')
+
+        ax.set_xlim(0, days.max())
+        ax.set_ylim(grid.min(), grid.max())
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=400)
@@ -35,4 +52,4 @@ def plot_wind(ds: xr.Dataset, output_path: str) -> None:
 if __name__ == '__main__':
     data_path, output_path = sys.argv[1:]
     with xr.open_dataset(data_path) as ds:
-        plot_wind(ds, output_path)
+        make_plots(ds, output_path)
