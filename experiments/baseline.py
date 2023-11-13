@@ -72,7 +72,7 @@ def plot_errors():
 if __name__ == '__main__':
     config.load_config('config/baseline.toml')
     BASELINE = vars(config).copy()
-    save_reference_mean_state()
+    # save_reference_mean_state()
 
     config.n_day = 15
     config.interactive_mean = False
