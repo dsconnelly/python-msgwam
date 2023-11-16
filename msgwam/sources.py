@@ -1,4 +1,5 @@
 from __future__ import annotations
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -9,12 +10,78 @@ if TYPE_CHECKING:
     from .mean import MeanFlow
     from .rays import RayCollection
 
+class NoLaunch(Exception):
+    pass
+
+class Source(ABC):
+
+    def __init__(self, mean: MeanFlow, rays: RayCollection) -> None:
+        """Initialize a source object."""
+
+        spectrum_func = globals()['_' + config.spectrum_type]
+        self.data: np.ndarray = spectrum_func(mean, rays)
+
+    def __len__(self) -> int:
+        """
+        Return the number of source ray volumes in the spectrum.
+
+        Returns
+        -------
+        int
+            How many discrete waves the source spectrum is divided into.
+        
+        """
+    
+        return self.data.shape[1]
+
+    @abstractmethod
+    def launch(self, slot: int) -> np.ndarray:
+        """
+        Return the properties of the source wave indexed by a given slot.
+
+        Parameters
+        ----------
+        slot
+            Slot for which a new ray volume is required. For example, with a
+            constant-in-time source, this parameter simply indicates an index in
+            the pre-calculated array of ray properties.
+
+        Returns
+        -------
+        np.ndarray
+            The nine properties of the requested source ray volume.
+
+        Raises
+        ------
+        NoLaunch
+            If no ray is available, e.g. because the source is stochastic and
+            no ray will be launched this time step.
+        
+        """
+
+        pass
+
+class ConstantSource(Source):
+    def launch(self, slot: int) -> np.ndarray:
+        return self.data[:, slot]
+
+class StochasticSource(Source):
+    def __init__(self, mean: MeanFlow, rays: RayCollection) -> None:
+        super().__init__(mean, rays)
+        self.data[-1] /= config.source_fraction
+
+    def launch(self, _) -> np.ndarray:
+        if np.random.rand() > config.source_fraction:
+            raise NoLaunch
+        
+        return self.data[:, np.random.randint(self.data.shape[1])]
+
 # Each function in this module should accept a MeanFlow and a RayCollection and
 # return an array with rows corresponding to the ray properties named in
 # RayCollection.props and columns corresponding to however many ray volumes
 # should be launched at the source.
 
-def desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
+def _desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
     """
     Calculate source ray volume properties according to the Desaubies spectrum
     as defined in Boloni et al. (2021). The number of ray volumes is determined
@@ -80,7 +147,7 @@ def desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
 
     return data
 
-def legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
+def _legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
     """
     Calculate source ray volumes as was done in the original version of this
     Python code. Note that the library defaults to not launching more rays at
@@ -116,7 +183,7 @@ def legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
 
     return np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
 
-def bimodal(_, rays: RayCollection) -> np.ndarray:
+def _bimodal(_, rays: RayCollection) -> np.ndarray:
     """
     Calculate source data for rays with horizontal wavenumbers centered around
     two modes of opposite sign.
@@ -147,5 +214,42 @@ def bimodal(_, rays: RayCollection) -> np.ndarray:
         dens = config.bc_mom_flux / abs(k * volume * cg_r * n_total)
         data[:, 2 * j] = np.array([r, dr, k, l, m, dk, dl, dm, dens])
         data[:, 2 * j + 1] = np.array([r, dr, -k, -l, m, dk, dl, dm, dens])
+
+    return data
+
+def _gaussians(_, rays: RayCollection) -> np.ndarray:
+    c_min, c_max = config.c_bounds
+    cs = np.linspace(c_min, c_max, config.n_c)
+
+    r = config.r_launch
+    dr = config.dr_init
+
+    wvn_hor = 2 * np.pi / config.wvl_hor_char
+    direction = np.deg2rad(config.direction)
+    k = wvn_hor * np.cos(direction)
+    l = wvn_hor * np.sin(direction)
+    
+    ms = -np.sqrt((k ** 2 + l ** 2) *
+        (config.N0 ** 2 - cs ** 2 * k ** 2) /
+        (cs ** 2 * k ** 2 - config.f0 ** 2)
+    )
+
+    dk = config.dk_init
+    dl = config.dl_init
+    dm = config.dm_init
+    volume = abs(dk * dl * dm)
+
+    fluxes = np.exp(-(((cs - config.c_center) / config.c_width) ** 2))
+    fluxes += np.exp(-(((cs + config.c_center) / config.c_width) ** 2))
+    fluxes = (config.bc_mom_flux / fluxes.sum()) * fluxes
+
+    data = np.zeros((9, config.n_c))
+    for j, (m, flux) in enumerate(zip(ms, fluxes)):
+        cg_r = rays.cg_r(r=r, k=k, l=l, m=m)
+        dens = flux / abs(k * volume * cg_r)
+        data[:, j] = np.array([r, dr, k, l, m, dk, dl, dm, dens])
+
+    jdx = cs < 0
+    data[2, jdx] *= -1
 
     return data

@@ -56,12 +56,14 @@ nu: float # Mean velocity diffusivity (m^2 / s)
 alpha: float # Fraction of Lindzen criterion at which waves break (unitless).
 
 ################################################################################
-# source options
+# source and spectrum options
 ################################################################################
-source_method: str # How to set wave sources. Must be the name of a function
-    # defined in sources.py.
-constant_flux: bool # Whether to continuously launch ray volumes to maintain a
-    # constant momentum flux across the lower boundary.
+spectrum_type: str # How to calculate the source spectrum. Must be the name of a
+    # function defined in sources.py
+source_type: str # How to launch ray volumes from the source. Must be the name
+    # of a subclass of Source defined in sources.py, lowercase and with the
+    # 'Source' suffix removed.
+
 n_ray_max: int # Maximum number of rays that can exist at once.
 bc_mom_flux: float # Momentum flux across lower boundary (Pa).
 
@@ -77,13 +79,18 @@ r_launch: float # Launch height of ray volumes (m).
 dr_init: float # Initial height of ray volumes (m).
 
 ################################################################################
-# 'legacy' source parameters
+# 'stochastic' source parameters
+################################################################################
+source_fraction: float # Fraction of source ray volumes to keep active at once.
+
+################################################################################
+# 'legacy' spectrum parameters
 ################################################################################
 r_m_area: float # Initial area of volumes in r-m space (unitless).
 r_init_bounds: tuple[float, float] # Lower and upper extent of wave packet.
 
 ################################################################################
-# 'desaubies' source parameters
+# 'desaubies' spectrum parameters
 ################################################################################
 n_c_tilde: int # Number of c_tilde grid points.
 n_omega_tilde: int # Number of omega_tilde grid points.
@@ -91,10 +98,18 @@ c_tilde_bounds: tuple[float, float] # Bounds on c_tilde (m / s).
 omega_tilde_bounds: tuple[float, float] # Bounds on omega_tilde (1 / s).
 
 ################################################################################
-# 'bimodal' source parameters
+# 'bimodal' spectrum parameters
 ################################################################################
 n_per_mode: int # Number of ray volumes to launch for each of the positive and
     # negative k parts of the source.
+
+################################################################################
+# 'gaussians' spectrum parameters
+################################################################################
+c_bounds: tuple[float, float] # Mininum and maximum zonal phase speeds (m / s).
+c_center: float # Peak of Gaussians in phase speed space (m / s).
+c_width: float # Width of the Gaussian in phase speed space (m / s).
+n_c: int # How many phase speeds to discretize the interval into.
 
 ################################################################################
 # internal variables (set by the code, not the namelist)

@@ -14,69 +14,97 @@ def save_reference_mean_state():
     ds.to_netcdf('data/baseline-mean.nc')
 
 def run_refinements():
-    dr_init = config.dr_init * 4
-    dm_init = config.dm_init * 4
-    n_per_mode = config.n_per_mode // 4
-    n_ray_max = config.n_ray_max // 16
+    factor = int(1 / config.source_fraction)
 
-    for i in range(1, 5):
-        config.dr_init = dr_init / i
-        config.dm_init = dm_init / i
-        config.n_per_mode = n_per_mode * i
-        config.n_ray_max = n_ray_max * (i ** 2)
+    ds = integrate.SBDF2Integrator().integrate().to_dataset()
+    ds.to_netcdf(f'data/baseline-reference.nc')
 
-        config.refresh()
-        ds = integrate.SBDF2Integrator().integrate().to_dataset()
-        ds.to_netcdf(f'data/baseline-{i ** 2}x.nc')
-
-    config.n_ray_max = n_ray_max
+    config.n_ray_max = config.n_ray_max // factor
+    config.source_type = 'stochastic'
     config.refresh()
 
     ds = integrate.SBDF2Integrator().integrate().to_dataset()
-    ds.to_netcdf(f'data/baseline-1x-small.nc')
+    ds.to_netcdf(f'data/baseline-stochastic.nc')
 
-def plot_errors():
-    fig, ax = plt.subplots()
-    fig.set_size_inches(8, 6)
+    drs = config.dr_init * np.array([1, factor, np.sqrt(factor)])
+    dms = config.dm_init * np.array([factor, 1, np.sqrt(factor)])
+    suffixes = ['wide', 'tall', 'square']
 
-    with xr.open_dataset('data/baseline-16x.nc') as ds:
+    config.source_type = 'constant'
+    for dr, dm, suffix in zip(drs, dms, suffixes):
+        config.dr_init = dr
+        config.dm_init = dm
+        config.refresh()
+
+        ds = integrate.SBDF2Integrator().integrate().to_dataset()
+        ds.to_netcdf(f'data/baseline-coarse-{suffix}.nc')
+
+def make_summary_plot():
+    fig, axes = plt.subplots(ncols=2)
+    fig.set_size_inches(12, 4,5)
+
+    with xr.open_dataset('data/baseline-mean.nc') as ds:
         days = ds['time'].values / (60 * 60 * 24)
+        grid = ds['grid'] / 1000
+
+        u = ds['u'].values
+        amax = abs(u).max()
+
+        axes[0].pcolormesh(
+            days,
+            grid,
+            u.T,
+            vmin=-amax,
+            vmax=amax,
+            cmap='RdBu_r',
+            shading='nearest'
+        )
+        
+    axes[0].set_title('fixed mean wind')
+    axes[0].set_xlabel('time (days)')
+    axes[0].set_ylabel('height (km)')
+
+    axes[0].set_xlim(0, days.max())
+    axes[0].set_ylim(0, 100)
+    axes[0].set_yticks(np.linspace(0, 100, 6))
+
+    with xr.open_dataset('data/baseline-reference.nc') as ds:
         ref = ds['pmf_u'].values * 1000
 
-    colors = ['tab:red', 'royalblue', 'forestgreen']
-    for i, color  in enumerate(colors, start=1):
-        with xr.open_dataset(f'data/baseline-{i ** 2}x.nc') as ds:
+    colors = ['tab:red', 'royalblue', 'forestgreen', 'darkviolet']
+    suffixes = [f'coarse-{kind}' for kind in ['wide', 'tall', 'square']]
+    suffixes = ['stochastic'] + suffixes
+
+    for suffix, color in zip(suffixes, colors):
+        with xr.open_dataset(f'data/baseline-{suffix}.nc') as ds:
             pmf = ds['pmf_u'].values * 1000
-            
+
         error = np.sqrt(((pmf - ref) ** 2).sum(axis=1))
-        ax.plot(days, error, color=color, label=f'{i ** 2}x')
+        axes[1].plot(days, error, color=color, label=suffix.replace('-', ', '))
 
-    with xr.open_dataset(f'data/baseline-1x-small.nc') as ds:
-        pmf = ds['pmf_u'].values * 1000
-        
-    error = np.sqrt(((pmf - ref) ** 2).sum(axis=1))
-    ax.plot(days, error, color='darkviolet', label=f'1x (small)')
+    for ax in axes:
+        ax.set_xlim(0, 15)
+        ax.set_xticks(np.linspace(0, 15, 6))
+        ax.set_xlabel('time (days)')
 
-    ax.set_xlim(0, 15)
-    ax.set_ylim(0, 12)
-    ax.set_xticks(np.arange(16, step=3))
+    axes[1].set_ylim(0, 4)
+    axes[1].set_ylabel('RMSE (mPa)')
 
-    ax.set_xlabel('time (days)')
-    ax.set_ylabel('RMSE in MF (mPa)')
-    ax.legend()
+    axes[1].set_title('error in momentum flux')
+    axes[1].legend()
 
     plt.tight_layout()
-    ax.grid(True, color='lightgray')
+    axes[1].grid(True, color='lightgray')
     plt.savefig('plots/baseline.png', dpi=400)
 
 if __name__ == '__main__':
     config.load_config('config/baseline.toml')
-    BASELINE = vars(config).copy()
-    # save_reference_mean_state()
+    save_reference_mean_state()
 
     config.n_day = 15
     config.interactive_mean = False
     config.mean_file = 'data/baseline-mean.nc'
+    config.refresh()
 
     run_refinements()
-    plot_errors()
+    make_summary_plot()

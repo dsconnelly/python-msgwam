@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-source="$1"
-python -m msgwam config/${source}.toml data/${source}.nc
-python plot.py data/${source}.nc plots/${source}.png
-# python animate.py data/${source}.nc plots/${source}.mp4
+config="$1"
+python -m msgwam config/${config}.toml data/${config}.nc
+python plot.py data/${config}.nc plots/${config}.png
+python animate.py data/${config}.nc plots/${config}.mp4

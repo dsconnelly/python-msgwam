@@ -49,13 +49,13 @@ alpha = 1
 ################################################################################
 # source options
 ################################################################################
-source_method = 'bimodal'
-constant_flux = true
-n_ray_max = 3040
-bc_mom_flux = 3e-3
+source_type = 'constant'
+spectrum_type = 'gaussians'
+
+n_ray_max = 2500
+bc_mom_flux = 5e-3
 
 wvl_hor_char = 50e3
-wvl_ver_char = 2e3
 direction = 0
 
 dk_init = 1e-4
@@ -66,6 +66,14 @@ r_launch = 15e3
 dr_init = 250
 
 ################################################################################
-# 'bimodal' source parameters
+# 'stochastic' source parameters
 ################################################################################
-n_per_mode = 4
+source_fraction = 0.1
+
+################################################################################
+# 'gaussians' spectrum parameters
+################################################################################
+c_bounds = [-60, 60]
+c_center = 20
+c_width = 30
+n_c = 200

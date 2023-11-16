@@ -31,15 +31,15 @@ class RayCollection:
 
         """
         
-        self.data = np.nan * np.zeros((len(self.props), config.n_ray_max))
+        shape = (len(self.props), config.n_ray_max)
+        self.data = np.nan * np.zeros(shape)
 
-        source_func = getattr(sources, config.source_method)
-        self.sources: np.ndarray = source_func(mean, self)
-        self.ghosts = {i : i for i in range(self.sources.shape[1])}
+        cls_name = config.source_type.capitalize() + 'Source'
+        self.source: sources.Source = getattr(sources, cls_name)(mean, self)
 
+        self.ghosts = {}
         self.next_meta = -1
-        for column in self.sources.T:
-            self.add_ray(*column)
+        self.check_boundaries(mean)
 
     def __add__(self, other: np.ndarray) -> RayCollection:
         """
@@ -212,16 +212,23 @@ class RayCollection:
         above = self.r + 0.5 * self.dr > mean.r_faces[-1]
         self.delete_rays(below | above)
 
-        if not config.constant_flux:
-            return
+        for slot in range(len(self.source)):
+            try:
+                if slot not in self.ghosts:
+                    data = self.source.launch(slot)
+                    self.ghosts[slot] = self.add_ray(*data)
 
-        for i in list(self.ghosts.keys()):
-            if self.r[i] - 0.5 * self.dr[i] > config.r_ghost:
-                j = self.ghosts.pop(i)
-                column = self.sources[:, j]
-                column[0] = self.r[i] - 0.5 * (self.dr[i] + column[1])
+                else:
+                    i = self.ghosts[slot]
+                    edge = self.r[i] - 0.5 * self.dr[i]
 
-                self.ghosts[self.add_ray(*column)] = j
+                    if edge > config.r_ghost:
+                        data = self.source.launch(slot)
+                        data[0] = edge - 0.5 * data[1]
+                        self.ghosts[slot] = self.add_ray(*data)
+            
+            except sources.NoLaunch:
+                continue
 
     def omega_hat(
         self,
@@ -462,9 +469,8 @@ class RayCollection:
 
             ddens_dt[idx] = (max_dens - self.dens)[idx] / config.dt
 
-        if config.source_method != 'legacy':
-            idx = self.r < config.r_launch
-            dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
+        idx = self.r < config.r_launch
+        dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
 
         return np.vstack((
             dr_dt,
