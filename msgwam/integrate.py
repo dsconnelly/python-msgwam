@@ -1,10 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import copy
+from time import time as now
 from typing import Any, Optional
 
 import numpy as np
 import scipy as sp
+import tqdm
 import xarray as xr
 
 from . import config
@@ -77,7 +79,22 @@ class Integrator(ABC):
         mean = self.int_mean[0]
         rays = self.int_rays[0]
 
-        for i in range(1, config.n_t_max):
+        format = (
+            '{desc}: {percentage:3.0f}%|' +
+            '{bar}' +
+            '| {n:.2f}/{total_fmt} [{rate_fmt}{postfix}]'
+        )
+
+        iterator = tqdm.trange(
+            1, config.n_t_max,
+            bar_format=format,
+            disable=(not config.show_progress),
+            unit_scale=(config.dt / 86400),
+            unit='day'
+        )
+
+        start = now()
+        for i in iterator:
             rays.check_boundaries(mean)
             mean, rays = self.step(mean, rays)
             
@@ -95,6 +112,8 @@ class Integrator(ABC):
                 self.int_rays.append(rays)
                 self.int_pmf.append(self.center(mean.pmf(rays)))
 
+        self.runtime = now() - start
+        
         return self
 
     def center(self, pmf: np.ndarray) -> np.ndarray:
@@ -129,7 +148,7 @@ class Integrator(ABC):
         data['pmf_u'] = (('time', 'grid'), stacked[0])
         data['pmf_v'] = (('time', 'grid'), stacked[1])
 
-        return xr.Dataset(data)
+        return xr.Dataset(data, attrs={'runtime' : self.runtime})
     
 class RK3Integrator(Integrator):
     aa = [0, -5 / 9, -153 / 128]

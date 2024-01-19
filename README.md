@@ -16,12 +16,9 @@ python -m msgwam config/bichromatic.toml data/bichromatic.nc
 
 Several configuration files are provided in the `config` directory. Note that `desaubies.toml` probably behaves strangely.
 
-The plotting script `plot.py` plots several relevant properties. You can use `run.sh` with the name of a source scheme to integrate the solver and then plot the outputs, as in
-```
-./run.sh bichromatic
-```
-which produces an animation and a plot as below.
+The function `make_plots` in `plotting.py` can plot integrator output as below.
 ![oscillation](oscillation.png)
+There is also `animate.py`, a utility for animating ray volume and mean flow behavior.
 
 ## License
 The code is licensed under the Creative Commons Attribution 4.0 license. For more info see

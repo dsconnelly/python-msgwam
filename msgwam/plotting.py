@@ -6,9 +6,20 @@ import numpy as np
 import xarray as xr
 
 U_MAX = 20
-PMF_MAX = 1
+PMF_MAX = 2
 
 def make_plots(ds: xr.Dataset, output_path: str) -> None:
+    """
+    Plot the zonal wind and pseudomomentum flux in integration output.
+
+    Parameters
+    ----------
+    ds
+        Open xarray.Dataset with data to plot.
+    output_path
+        Where to save the output image.
+    """
+    
     fig = plt.figure(constrained_layout=True)
     fig.set_size_inches(4.4, 6)
 
@@ -48,8 +59,8 @@ def make_plots(ds: xr.Dataset, output_path: str) -> None:
         shading='nearest'
     )
 
-    u_bar = plt.colorbar(u_plot, cax=caxes[0])#, orientation='horizontal')
-    pmf_bar = plt.colorbar(pmf_plot, cax=caxes[1])#, orientation='horizontal')
+    u_bar = plt.colorbar(u_plot, cax=caxes[0])
+    pmf_bar = plt.colorbar(pmf_plot, cax=caxes[1])
 
     axes[0].set_title('mean wind')
     axes[1].set_title('pseudomomentum flux')
@@ -68,8 +79,3 @@ def make_plots(ds: xr.Dataset, output_path: str) -> None:
         ax.set_ylim(grid.min(), grid.max())
 
     plt.savefig(output_path, dpi=400)
-
-if __name__ == '__main__':
-    data_path, output_path = sys.argv[1:]
-    with xr.open_dataset(data_path) as ds:
-        make_plots(ds, output_path)

@@ -3,11 +3,13 @@
 ################################################################################
 boussinesq = false
 hprop = false
+show_progress = true
 
 ################################################################################
 # wave-mean interactions
 ################################################################################
 interactive_mean = true
+mean_file = 'data/baselines/mean-wind.nc'
 saturate_online = false
 filter_pmf = true
 
@@ -15,8 +17,8 @@ filter_pmf = true
 # time stepping
 ################################################################################
 dt = 120
-n_day = 50
-dt_output = 120
+n_day = 125
+dt_output = 7200
 
 ################################################################################
 # vertical grid
@@ -30,13 +32,13 @@ grid_bounds = [0, 100e3]
 phi0 = 0
 rhobar0 = 1.2
 hh = 7e3
-N0 = 0.02
+N0 = 0.01
 
 ################################################################################
 # mean flow initialization
 ################################################################################
 uv_init_method = 'gaussian'
-u0 = 8
+u0 = 4
 r0 = 60e3
 sig_r = 10e3
 
@@ -49,23 +51,24 @@ alpha = 1
 ################################################################################
 # source options
 ################################################################################
-source_method = 'bimodal'
-constant_flux = true
-n_ray_max = 3040
-bc_mom_flux = 3e-3
+source_type = 'gaussians'
+epsilon = 1
 
-wvl_hor_char = 50e3
-wvl_ver_char = 2e3
+n_ray_max = 2475
+bc_mom_flux = 6e-3
+
+wvl_hor_char = 75e3
 direction = 0
 
 dk_init = 1e-4
 dl_init = 1e-4
-dm_init = 1e-7
 
-r_launch = 15e3
+r_launch = 15000
 dr_init = 250
 
 ################################################################################
-# 'bimodal' source parameters
+# 'gaussians' spectrum parameters
 ################################################################################
-n_per_mode = 4
+c_center = 0
+c_width = 20
+n_source = 180

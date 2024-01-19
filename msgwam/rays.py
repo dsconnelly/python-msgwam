@@ -33,13 +33,14 @@ class RayCollection:
         
         shape = (len(self.props), config.n_ray_max)
         self.data = np.nan * np.zeros(shape)
+        self.next_meta = -1
 
-        cls_name = config.source_type.capitalize() + 'Source'
-        self.source: sources.Source = getattr(sources, cls_name)(mean, self)
+        source_func = getattr(sources, '_' + config.source_type)
+        self.sources: np.ndarray = source_func(mean, self)
 
         self.ghosts = {}
-        self.next_meta = -1
-        self.check_boundaries(mean)
+        for slot, data in enumerate(self.sources.T):
+            self.ghosts[slot] = self.add_ray(*data)
 
     def __add__(self, other: np.ndarray) -> RayCollection:
         """
@@ -166,7 +167,8 @@ class RayCollection:
         """
 
         if self.count == config.n_ray_max:
-            energy = self.omega_hat() * self.dens
+            volume = abs(self.dk * self.dl * self.dm)
+            energy = self.omega_hat() * self.dens * volume
             self.delete_rays(int(np.argmin(energy)))
 
         i = int(np.argmin(self.valid))
@@ -212,23 +214,20 @@ class RayCollection:
         above = self.r + 0.5 * self.dr > mean.r_faces[-1]
         self.delete_rays(below | above)
 
-        for slot in range(len(self.source)):
-            try:
-                if slot not in self.ghosts:
-                    data = self.source.launch(slot)
-                    self.ghosts[slot] = self.add_ray(*data)
+        if np.random.rand() > config.epsilon:
+            return
+        
+        for slot in range(self.sources.shape[1]):
+            i = self.ghosts[slot]
+            edge = self.r[i] - 0.5 * self.dr[i]
 
-                else:
-                    i = self.ghosts[slot]
-                    edge = self.r[i] - 0.5 * self.dr[i]
+            while edge > config.r_ghost:
+                data = self.sources[:, slot]
+                if config.epsilon == 1:
+                    data[0] = edge - 0.5 * data[1]
 
-                    if edge > config.r_ghost:
-                        data = self.source.launch(slot)
-                        data[0] = edge - 0.5 * data[1]
-                        self.ghosts[slot] = self.add_ray(*data)
-            
-            except sources.NoLaunch:
-                continue
+                self.ghosts[slot] = self.add_ray(*data)
+                edge = data[0] - 0.5 * data[1]
 
     def omega_hat(
         self,

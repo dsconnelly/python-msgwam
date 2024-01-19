@@ -9,6 +9,7 @@ def refresh(config: dict[str]=None) -> None:
 ################################################################################
 boussinesq: bool # Whether density is constant with height.
 hprop: bool # Whether waves propagate horizontally (currently unsupported).
+show_progress: bool # Whether to show a progress bar.
 
 ################################################################################
 # wave-mean interactions
@@ -58,11 +59,10 @@ alpha: float # Fraction of Lindzen criterion at which waves break (unitless).
 ################################################################################
 # source and spectrum options
 ################################################################################
-spectrum_type: str # How to calculate the source spectrum. Must be the name of a
-    # function defined in sources.py
-source_type: str # How to launch ray volumes from the source. Must be the name
-    # of a subclass of Source defined in sources.py, lowercase and with the
-    # 'Source' suffix removed.
+source_type: str # How to calculate the source spectrum. Must be the name of a
+    # function defined in sources.py, without the leading underscore.
+epsilon: float # Intermittency parameter defining the percentage of the time
+    # that a new wave will be launched. Must be in (0, 1].
 
 n_ray_max: int # Maximum number of rays that can exist at once.
 bc_mom_flux: float # Momentum flux across lower boundary (Pa).
@@ -77,11 +77,6 @@ dm_init: float # Initial width of volumes in m space.
 
 r_launch: float # Launch height of ray volumes (m).
 dr_init: float # Initial height of ray volumes (m).
-
-################################################################################
-# 'stochastic' source parameters
-################################################################################
-source_fraction: float # Fraction of source ray volumes to keep active at once.
 
 ################################################################################
 # 'legacy' spectrum parameters
@@ -106,10 +101,9 @@ n_per_mode: int # Number of ray volumes to launch for each of the positive and
 ################################################################################
 # 'gaussians' spectrum parameters
 ################################################################################
-c_bounds: tuple[float, float] # Mininum and maximum zonal phase speeds (m / s).
 c_center: float # Peak of Gaussians in phase speed space (m / s).
-c_width: float # Width of the Gaussian in phase speed space (m / s).
-n_c: int # How many phase speeds to discretize the interval into.
+c_width: float # Width if Gaussian is prescribed in phase speed space (m / s).
+n_source: int # How many ray volumes to discretize the interval into.
 
 ################################################################################
 # internal variables (set by the code, not the namelist)
