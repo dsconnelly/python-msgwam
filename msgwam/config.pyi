@@ -8,15 +8,8 @@ def refresh(config: dict[str]=None) -> None:
 # global flags
 ################################################################################
 boussinesq: bool # Whether density is constant with height.
-hprop: bool # Whether waves propagate horizontally (currently unsupported).
 show_progress: bool # Whether to show a progress bar.
-
-################################################################################
-# wave-mean interactions
-################################################################################
 interactive_mean: bool # Whether waves affect the mean flow.
-saturate_online: bool # Whether wave breaking is included in tendency terms.
-filter_pmf: bool # Whether to filter momentum flux before differentiating.
 mean_file: str # Path to netCDF file containing prescribed wind time series
     # (only used if not interactive_mean).
 
@@ -36,9 +29,9 @@ grid_bounds: tuple[float, float] # Extent of vertical grid (m).
 ################################################################################
 # mean state parameters
 ################################################################################
-phi0: float # Latitude (deg).
+latitude: float # Latitude (deg).
 rhobar0: float # Density at zero height (kg / m^3).
-hh: float # Density scale height (m).
+H_scale: float # Density scale height (m).
 N0: float # Buoyancy frequency (1 / s).
 
 ################################################################################
@@ -51,16 +44,30 @@ r0: float # Reference height for initialization scheme.
 sig_r: float # Reference standard deviation for initialization scheme.
 
 ################################################################################
-# flow parameters
+# momentum flux calculation
 ################################################################################
-nu: float # Mean velocity diffusivity (m^2 / s)
-alpha: float # Fraction of Lindzen criterion at which waves break (unitless).
+shapiro_filter: bool # Whether to apply a Shapiro filter to MF profiles.
+proj_method: str # How to project wave quantities onto the vertical grid. Must
+    # be one of 'discrete' or 'gaussian'.
+smoothing: float # If proj_method == 'gaussian', the standard deviation of the
+    # Gaussian projection curves is this parameter times the ray volume height
+    # dr. Higher values lead to more smoothing.
+tau: float # Momentum flux nudging time scale (s). If zero, the instantaneous
+    # momentum flux is used at every time step.
 
 ################################################################################
-# source and spectrum options
+# flow parameters
+################################################################################
+mu: float # Dynamic viscosity (m^2 / s).
+alpha: float # Fraction of Lindzen criterion at which waves break (unitless).
+dissipation: bool # Whether wave action density should be dissipated.
+
+################################################################################
+# source and spectrum options (parameters in this section are likely to be used
+# by more than one source spectrum type)
 ################################################################################
 source_type: str # How to calculate the source spectrum. Must be the name of a
-    # function defined in sources.py, without the leading underscore.
+    # function defined in sources.py.
 epsilon: float # Intermittency parameter defining the percentage of the time
     # that a new wave will be launched. Must be in (0, 1].
 
@@ -91,12 +98,6 @@ n_c_tilde: int # Number of c_tilde grid points.
 n_omega_tilde: int # Number of omega_tilde grid points.
 c_tilde_bounds: tuple[float, float] # Bounds on c_tilde (m / s).
 omega_tilde_bounds: tuple[float, float] # Bounds on omega_tilde (1 / s).
-
-################################################################################
-# 'bimodal' spectrum parameters
-################################################################################
-n_per_mode: int # Number of ray volumes to launch for each of the positive and
-    # negative k parts of the source.
 
 ################################################################################
 # 'gaussians' spectrum parameters

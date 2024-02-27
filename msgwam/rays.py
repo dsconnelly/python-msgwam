@@ -11,13 +11,13 @@ if TYPE_CHECKING:
     from .mean import MeanFlow
 
 class RayCollection:
-    props = ['r', 'dr', 'k', 'l', 'm', 'dk', 'dl', 'dm', 'dens', 'meta']
+    props = ['r', 'dr', 'k', 'l', 'm', 'dk', 'dl', 'dm', 'dens', 'age', 'meta']
     indices = {prop: i for i, prop in enumerate(props)}
 
     r: np.ndarray; dr: np.ndarray
     k: np.ndarray; l: np.ndarray; m: np.ndarray
     dk: np.ndarray; dl: np.ndarray; dm: np.ndarray
-    dens: np.ndarray
+    dens: np.ndarray; age: np.ndarray; meta: np.ndarray
 
     def __init__(self, mean: MeanFlow) -> None:
         """
@@ -35,7 +35,7 @@ class RayCollection:
         self.data = np.nan * np.zeros(shape)
         self.next_meta = -1
 
-        source_func = getattr(sources, '_' + config.source_type)
+        source_func = getattr(sources, config.source_type)
         self.sources: np.ndarray = source_func(mean, self)
 
         self.ghosts = {}
@@ -104,6 +104,20 @@ class RayCollection:
 
         message = f'{type(self).__name__} object has no attribute {prop}'
         raise AttributeError(message)
+    
+    @property
+    def action(self) -> np.ndarray:
+        """
+        Calculate the wave action density.
+
+        Returns
+        -------
+            Array of wave action densities, calculated as the spectral wave
+            action multiplied by the spectral volume of each ray.
+
+        """
+
+        return self.dens * abs(self.dk * self.dl * self.dm)
 
     @property
     def valid(self) -> np.ndarray:
@@ -143,8 +157,7 @@ class RayCollection:
         """
         Add a ray to the collection, storing its data in the first available
         column of self.data. If the RayCollection already has the maximum
-        allowable number of active ray volumes, delete the one with the lowest
-        energy first.
+        allowable number of active ray volumes, throws an error.
 
         Parameters
         ----------
@@ -167,9 +180,7 @@ class RayCollection:
         """
 
         if self.count == config.n_ray_max:
-            volume = abs(self.dk * self.dl * self.dm)
-            energy = self.omega_hat() * self.dens * volume
-            self.delete_rays(int(np.argmin(energy)))
+            raise RuntimeError('RayCollection has too many rays')
 
         i = int(np.argmin(self.valid))
         self.next_meta = self.next_meta + 1
@@ -178,7 +189,7 @@ class RayCollection:
             r, dr,
             k, l, m,
             dk, dl, dm,
-            dens, self.next_meta
+            dens, 0, self.next_meta
         ])
 
         return i
@@ -214,20 +225,26 @@ class RayCollection:
         above = self.r + 0.5 * self.dr > mean.r_faces[-1]
         self.delete_rays(below | above)
 
-        if np.random.rand() > config.epsilon:
-            return
-        
+        crossed = []
         for slot in range(self.sources.shape[1]):
             i = self.ghosts[slot]
-            edge = self.r[i] - 0.5 * self.dr[i]
+            if self.r[i] - 0.5 * self.dr[i] > config.r_ghost:
+                crossed.append(slot)
 
-            while edge > config.r_ghost:
-                data = self.sources[:, slot]
-                if config.epsilon == 1:
-                    data[0] = edge - 0.5 * data[1]
+        size = int(config.epsilon * len(crossed))
+        to_launch = np.random.choice(crossed, size, replace=False)
+        excess = self.count + size - config.n_ray_max
 
-                self.ghosts[slot] = self.add_ray(*data)
-                edge = data[0] - 0.5 * data[1]
+        if excess > 0:
+            idx = np.argsort(self.action)
+            exclude = list(self.ghosts.values())
+            idx = idx[~np.isin(idx, exclude)]
+
+            self.delete_rays(idx[:excess])
+
+        for slot in to_launch:
+            data = self.sources[:, slot].copy()
+            self.ghosts[slot] = self.add_ray(*data)
 
     def omega_hat(
         self,
@@ -264,46 +281,6 @@ class RayCollection:
         return np.sqrt(
             (config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2) /
             (k ** 2 + l ** 2 + m ** 2)
-        )
-
-    def cg_lonlat(
-        self,
-        coord: Literal['lon', 'lat'],
-        mean: MeanFlow
-    ) -> np.ndarray:
-        """
-        Calculate the zonal or meridional group velocity. If horizontal
-        propagation is turned off in the config file, the returned group
-        velocities will be zero everywhere.
-
-        Parameters
-        ----------
-        coord
-            Either 'lat' or 'lon', depending on whether zonal or meridional
-            group velocity should be calculated.
-        mean
-            MeanFlow to be used during calculation.
-
-        Returns
-        -------
-        np.ndarray
-            Zonal or meridional group velocity of each ray in the collection.
-
-        """
-
-        if not config.hprop:
-            return np.zeros(self.data.shape[1])
-
-        u_or_v = {'lon' : mean.u, 'lat' : mean.v}[coord]
-        k_or_l = {'lon' : self.k, 'lat' : self.l}[coord]
-
-        wind = np.interp(self.r, mean.r_centers, u_or_v)
-        wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
-        omega_hat = self.omega_hat()
-
-        return wind + k_or_l * (
-            (config.N0 ** 2 - omega_hat ** 2) /
-            (omega_hat * wvn_sq)
         )
 
     @overload
@@ -375,46 +352,34 @@ class RayCollection:
 
         du_dr = np.interp(self.r, mean.r_faces[1:-1], np.diff(mean.u) / mean.dr)
         dv_dr = np.interp(self.r, mean.r_faces[1:-1], np.diff(mean.v) / mean.dr)
-        grad = self.k * du_dr + self.l * dv_dr
 
-        cg_lon = self.cg_lonlat('lon', mean)
-        cg_lat = self.cg_lonlat('lat', mean)
-
-        return (self.k * cg_lon + self.l * cg_lat) / (RAD_EARTH + self.r) - grad
+        return -(self.k * du_dr + self.l * dv_dr)
     
-    def max_dens(self, mean: MeanFlow) -> np.ndarray:
+    def break_waves(self, mean: MeanFlow) -> None:
         """
-        Calculate the maximum allowed wave action density for each ray volume
-        using the full non-monochromatic saturation scheme.
+        Determine where convective instability-induced wave breaking should
+        occur, and adjust the spectral wave action densities accordingly.
 
         Parameters
         ----------
         MeanFlow
             Current mean state of the system.
 
-        Returns
-        -------
-        np.ndarray
-            Maximum allowed density for each ray in the collection
-        
         """
 
         omega_hat = self.omega_hat()
-        volume = abs(self.dk * self.dl * self.dm)
-        K2_h = self.k ** 2 + self.l ** 2
-        K2 = K2_h + self.m ** 2
+        P = config.alpha ** 2 * mean.rho * config.N0 ** 2 / 2
+        Q = mean.project(self, self.m ** 2 * omega_hat * self.action, 'centers')
 
-        S = self.dens * self.m ** 2 * volume * K2_h / (omega_hat * K2)
-        num = mean.project(self, S) - config.alpha * mean.rho / 2
-        dem = mean.project(self, S * K2)
+        idx = Q > P
+        factor = np.ones(mean.rho.shape)
+        factor[idx] = P[idx] / Q[idx]
 
-        num[num < 0] = 0
+        intersects = mean.get_fracs(self, mean.r_faces)
+        intersects[intersects == 0] = np.inf
+        intersects[intersects < np.inf] = 1
 
-        intersects = (mean.get_fracs(self) > 0).astype(int)
-        kappa = np.divide(num, dem, where=(dem != 0))[:, None]
-        weight = np.maximum(0, 1 - K2 * np.max(intersects * kappa, axis=0))
-
-        return weight * self.dens
+        self.dens[:] = self.dens * np.min(intersects * factor[:, None], axis=0)
 
     def drays_dt(self, mean: MeanFlow) -> np.ndarray:
         """
@@ -443,30 +408,23 @@ class RayCollection:
         dr_dt = (cg_r_down + cg_r_up) / 2
         ddr_dt = cg_r_up - cg_r_down
 
-        if config.hprop:
-            raise NotImplementedError('horizontal propagation not implemented')
-
-        else:
-            dk_dt = np.zeros(config.n_ray_max)
-            dl_dt = np.zeros(config.n_ray_max)
-            ddk_dt = np.zeros(config.n_ray_max)
-            ddl_dt = np.zeros(config.n_ray_max)
+        dk_dt = np.zeros(config.n_ray_max)
+        dl_dt = np.zeros(config.n_ray_max)
+        ddk_dt = np.zeros(config.n_ray_max)
+        ddl_dt = np.zeros(config.n_ray_max)
 
         dm_dt = self.dm_dt(mean)
         ddm_dt = ddr_dt * self.dm / self.dr
 
-        ddens_dt = np.zeros(config.n_ray_max)
+        omega_hat = self.omega_hat()
+        nu = np.interp(self.r, mean.r_faces, mean.nu)
+        wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
+
+        damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
+        ddens_dt = -damping * config.dissipation * self.dens
+        
+        dage_dt = np.ones(config.n_ray_max)
         dmeta_dt = np.zeros(config.n_ray_max)
-
-        if config.saturate_online:
-            r_next = self.r + config.dt * dr_dt
-            m_next = self.m + config.dt * dm_dt
-            dm_next = self.m + config.dt * ddm_dt
-
-            max_dens = self.max_dens(mean, r_next, m_next, dm_next)
-            idx = self.dens > max_dens
-
-            ddens_dt[idx] = (max_dens - self.dens)[idx] / config.dt
 
         idx = self.r < config.r_launch
         dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
@@ -481,5 +439,6 @@ class RayCollection:
             ddl_dt,
             ddm_dt,
             ddens_dt,
+            dage_dt,
             dmeta_dt
         ))

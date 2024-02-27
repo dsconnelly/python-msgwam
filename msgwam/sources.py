@@ -1,5 +1,4 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -15,7 +14,7 @@ if TYPE_CHECKING:
 # RayCollection.props and columns corresponding to however many ray volumes
 # should be launched at the source.
 
-def _desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
+def desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
     """
     Calculate source ray volume properties according to the Desaubies spectrum
     as defined in Boloni et al. (2021). The number of ray volumes is determined
@@ -81,7 +80,7 @@ def _desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
 
     return data
 
-def _legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
+def legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
     """
     Calculate source ray volumes as was done in the original version of this
     Python code. Note that the library defaults to not launching more rays at
@@ -117,7 +116,7 @@ def _legacy(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
 
     return np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
 
-def _gaussians(_, rays: RayCollection) -> np.ndarray:
+def gaussians(_, rays: RayCollection) -> np.ndarray:
     dr = config.dr_init
     r = config.r_ghost - 0.5 * dr
 
@@ -129,19 +128,11 @@ def _gaussians(_, rays: RayCollection) -> np.ndarray:
     c_max = config.c_center + 2 * config.c_width
     c_min = max(config.c_center - 2 * config.c_width, 0.5)
     c_bounds = np.linspace(c_min, c_max, (config.n_source // 2) + 1)
-
-    m_bounds = -np.sqrt((k ** 2 + l ** 2) *
-        (config.N0 ** 2 - c_bounds ** 2 * k ** 2) /
-        (c_bounds ** 2 * k ** 2 - config.f0 ** 2)
-    )
+    m_bounds = _m_from(k, l, c_bounds)
 
     ms = (m_bounds[:-1] + m_bounds[1:]) / 2
     dms = abs(m_bounds[1:] - m_bounds[:-1])
-
-    cs = np.sqrt(
-        (config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * ms ** 2) /
-        ((k ** 2 + l ** 2 + ms ** 2) * k ** 2)
-    )
+    cs = _c_from(k, l, ms)
 
     fluxes = np.exp(-(((cs - config.c_center) / config.c_width) ** 2))
     fluxes = (config.bc_mom_flux / fluxes.sum()) * fluxes / 2
@@ -160,3 +151,15 @@ def _gaussians(_, rays: RayCollection) -> np.ndarray:
         data[2, j + (config.n_source // 2)] *= -1
 
     return data
+
+def _c_from(k: float, l: float, m: np.ndarray) -> np.ndarray:
+    top = config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2
+    bottom = (k ** 2 + l ** 2 + m ** 2) * k ** 2
+
+    return np.sqrt(top / bottom)
+
+def _m_from(k: float, l: float, c: np.ndarray) -> np.ndarray:
+    top = (k ** 2 + l ** 2) * (config.N0 ** 2 - c ** 2 * k ** 2)
+    bottom = (c ** 2 * k ** 2 - config.f0 ** 2)
+
+    return -np.sqrt(top / bottom)

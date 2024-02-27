@@ -18,11 +18,15 @@ class MeanFlow:
 
         self.r_faces = np.linspace(*config.grid_bounds, config.n_grid)
         self.r_centers = (self.r_faces[:-1] + self.r_faces[1:]) / 2
-        self.dr = self.r_faces[1] - self.r_faces[0]
+        self.dr: float = self.r_faces[1] - self.r_faces[0]
 
         self.rho = self.init_rho()
         self.u, self.v = self.init_uv()
         self.dp_dx, self.dp_dy = self.init_grad_p()
+
+        nu_centers = config.mu / self.rho
+        self.nu = np.interp(self.r_faces, self.r_centers, nu_centers)
+        self.pmf_bar = np.zeros((2, *self.r_faces.shape))
 
     def __add__(self, other: np.ndarray) -> MeanFlow:
         """
@@ -73,7 +77,7 @@ class MeanFlow:
         if config.boussinesq:
             return config.rhobar0 * np.ones(self.r_centers.shape)
 
-        return config.rhobar0 * np.exp(-self.r_centers / config.hh)
+        return config.rhobar0 * np.exp(-self.r_centers / config.H_scale)
 
     def init_uv(self) -> tuple[np.ndarray, np.ndarray]:
         """
@@ -88,7 +92,7 @@ class MeanFlow:
         ------
         ValueError
             Indicates that an unknown method was specified for initialization.
-            Currently, the only method implemented is sine_homogeneous.
+            Currently, the only methods are 'sine_homogeneous' and 'gaussian'.
 
         """
 
@@ -130,50 +134,14 @@ class MeanFlow:
             -self.rho * config.f0 * self.u
         ))
 
-    def get_fracs(
-        self,
-        rays: RayCollection,
-        grid: Optional[np.ndarray]=None
-    ) -> np.ndarray:
-        """
-        Find the fraction of each grid cell that intersects each ray volume.
-
-        Parameters
-        ----------
-        rays
-            Current ray volume properties.
-        grid, optional
-            The edges of the vertical regions to project onto. If None, then the
-            cell faces of the mean grid are used, such that the vertical regions
-            are the cells themselves.
-
-        Returns
-        -------
-        np.ndarray
-            Fraction of each grid cell intersected by each ray. Has shape
-            (len(grid - 1), config.n_ray_max).
-
-        """
-
-        if grid is None:
-            grid = self.r_faces
-
-        r_lo = rays.r - 0.5 * rays.dr
-        r_hi = rays.r + 0.5 * rays.dr
-
-        r_mins = np.maximum(r_lo, grid[:-1, None])
-        r_maxs = np.minimum(r_hi, grid[1:, None])
-
-        return np.maximum(r_maxs - r_mins, 0) / (grid[1] - grid[0])
-
     def project(
         self,
         rays: RayCollection,
         data: np.ndarray,
-        grid: Optional[np.ndarray]=None
+        onto: str
     ) -> np.ndarray:
         """
-        Project ray volume data onto the vertical regions bounded by a grid.
+        Project ray volume data onto a vertical grid.
 
         Parameters
         ----------
@@ -182,22 +150,35 @@ class MeanFlow:
         data
             The data to project (for example, pseudo-momentum fluxes). Should
             have the same shape as the properties stored in rays.
-        grid, optional
-            The edges of the vertical regions to project onto. If None, then the
-            cell faces of the mean grid are used, such that the vertical regions
-            are the cells themselves.
+        onto
+            Whether to project onto cell 'faces' or cell 'centers'.
 
         Returns
         -------
         np.ndarray
-            Projected values at each vertical region. Has length one shorter
-            than that of the provided grid.
+            Projected values at each vertical grid point. Has the same length
+            as either `self.r_faces` or `self.r_centers`, depending on `onto`.
 
         """
 
-        return np.nansum(self.get_fracs(rays, grid) * data, axis=1)
+        if config.proj_method == 'discrete':
+            grid = {'faces' : self.r_centers, 'centers' : self.r_faces}[onto]
+            output = np.nansum(self.get_fracs(rays, grid) * data, axis=1)
 
-    def pmf(self, rays: RayCollection) -> np.ndarray:
+            if onto == 'faces':
+                output = np.pad(output, 1, 'edge')
+
+            return output
+        
+        elif config.proj_method == 'gaussian':
+            sigma = rays.dr * config.smoothing
+            grid = {'faces' : self.r_faces, 'centers' : self.r_centers}[onto]
+            env = np.exp(-0.5 * ((rays.r - grid[:, None]) / sigma) ** 2)
+            amplitude = data * rays.dr / np.sqrt(2 * np.pi) / sigma
+
+            return np.nansum(amplitude * env, axis=1)
+
+    def pmf(self, rays: RayCollection, onto: str='faces') -> np.ndarray:
         """
         Calculate the zonal and meridional pseudomomentum fluxes.
 
@@ -205,6 +186,10 @@ class MeanFlow:
         ----------
         rays
             RayCollection with current ray properties.
+        onto
+            Passed to `self.project` to indicate where to calculate the fluxes.
+            Can be either 'faces' (useful during integration) or 'centers' (for
+            saving offline diagnostics).
 
         Returns
         -------
@@ -214,21 +199,27 @@ class MeanFlow:
 
         """
 
-        cg_r = rays.cg_r()
-        volume = abs(rays.dk * rays.dl * rays.dm)
-        data = cg_r * rays.dens * volume
+        action_flux = rays.cg_r() * rays.action / config.epsilon
+        pmf_x = self.project(rays, action_flux * rays.k, onto=onto)
+        pmf_y = self.project(rays, action_flux * rays.l, onto=onto)
 
-        pmf = np.zeros((2, len(self.r_faces)))
-        pmf[0, 1:-1] = self.project(rays, data * rays.k, self.r_centers)
-        pmf[1, 1:-1] = self.project(rays, data * rays.l, self.r_centers)
+        if config.shapiro_filter:
+            pmf_x[1:-1] = self._shapiro_filter(pmf_x)
+            pmf_y[1:-1] = self._shapiro_filter(pmf_y)
 
-        pmf[:, 0] = pmf[:, 1]
-        pmf[:, -1] = pmf[:, -2]
+        pmf = np.vstack((pmf_x, pmf_y))
+        if config.tau == 0:
+            return pmf
 
-        if config.filter_pmf:
-            pmf[:, 1:-1] = (pmf[:, :-2] + 2 * pmf[:, 1:-1] + pmf[:, 2:]) / 4
+        pmf_bar = self.pmf_bar.copy()
+        if onto == 'centers':
+            pmf_bar = np.vstack((
+                np.interp(self.r_centers, self.r_faces, pmf_bar[0]),
+                np.interp(self.r_centers, self.r_faces, pmf_bar[1])
+            ))
 
-        return pmf
+        ratio = config.dt / config.tau
+        return np.exp(-ratio) * (pmf_bar + ratio * pmf)
 
     def dmean_dt(self, rays: RayCollection) -> np.ndarray:
         """
@@ -248,9 +239,59 @@ class MeanFlow:
             
         """
 
-        pmf = self.pmf(rays)
-        dpmf_dr = np.diff(pmf, axis=1) / self.dr
+        self.pmf_bar = self.pmf(rays)
+        dpmf_dr = np.diff(self.pmf_bar, axis=1) / self.dr
         du_dt = config.f0 * self.v - (self.dp_dx + dpmf_dr[0]) / self.rho
         dv_dt = -config.f0 * self.u - (self.dp_dy + dpmf_dr[1]) / self.rho
 
         return np.vstack((du_dt, dv_dt))
+    
+    @staticmethod
+    def get_fracs(
+        rays: RayCollection,
+        grid: np.ndarray
+    ) -> np.ndarray:
+        """
+        Find the fraction of each grid cell that intersects each ray volume.
+
+        Parameters
+        ----------
+        rays
+            Current ray volume properties.
+        grid
+            The edges of the vertical regions to project onto.
+
+        Returns
+        -------
+        np.ndarray
+            Fraction of each grid cell intersected by each ray. Has shape
+            (len(grid - 1), config.n_ray_max).
+
+        """
+
+        r_lo = rays.r - 0.5 * rays.dr
+        r_hi = rays.r + 0.5 * rays.dr
+
+        r_mins = np.maximum(r_lo, grid[:-1, None])
+        r_maxs = np.minimum(r_hi, grid[1:, None])
+
+        return np.maximum(r_maxs - r_mins, 0) / (grid[1] - grid[0])
+    
+    @staticmethod
+    def _shapiro_filter(data: np.ndarray) -> np.ndarray:
+        """
+        Apply a zeroth-order Shapiro filter.
+
+        Parameters
+        ----------
+        data
+            Array to filter.
+
+        Returns
+        -------
+        np.ndarray
+            Filtered array. Has two fewer elements than the data passed in.
+        
+        """
+
+        return (data[:-2] + 2 * data[1:-1] + data[2:]) / 4

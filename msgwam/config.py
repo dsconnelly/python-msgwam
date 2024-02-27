@@ -13,7 +13,7 @@ def load_config(path: str) -> None:
     Parameters
     ----------
     path
-        path to TOML configuration file
+        Path to TOML configuration file.
         
     """
 
@@ -39,8 +39,8 @@ def refresh(config: dict[str]=None) -> None:
     if config is None:
         config = globals().copy()
 
-    config['phi0'] = np.deg2rad(config['phi0'])
-    config['f0'] = 2 * ROT_EARTH * np.sin(config['phi0'])
+    config['latitude'] = np.deg2rad(config['latitude'])
+    config['f0'] = 2 * ROT_EARTH * np.sin(config['latitude'])
 
     config['n_t_max'] = int(86400 * config['n_day'] / config['dt']) + 1
     config['n_skip'] = round(config['dt_output'] / config['dt'])
