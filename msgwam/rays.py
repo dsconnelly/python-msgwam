@@ -1,6 +1,6 @@
 from __future__ import annotations
 from copy import copy
-from typing import TYPE_CHECKING, Any, Literal, Optional, overload
+from typing import TYPE_CHECKING, Any, Optional, overload
 
 import numpy as np
 
@@ -368,18 +368,21 @@ class RayCollection:
         """
 
         omega_hat = self.omega_hat()
-        P = config.alpha ** 2 * mean.rho * config.N0 ** 2 / 2
-        Q = mean.project(self, self.m ** 2 * omega_hat * self.action, 'centers')
+        wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
+        
+        S = self.m ** 2 * omega_hat * self.action
+        P = mean.project(self, S, 'centers') - mean.rho * config.N0 ** 2 / 2
+        Q = mean.project(self, S * wvn_sq, 'centers')
 
-        idx = Q > P
-        factor = np.ones(mean.rho.shape)
-        factor[idx] = P[idx] / Q[idx]
+        idx = Q != 0
+        kappa = np.zeros(mean.rho.shape)
+        kappa[idx] = np.maximum(P[idx], 0) / Q[idx]
 
         intersects = mean.get_fracs(self, mean.r_faces)
-        intersects[intersects == 0] = np.inf
-        intersects[intersects < np.inf] = 1
+        intersects[intersects > 0] = 1
 
-        self.dens[:] = self.dens * np.min(intersects * factor[:, None], axis=0)
+        factor = 1 - wvn_sq * np.max(intersects * kappa[:, None], axis=0)
+        self.dens[:] = self.dens * factor
 
     def drays_dt(self, mean: MeanFlow) -> np.ndarray:
         """

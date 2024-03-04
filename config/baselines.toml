@@ -60,12 +60,11 @@ epsilon = 1
 n_ray_max = 5000
 bc_mom_flux = 3e-3
 
-wvl_hor_char = 60e3
+wvl_hor_char = 200e3
 direction = 0
 
 dk_init = 1e-4
 dl_init = 1e-4
-dm_init = 2e-7
 
 r_launch = 15000
 dr_init = 250
@@ -76,4 +75,3 @@ dr_init = 250
 c_center = 0
 c_width = 15
 n_source = 72
-constant_dm = false

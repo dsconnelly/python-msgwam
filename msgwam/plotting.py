@@ -1,14 +1,11 @@
-import sys
-
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
-from . import config
 from .mean import MeanFlow
 from .rays import RayCollection
-from .sources import _m_from
+from .sources import _c_from, _m_from
 
 U_MAX = 20
 PMF_MAX = 0.5
@@ -105,16 +102,10 @@ def plot_source(output_path: str) -> None:
     k = rays.k
     l = rays.l
     m = rays.m
-    dens = rays.dens
 
     cg_r = rays.cg_r()
-    volume = abs(rays.dk * rays.dl * rays.dm)
-    flux = 1000 * rays.k * dens * volume * cg_r
-
-    cp = np.sign(k) * np.sqrt(
-        (config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2) /
-        (k ** 2 * (k ** 2 + l ** 2 + m ** 2))
-    )
+    flux = 1000 * rays.k * rays.action * cg_r
+    cp = np.sign(k) * _c_from(k, l, m)
 
     fig, axes = plt.subplots(ncols=2)
     fig.set_size_inches(12, 4.5)

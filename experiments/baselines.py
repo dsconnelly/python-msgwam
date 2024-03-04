@@ -11,9 +11,9 @@ import xarray as xr
 from msgwam import config, integrate
 from msgwam.plotting import plot_integration, plot_source
 
-N_HOURS = 12
+N_HOURS = 3
 SPEEDUP = 9
-TDX = slice(2 * 86400, None)
+TDX = slice(5 * 86400, None)
 
 COLORS = {
     'do-nothing' : 'black',
@@ -123,8 +123,8 @@ def plot_scores() -> None:
         ax.grid(True, color='lightgray')
 
         if i < 2:
-            ax.set_xlim(0, 0.5)
-            ax.set_xticks(np.linspace(0, 0.5, 6))
+            ax.set_xlim(0, 0.6)
+            ax.set_xticks(np.linspace(0, 0.6, 7))
             ax.set_xlabel('RMSE (mPa)')
 
         else:
@@ -140,13 +140,13 @@ def plot_scores() -> None:
     plt.savefig('plots/baselines/scores.png', dpi=400)
 
 def plot_lifetimes() -> None:
-    fig, axes = plt.subplots(ncols=2)
-    fig.set_size_inches(12, 4.5)
+    fig, ax = plt.subplots()
+    fig.set_size_inches(6, 4.5)
 
     kinds = ['reference'] + list(COLORS.keys())
     labels = list(map(format_name, kinds))
 
-    lifetimes, heights = [], []
+    lifetimes = []
     for kind in kinds:
         with xr.open_dataset(f'data/baselines/{kind}-fix.nc') as ds:
             ds = ds.sel(time=TDX)
@@ -156,22 +156,16 @@ def plot_lifetimes() -> None:
 
             changed = meta[:-1] != meta[1:]
             lifetimes.append(age[:-1][changed].mean())
-            heights.append(r[:-1][changed].mean())
 
     x = np.arange(len(kinds))
-    lifetimes = np.array(lifetimes) / 60
-    heights = np.array(heights) / 1000
+    lifetimes = np.array(lifetimes) / 3600
+    ax.bar(x, lifetimes, width=0.8, color='lightgray', edgecolor='k')
 
-    axes[0].bar(x, lifetimes, width=0.8, color='lightgray', edgecolor='k')
-    axes[1].bar(x, heights, width=0.8, color='lightgray', edgecolor='k')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45)
 
-    for ax in axes:
-        ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=45)
-        ax.set_xlim(-0.5, len(kinds) - 0.5)
-
-    axes[0].set_ylabel('average lifetime (m)')
-    axes[1].set_ylabel('average maximum height (km)')
+    ax.set_xlim(-0.5, len(kinds) - 0.5)
+    ax.set_ylabel('average lifetime (hours)')
 
     plt.tight_layout()
     plt.savefig('plots/baselines/lifetimes.png', dpi=400)
@@ -218,10 +212,10 @@ if __name__ == '__main__':
 
         config.n_ray_max = config.n_ray_max // SPEEDUP
 
-        # run_baselines()
-        # run_smoothings()
-        # run_coarsenings()
+        run_baselines()
+        run_smoothings()
+        run_coarsenings()
 
     if 'plot' in args:
-        # plot_scores()
+        plot_scores()
         plot_lifetimes()

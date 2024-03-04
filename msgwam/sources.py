@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -53,15 +53,15 @@ def desaubies(mean: MeanFlow, rays: RayCollection) -> np.ndarray:
     C = config.bc_mom_flux / (rhobar * G.sum() * dct * dot)
 
     n_each = config.n_c_tilde * config.n_omega_tilde
-    data = np.zeros((len(rays.props), 4 * n_each))
+    data = np.zeros((len(rays.props) - 2, 4 * n_each))
 
     r = (config.r_ghost - 0.5 * config.dr_init) * np.ones(n_each)
     dr = config.dr_init * np.ones(n_each)
 
     for i in range(4):
         direction = i * np.pi / 2
-        k = wvn_hor * np.cos(direction)
-        l = wvn_hor * np.sin(direction)
+        k = wvn_hor * np.round(np.cos(direction))
+        l = wvn_hor * np.round(np.sin(direction))
 
         dk = -m * dot / config.N0
         dl = wvn_hor * np.pi / 2
