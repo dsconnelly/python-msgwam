@@ -5,13 +5,13 @@ from time import time as now
 from typing import Any, Optional
 
 import numpy as np
-import scipy as sp
 import tqdm
 import xarray as xr
 
-from scipy.linalg import lu_factor, lu_solve
+from scipy.linalg import lu_factor, lu_solve as _lu_solve
+lu_solve = lambda A, b: _lu_solve(A, b.T).T
 
-from . import config
+from . import config, sources
 from .mean import MeanFlow
 from .rays import RayCollection
 
@@ -23,18 +23,19 @@ class Integrator(ABC):
         """
 
         mean = MeanFlow()
-        rays = RayCollection(mean)
+        source_func = getattr(sources, config.source_type)
+        rays = RayCollection(source_func(mean))
 
         self.time = config.dt * np.arange(config.n_t_max)
         if not config.interactive_mean:
             with xr.open_dataset(config.mean_file) as ds:
                 ds = ds.interp(time=self.time)
-                self.prescribed_u = ds['u'].values
-                self.prescribed_v = ds['v'].values
+                u = ds['u'].values
+                v = ds['v'].values
 
-            mean.u = self.prescribed_u[0]
-            mean.v = self.prescribed_v[0]
-        
+            self.prescribed_wind = np.stack((u, v), axis=1)
+            mean.data = self.prescribed_wind[0]
+
         self.int_mean = [mean]
         self.int_rays = [rays]
 
@@ -99,20 +100,18 @@ class Integrator(ABC):
 
         start = now()
         for i in iterator:
+            rays.check_source()
             mean, rays = self.step(mean, rays)
             rays.check_boundaries(mean)
             rays.break_waves(mean)
 
             if not config.interactive_mean:
-                mean.u = self.prescribed_u[i]
-                mean.v = self.prescribed_v[i]
+                mean.data = self.prescribed_wind[i]
 
             if i % config.n_skip == 0:
                 self.int_mean.append(mean)
                 self.int_rays.append(rays)
-                
-                pmf = mean.pmf(rays, onto='centers')
-                self.int_pmf.append(pmf)
+                self.int_pmf.append(mean.pmf(rays, onto='centers'))
 
         self.runtime = now() - start
         
@@ -203,30 +202,35 @@ class SBDF2Integrator(Integrator):
     ) -> tuple[MeanFlow, RayCollection]:
         """Take an SBDF2 step, using semi-implicit Euler to initialize."""
         
-        du_dt, dv_dt = mean.dmean_dt(rays)
-        drays_dt = rays.drays_dt(mean)
+        dmean_dt = mean.d_dt(rays)
+        drays_dt = rays.d_dt(mean)
+        do_euler = self.last is None
+
+        if not do_euler:
+            idx = rays.age == 0
+            new = rays.data[:, idx].copy()
+
+            last_mean, last_rays = self.last
+            last_dmean_dt, last_drays_dt = self.dlast_dt
+
+        self.last = [mean.data, rays.data]
+        self.dlast_dt = [dmean_dt, drays_dt]
         mean, rays = copy(mean), copy(rays)
 
-        if self.last is None:
-            mean.u = lu_solve(self.A, mean.u + config.dt * du_dt)
-            mean.v = lu_solve(self.A, mean.v + config.dt * dv_dt)
+        if do_euler:
+            mean.data = lu_solve(self.A, (mean.data + config.dt * dmean_dt))
             rays.data = rays.data + config.dt * drays_dt
 
         else:
-            last_u, last_v, last_rays = self.last
-            last_du_dt, last_dv_dt, last_drays_dt = self.dlast_dt
+            mean.data = self.lhs(
+                mean.data, last_mean,
+                dmean_dt, last_dmean_dt,
+                stiff=True
+            )
 
-            idx = np.isnan(last_drays_dt[0])
-            last_rays[:, idx] = rays.data[:, idx]
-            last_drays_dt[:, idx] = 0
-
-            mean.u = self.lhs(mean.u, last_u, du_dt, last_du_dt, stiff=True)
-            mean.v = self.lhs(mean.v, last_v, dv_dt, last_dv_dt, stiff=True)
             rays.data = self.lhs(rays.data, last_rays, drays_dt, last_drays_dt)
+            rays.data[:, idx] = new + config.dt * drays_dt[:, idx]
 
-        self.last = [mean.u, mean.v, rays.data]
-        self.dlast_dt = [du_dt, dv_dt, drays_dt]
-        
         return mean, rays
 
     def lhs(
@@ -257,5 +261,5 @@ class SBDF2Integrator(Integrator):
         
         """
 
-        rhs = 2 * curr - 0.5 * last + config.dt* (2 * dcurr_dt - dlast_dt)
+        rhs = 2 * curr - 0.5 * last + config.dt * (2 * dcurr_dt - dlast_dt)
         return lu_solve(self.B, rhs) if stiff else 2 * rhs / 3

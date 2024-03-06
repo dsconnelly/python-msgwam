@@ -39,7 +39,7 @@ def run(name: str) -> None:
         config.refresh()
 
         ds = integrate.SBDF2Integrator().integrate().to_dataset()
-        plot_integration(ds, f'plots/baselines/{name}-{suffix}.png')
+        plot_integration(ds, f'plots/baselines/runs/{name}-{suffix}.png')
         ds.to_netcdf(f'data/baselines/{name}-{suffix}.nc')
 
 def run_baselines() -> None:
