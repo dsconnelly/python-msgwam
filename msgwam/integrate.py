@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import copy
 from time import time as now
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import tqdm
@@ -23,8 +23,7 @@ class Integrator(ABC):
         """
 
         mean = MeanFlow()
-        source_func = getattr(sources, config.source_type)
-        rays = RayCollection(source_func(mean))
+        rays = RayCollection(mean)
 
         self.time = config.dt * np.arange(config.n_t_max)
         if not config.interactive_mean:
@@ -156,6 +155,7 @@ class RK3Integrator(Integrator):
         p: float | np.ndarray = 0
         q: float | np.ndarray = 0
 
+        mean, rays = copy(mean), copy(rays)
         for a, b in zip(self.aa, self.bb):
             dmean_dt = mean.dmean_dt(rays)
             drays_dt = rays.drays_dt(mean)
@@ -163,8 +163,8 @@ class RK3Integrator(Integrator):
             p = config.dt * dmean_dt + a * p
             q = config.dt * drays_dt + a * q
 
-            mean = mean + b * p
-            rays = rays + b * q
+            mean.data = mean.data + b * p
+            rays.data = rays.data + b * q
 
         return mean, rays
     
@@ -192,8 +192,8 @@ class SBDF2Integrator(Integrator):
         self.A = lu_factor(np.eye(m) - config.dt * D)
         self.B = lu_factor(3 * np.eye(m) / 2 - config.dt * D)
 
-        self.last: Optional[list[np.ndarray]] = None
-        self.dlast_dt: Optional[list[np.ndarray]] = None
+        self.last: list[np.ndarray] = []
+        self.dlast_dt: list[np.ndarray] = []
 
     def step(
         self,
@@ -202,13 +202,13 @@ class SBDF2Integrator(Integrator):
     ) -> tuple[MeanFlow, RayCollection]:
         """Take an SBDF2 step, using semi-implicit Euler to initialize."""
         
-        dmean_dt = mean.d_dt(rays)
-        drays_dt = rays.d_dt(mean)
-        do_euler = self.last is None
+        dmean_dt = mean.dmean_dt(rays)
+        drays_dt = rays.drays_dt(mean)
+        do_euler = len(self.last) == 0        
 
         if not do_euler:
-            idx = rays.age == 0
-            new = rays.data[:, idx].copy()
+            jdx = rays.age == 0
+            new = rays.data[:, jdx].copy()
 
             last_mean, last_rays = self.last
             last_dmean_dt, last_drays_dt = self.dlast_dt
@@ -229,7 +229,7 @@ class SBDF2Integrator(Integrator):
             )
 
             rays.data = self.lhs(rays.data, last_rays, drays_dt, last_drays_dt)
-            rays.data[:, idx] = new + config.dt * drays_dt[:, idx]
+            rays.data[:, jdx] = new + config.dt * drays_dt[:, jdx]
 
         return mean, rays
 

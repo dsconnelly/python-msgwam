@@ -80,7 +80,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
         ax.set_xlim(0, days.max())
         ax.set_ylim(grid.min(), grid.max())
-        ax.set_yticks(np.linspace(*ax.get_ylim(), 7))
+        ax.set_yticks(np.linspace(grid.min(), grid.max(), 7))
 
     plt.savefig(output_path, dpi=400)
 

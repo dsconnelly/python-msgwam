@@ -79,6 +79,11 @@ class MeanFlow:
             Projected values at each vertical grid point. Has the same length as
             either `self.r_faces` or `self.r_centers`, depending on `onto`.
 
+        Raises
+        ------
+        ValueError
+            Indicates that an unsupported projection method was specified.
+
         """
 
         if config.proj_method == 'discrete':
@@ -97,6 +102,9 @@ class MeanFlow:
             amplitude = data * rays.dr / np.sqrt(2 * np.pi) / sigma
 
             return np.nansum(amplitude * env, axis=1)
+        
+        message = f'Unknown projection method: {config.proj_method}'
+        raise ValueError(message)
         
     def pmf(self, rays: RayCollection, onto: str='faces') -> np.ndarray:
         """
@@ -142,7 +150,7 @@ class MeanFlow:
         ratio = config.dt / config.tau
         return np.exp(-ratio) * (pmf_bar + ratio * pmf)
     
-    def d_dt(self, rays: RayCollection) -> np.ndarray:
+    def dmean_dt(self, rays: RayCollection) -> np.ndarray:
         """
         Calculate the time tendency of the mean wind, including Coriolis terms
         and pseudomomentum flux divergences from the ray volumes.

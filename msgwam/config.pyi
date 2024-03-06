@@ -1,7 +1,9 @@
+from typing import Any, Optional
+
 def load_config(path: str) -> None:
     ...
 
-def refresh(config: dict[str]=None) -> None:
+def refresh(config: Optional[dict[str, Any]]=None) -> None:
     ...
 
 ################################################################################

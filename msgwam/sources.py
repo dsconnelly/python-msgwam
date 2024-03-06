@@ -68,7 +68,7 @@ def desaubies(mean: MeanFlow) -> np.ndarray:
         if i % 2 == 1:
             dk, dl = dl, dk
 
-        cg_r = _cg_r(r=r, k=k, l=l, m=m)
+        cg_r = _cg_r(k=k, l=l, m=m)
         dens = (
             (rhobar * C * G * c_tilde ** 5) /
             (config.N0 * omega_tilde ** 2 * cg_r)
@@ -151,13 +151,13 @@ def gaussians(_) -> np.ndarray:
 
     return data
 
-def _c_from(k: float, l: float, m: np.ndarray) -> np.ndarray:
+def _c_from(k: np.ndarray, l: np.ndarray, m: np.ndarray) -> np.ndarray:
     top = config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2
     bottom = (k ** 2 + l ** 2 + m ** 2) * k ** 2
 
     return np.sqrt(top / bottom)
 
-def _m_from(k: float, l: float, c: np.ndarray) -> np.ndarray:
+def _m_from(k: np.ndarray, l: np.ndarray, c: np.ndarray) -> np.ndarray:
     top = (k ** 2 + l ** 2) * (config.N0 ** 2 - c ** 2 * k ** 2)
     bottom = (c ** 2 * k ** 2 - config.f0 ** 2)
 

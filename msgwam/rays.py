@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from . import config
+from . import config, sources
 
 if TYPE_CHECKING:
     from .mean import MeanFlow
@@ -17,24 +17,25 @@ class RayCollection:
     dk: np.ndarray; dl: np.ndarray; dm: np.ndarray
     dens: np.ndarray; age: np.ndarray; meta: np.ndarray
 
-    def __init__(self, sources: np.ndarray) -> None:
+    def __init__(self, mean: MeanFlow) -> None:
         """
         Initialize a RayCollection based on the loaded config settings and an
         array of source information.
 
         Parameters
         ----------
-        sources
-            Array of source information. Should have nine rows corresponding
-            with the nine wave properties (excluding age and meta).
+        mean
+            Initialized MeanFlow to be passed to the source function.
 
         """
 
         shape = (len(self.props), config.n_ray_max)
         self.data = np.nan * np.zeros(shape)
-        self.sources = sources
         self.next_meta = -1
 
+        source_func = getattr(sources, config.source_type)
+        self.sources: np.ndarray = source_func(MeanFlow)
+        
         self.ghosts = {}
         for slot, data in enumerate(self.sources.T):
             self.ghosts[slot] = self.add_ray(data)
@@ -100,7 +101,7 @@ class RayCollection:
         return self.valid.sum()
     
     @property
-    def action(self) -> int:
+    def action(self) -> np.ndarray:
         """
         Calculate the wave action density.
 
@@ -230,7 +231,7 @@ class RayCollection:
             data = self.sources[:, slot].copy()
             self.ghosts[slot] = self.add_ray(data)
     
-    def d_dt(self, mean: MeanFlow) -> np.ndarray:
+    def drays_dt(self, mean: MeanFlow) -> np.ndarray:
         """
         Calculate the time tendency of each ray property.
 
