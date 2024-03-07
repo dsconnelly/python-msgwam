@@ -34,7 +34,7 @@ class RayCollection:
         self.next_meta = -1
 
         source_func = getattr(sources, config.source_type)
-        self.sources: np.ndarray = source_func(MeanFlow)
+        self.sources: np.ndarray = source_func(mean)
         
         self.ghosts = {}
         for slot, data in enumerate(self.sources.T):
