@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import copy
 from time import time as now
-from typing import Any, Optional, cast
+from typing import Any
 
 import numpy as np
 import tqdm
@@ -102,7 +102,7 @@ class Integrator(ABC):
             rays.check_source()
             mean, rays = self.step(mean, rays)
             rays.check_boundaries(mean)
-            rays.break_waves(mean)
+            rays.dissipate_and_break(mean)
 
             if not config.interactive_mean:
                 mean.data = self.prescribed_wind[i]

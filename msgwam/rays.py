@@ -40,6 +40,11 @@ class RayCollection:
         for slot, data in enumerate(self.sources.T):
             self.ghosts[slot] = self.add_ray(data)
 
+        if config.epsilon < 1:
+            self.cg_source = self.cg_r()[:self.sources.shape[1]]
+            times = np.ceil(config.dr_init / (self.cg_source * config.dt))
+            self.launch_rate = config.epsilon * (1 / times).sum()
+
     def __getattr__(self, prop: str) -> Any:
         """
         Return the row of self.data corresponding to the named ray property.
@@ -213,11 +218,25 @@ class RayCollection:
         to replace those that have cleared the ghost layer.
         """
 
-        crossed = []
+        crossed: list | np.ndarray = []
         for slot in range(self.sources.shape[1]):
             i = self.ghosts[slot]
             if self.r[i] - 0.5 * self.dr[i] > config.r_ghost:
                 crossed.append(slot)
+
+        if not crossed:
+            return
+
+        if config.epsilon < 1:
+            weights = self.cg_source[crossed]
+            weights = weights / weights.sum()
+
+            size = int(np.floor(self.launch_rate))
+            if np.random.rand() < self.launch_rate - size:
+                size = size + 1
+
+            size = min(len(crossed), size)
+            crossed = np.random.choice(crossed, size, False, weights)
 
         excess = self.count + len(crossed) - config.n_ray_max
         if excess > 0:
@@ -256,13 +275,7 @@ class RayCollection:
         ddr_dt, ddm_dt = np.zeros((2, config.n_ray_max))
         dk_dt, dl_dt, ddk_dt, ddl_dt = np.zeros((4, config.n_ray_max))
 
-        omega_hat = self.omega_hat()
-        nu = np.interp(self.r, mean.r_faces, mean.nu)
-        wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
-
-        damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
-        ddens_dt = -damping * config.dissipation * self.dens
-
+        ddens_dt = np.zeros(config.n_ray_max)
         dage_dt = np.ones(config.n_ray_max)
         dmeta_dt = np.zeros(config.n_ray_max)
 
@@ -276,10 +289,14 @@ class RayCollection:
             ddens_dt, dage_dt, dmeta_dt
         ))
     
-    def break_waves(self, mean: MeanFlow) -> None:
+    def dissipate_and_break(self, mean: MeanFlow) -> None:
         """
-        Determine where convective instability-induced wave breaking should
-        occur, and adjust the spectral wave action densities accordingly.
+        First, dissipate waves according to viscosity. (For now, dissipation is
+        handled here rather than in the time tendencies, as dissipation means
+        the ray tracing equations have a term that should be handled implicitly,
+        but only for wave action density.) Then, determine where convective
+        instability-induced wave breaking should occur, and adjust the spectral
+        wave action densities accordingly.
 
         Parameters
         ----------
@@ -290,6 +307,9 @@ class RayCollection:
 
         omega_hat = self.omega_hat()
         wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
+        nu = config.dissipation * np.interp(self.r, mean.r_faces, mean.nu)
+        damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
+        self.dens[:] = self.dens * np.exp(-config.dt * damping)
 
         S = self.m ** 2 * omega_hat * self.action
         P = mean.project(self, S, 'centers') - mean.rho * config.N0 ** 2 / 2

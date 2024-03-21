@@ -128,7 +128,7 @@ class MeanFlow:
 
         """
 
-        action_flux = rays.cg_r() * rays.action
+        action_flux = rays.cg_r() * rays.action / config.epsilon
         pmf_x = self.project(rays, action_flux * rays.k, onto=onto)
         pmf_y = self.project(rays, action_flux * rays.l, onto=onto)
 

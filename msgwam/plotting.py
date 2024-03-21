@@ -8,7 +8,7 @@ from .rays import RayCollection
 from .sources import _c_from, _m_from
 
 U_MAX = 20
-PMF_MAX = 0.5
+PMF_MAX = 1
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -84,9 +84,44 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
     plt.savefig(output_path, dpi=400)
 
+def plot_lifetimes(ds: xr.Dataset, output_path: str) -> None:
+    """
+    Plot a histogram of ray lifetimes in integration output.
+
+    Parameters
+    ----------
+    ds
+        Open xarray.Dataset with data to plot.
+    output_path
+        Where to save the output image.
+
+    """
+
+    age = np.nan_to_num(ds['age'].values)
+    deltas = age[1:] - age[:-1]
+    idx = deltas < 0
+
+    data = -deltas[idx] / 3600
+    y, edges = np.histogram(data, bins=48)
+    x = (edges[:-1] + edges[1:]) / 2
+    width = edges[1] - edges[0]
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(6, 4.5)
+    ax.bar(x, y, width=width, color='lightgrey', edgecolor='k')
+    
+    ax.set_xlim(edges[0], edges[-1])
+    ax.set_xlabel('lifetime (hr)')
+    ax.set_ylabel('count')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=400)
+
 def plot_source(output_path: str) -> None:
     """
-    Plot the source spectrum defined in the loaded configuration file.
+    Plot the source spectrum defined in the loaded configuration file. Plots by
+    zonal phase speed and, as such such, only plots waves with abs(k) > 0. Also
+    plots the vertical group velocity of each source wave.
 
     Parameters
     ----------
@@ -96,25 +131,24 @@ def plot_source(output_path: str) -> None:
     """
 
     rays = RayCollection(MeanFlow())
-    source = rays.sources
-    rays.data = source
+    idx = abs(rays.sources[2]) > 0
+    rays.data = rays.sources[:, idx]
 
     k = rays.k
     l = rays.l
     m = rays.m
 
     cg_r = rays.cg_r()
-    flux = 1000 * rays.k * rays.action * cg_r
+    flux = 1000 * k * rays.action * cg_r
     cp = np.sign(k) * _c_from(k, l, m)
 
     fig, axes = plt.subplots(ncols=2)
     fig.set_size_inches(12, 4.5)
 
-    axes[0].plot(cp[cp < 0], flux[cp < 0], marker='o', color='k', zorder=5)
-    axes[0].plot(cp[cp > 0], flux[cp > 0], marker='o', color='k', zorder=5)
-
-    axes[1].plot(cp[cp < 0], cg_r[cp < 0], marker='o', color='k', zorder=5)
-    axes[1].plot(cp[cp > 0], cg_r[cp > 0], marker='o', color='k', zorder=5)
+    axes[0].scatter(cp[cp < 0], flux[cp < 0], color='k', zorder=5)
+    axes[0].scatter(cp[cp > 0], flux[cp > 0], color='k', zorder=5)
+    axes[1].scatter(cp[cp < 0], cg_r[cp < 0], color='k', zorder=5)
+    axes[1].scatter(cp[cp > 0], cg_r[cp > 0], color='k', zorder=5)
 
     ticks = np.linspace(-50, 50, 11)
     with np.errstate(divide='ignore'):

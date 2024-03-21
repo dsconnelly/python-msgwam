@@ -26,13 +26,13 @@ def animate(ds: xr.Dataset, output_path: str) -> None:
     pmf_max = 1.2 * abs(pmf).max()
     
     axes[0].set_xlim(-u_max, u_max)
-    axes[0].set_ylim(0, 100)
+    axes[0].set_ylim(0, 60)
 
     axes[1].set_xlim(-pmf_max, pmf_max)
-    axes[1].set_ylim(0, 100)
+    axes[1].set_ylim(0, 60)
 
     axes[2].set_xlim(m_min, m_max)
-    axes[2].set_ylim(0, 100)
+    axes[2].set_ylim(0, 60)
 
     axes[0].set_xlabel('$u$ (m s$^{-1}$)')
     axes[0].set_ylabel('$z$ (km)')

@@ -62,7 +62,8 @@ tau: float # Momentum flux nudging time scale (s). If zero, the instantaneous
 ################################################################################
 mu: float # Dynamic viscosity (m^2 / s).
 alpha: float # Fraction of Lindzen criterion at which waves break (unitless).
-dissipation: bool # Whether wave action density should be dissipated.
+dissipation: float # Ratio of the viscosity used in wave dissipation to that
+    # used for the mean flow. If zero, waves do not dissipate.
 
 ################################################################################
 # source and spectrum options (parameters in this section are likely to be used
@@ -96,10 +97,10 @@ r_init_bounds: tuple[float, float] # Lower and upper extent of wave packet.
 ################################################################################
 # 'desaubies' spectrum parameters
 ################################################################################
-n_c_tilde: int # Number of c_tilde grid points.
-n_omega_tilde: int # Number of omega_tilde grid points.
-c_tilde_bounds: tuple[float, float] # Bounds on c_tilde (m / s).
-omega_tilde_bounds: tuple[float, float] # Bounds on omega_tilde (1 / s).
+n_c: int # Number of \tilde{c} grid points.
+n_omega: int # Number of \tilde{\omega} grid points.
+c_bounds: tuple[float, float] # Bounds on \tilde{c} (m / s).
+omega_bounds: tuple[float, float] # Bounds on \tilde{\omega} (1 / s).
 
 ################################################################################
 # 'gaussians' spectrum parameters

@@ -14,66 +14,48 @@ if TYPE_CHECKING:
 # columns corresponding the ray volumes that should be launched at the source.
 
 def desaubies(mean: MeanFlow) -> np.ndarray:
-    """
-    Calculate source ray volume properties according to the Desaubies spectrum
-    as defined in Boloni et al. (2021). The number of ray volumes is determined
-    by n_c_tilde and n_omega_tilde, the product of which gives the number of
-    rays launched in each compass direction.
-    """
+    c_grid = np.linspace(*config.c_bounds, 2 * config.n_c + 1)
+    omega_grid = np.linspace(*config.omega_bounds, 2 * config.n_omega + 1)
+    c_grid, omega_grid = c_grid[1:-1:2], omega_grid[1:-1:2]
+    c, omega = np.meshgrid(c_grid, omega_grid)
+    c, omega = c.flatten(), omega.flatten()
 
-    ct_min, ct_max = config.c_tilde_bounds
-    ot_min, ot_max = config.omega_tilde_bounds
+    dc = c_grid[1] - c_grid[0]
+    domega = omega_grid[1] - omega_grid[0]
+    dphi = np.pi / 2
 
-    ct_edges = np.linspace(ct_min, ct_max, config.n_c_tilde + 1)
-    ot_edges = np.linspace(ot_min, ot_max, config.n_omega_tilde + 1)
+    m = -config.N0 / c
+    wvn_hor = omega / c
+    dm = dc * m ** 2 / config.N0
+    m_star = -2 * np.pi / config.wvl_ver_char
 
-    dct = ct_edges[1] - ct_edges[0]
-    dot = ot_edges[1] - ot_edges[0]
+    top = c * config.N0 ** 3 * omega ** (-2 / 3)
+    bottom = config.N0 ** 4 + m_star ** 4 * c ** 4
+    F0 = m_star ** 3 * top / bottom
 
-    c_tilde, omega_tilde = np.meshgrid(
-        (ct_edges[:-1] + ct_edges[1:]) / 2,
-        (ot_edges[:-1] + ot_edges[1:])
-    )
-
-    c_tilde = c_tilde.flatten()
-    omega_tilde = omega_tilde.flatten()
-
-    m = -config.N0 / c_tilde
-    dm = m ** 2 * dct / config.N0
-    wvn_hor = omega_tilde / c_tilde
-    m_star = 2 * np.pi / config.wvl_ver_char
-
-    G = m_star ** 3 * (
-        (c_tilde * config.N0 ** 3 * omega_tilde ** (-2 / 3)) /
-        (config.N0 ** 4 + m_star ** 4 * c_tilde ** 4)
-    )
-
-    rhobar = np.interp(config.r_launch, mean.r_centers, mean.rho)
-    C = config.bc_mom_flux / (rhobar * G.sum() * dct * dot)
-
-    n_each = config.n_c_tilde * config.n_omega_tilde
+    n_each = config.n_c * config.n_omega
     data = np.zeros((9, 4 * n_each))
 
-    r = (config.r_ghost - 0.5 * config.dr_init) * np.ones(n_each)
-    dr = config.dr_init * np.ones(n_each)
+    dr = np.ones(n_each) * config.dr_init
+    r = np.ones(n_each) * (config.r_ghost - 0.5 * config.dr_init)
+    rhobar = np.interp(r[0], mean.r_centers, mean.rho)
+    
+    C = config.bc_mom_flux / (4 * rhobar * F0.sum() * dc * domega * dphi)
+    F3 = C * config.N0 ** 3 * F0 / (m ** 4 * omega)
 
     for i in range(4):
-        direction = i * np.pi / 2
-        k = wvn_hor * np.round(np.cos(direction))
-        l = wvn_hor * np.round(np.sin(direction))
+        phi = i * dphi
+        k = wvn_hor * np.round(np.cos(phi))
+        l = wvn_hor * np.round(np.sin(phi))
 
-        dk = -m * dot / config.N0
-        dl = wvn_hor * np.pi / 2
+        dk = domega * abs(m) / config.N0
+        dl = wvn_hor * dphi
 
         if i % 2 == 1:
             dk, dl = dl, dk
 
-        cg_r = _cg_r(k=k, l=l, m=m)
-        dens = (
-            (rhobar * C * G * c_tilde ** 5) /
-            (config.N0 * omega_tilde ** 2 * cg_r)
-        )
-
+        cg_r = _cg_r(k, l, m)
+        dens = rhobar * F3 / (wvn_hor * cg_r)
         chunk = np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
         data[:, (i * n_each):((i + 1) * n_each)] = chunk
 
