@@ -136,20 +136,8 @@ class MeanFlow:
             pmf_x[1:-1] = self._shapiro_filter(pmf_x)
             pmf_y[1:-1] = self._shapiro_filter(pmf_y)
 
-        pmf = np.vstack((pmf_x, pmf_y))
-        if config.tau == 0:
-            return pmf
-        
-        pmf_bar = self.pmf_bar.copy()
-        if onto == 'centers':
-            pmf_bar = np.vstack((
-                np.interp(self.r_centers, self.r_faces, pmf_bar[0]),
-                np.interp(self.r_centers, self.r_faces, pmf_bar[1])
-            ))
+        return np.vstack((pmf_x, pmf_y))
 
-        ratio = config.dt / config.tau
-        return np.exp(-ratio) * (pmf_bar + ratio * pmf)
-    
     def dmean_dt(self, rays: RayCollection) -> np.ndarray:
         """
         Calculate the time tendency of the mean wind, including Coriolis terms
@@ -168,8 +156,7 @@ class MeanFlow:
 
         """
 
-        self.pmf_bar = self.pmf(rays)
-        dpmf_dr = np.diff(self.pmf_bar, axis=1) / self.dr
+        dpmf_dr = np.diff(self.pmf(rays), axis=1) / self.dr
         coriolis = config.f0 * np.vstack((self.v, -self.u))
 
         return coriolis - (self.grad_p + dpmf_dr) / self.rho

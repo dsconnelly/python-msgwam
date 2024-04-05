@@ -54,8 +54,6 @@ proj_method: str # How to project wave quantities onto the vertical grid. Must
 smoothing: float # If proj_method == 'gaussian', the standard deviation of the
     # Gaussian projection curves is this parameter times the ray volume height
     # dr. Higher values lead to more smoothing.
-tau: float # Momentum flux nudging time scale (s). If zero, the instantaneous
-    # momentum flux is used at every time step.
 
 ################################################################################
 # flow parameters
@@ -76,6 +74,9 @@ epsilon: float # Intermittency parameter defining the percentage of the time
 
 n_ray_max: int # Maximum number of rays that can exist at once.
 bc_mom_flux: float # Momentum flux across lower boundary (Pa).
+purge: bool # Whether to purge existing rays to enforce the bottom boundary
+    # condition. If False, an error will be raised if the boundary condition
+    # cannot be enforced because there are too many rays.
 
 wvl_hor_char: float # Characteristic horizontal wavelength (m).
 wvl_ver_char: float # Characteristic vertical wavelength (m).

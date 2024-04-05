@@ -239,7 +239,7 @@ class RayCollection:
             crossed = np.random.choice(crossed, size, False, weights)
 
         excess = self.count + len(crossed) - config.n_ray_max
-        if excess > 0:
+        if config.purge and excess > 0:
             idx = np.argsort(self.action)
             exclude = list(self.ghosts.values())
             idx = idx[~np.isin(idx, exclude)]
@@ -307,6 +307,7 @@ class RayCollection:
 
         omega_hat = self.omega_hat()
         wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
+        
         nu = config.dissipation * np.interp(self.r, mean.r_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
         self.dens[:] = self.dens * np.exp(-config.dt * damping)

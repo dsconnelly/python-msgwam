@@ -7,8 +7,8 @@ from .mean import MeanFlow
 from .rays import RayCollection
 from .sources import _c_from, _m_from
 
-U_MAX = 20
-PMF_MAX = 1
+U_MAX = 15
+PMF_MAX = 0.5
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -102,7 +102,7 @@ def plot_lifetimes(ds: xr.Dataset, output_path: str) -> None:
     idx = deltas < 0
 
     data = -deltas[idx] / 3600
-    y, edges = np.histogram(data, bins=48)
+    y, edges = np.histogram(data, bins=48, range=(0, 96))
     x = (edges[:-1] + edges[1:]) / 2
     width = edges[1] - edges[0]
 
@@ -117,16 +117,18 @@ def plot_lifetimes(ds: xr.Dataset, output_path: str) -> None:
     plt.tight_layout()
     plt.savefig(output_path, dpi=400)
 
-def plot_source(output_path: str) -> None:
+def plot_source(output_path: str, plot_cg: bool=True) -> None:
     """
     Plot the source spectrum defined in the loaded configuration file. Plots by
     zonal phase speed and, as such such, only plots waves with abs(k) > 0. Also
-    plots the vertical group velocity of each source wave.
+    can plot the vertical group velocity of each source wave.
 
     Parameters
     ----------
     output_path
         Where to save the output image.
+    plot_cg
+        Whether to also plot the vertical group velocities.
 
     """
 
@@ -139,20 +141,27 @@ def plot_source(output_path: str) -> None:
     m = rays.m
 
     cg_r = rays.cg_r()
-    flux = 1000 * k * rays.action * cg_r
+    data = 1000 * k * rays.action * cg_r
     cp = np.sign(k) * _c_from(k, l, m)
+    
+    n_cols = 1 + plot_cg
+    fig, axes = plt.subplots(ncols=n_cols, squeeze=False)
+    fig.set_size_inches(6 * n_cols, 4.5)
 
-    fig, axes = plt.subplots(ncols=2)
-    fig.set_size_inches(12, 4.5)
+    axes = axes[0]
+    axes[0].scatter(cp[cp < 0], data[cp < 0], color='k', zorder=5)
+    axes[0].scatter(cp[cp > 0], data[cp > 0], color='k', zorder=5)
+    axes[0].set_ylabel('momentum flux (mPa)')
 
-    axes[0].scatter(cp[cp < 0], flux[cp < 0], color='k', zorder=5)
-    axes[0].scatter(cp[cp > 0], flux[cp > 0], color='k', zorder=5)
-    axes[1].scatter(cp[cp < 0], cg_r[cp < 0], color='k', zorder=5)
-    axes[1].scatter(cp[cp > 0], cg_r[cp > 0], color='k', zorder=5)
+    if plot_cg:
+        axes[1].scatter(cp[cp < 0], cg_r[cp < 0], color='k', zorder=5)
+        axes[1].scatter(cp[cp > 0], cg_r[cp > 0], color='k', zorder=5)
+        axes[1].set_ylabel('group velocity (m / s)')
 
     ticks = np.linspace(-50, 50, 11)
     with np.errstate(divide='ignore'):
-        ms = np.round(1000 * _m_from(k[0], l[0], ticks), 2)
+        ms = 1000 * _m_from(k[0], l[0], ticks)
+        wvls = np.round(-2 * np.pi / ms, 2)
 
     for ax in axes:
         tx = ax.twiny()
@@ -162,15 +171,12 @@ def plot_source(output_path: str) -> None:
         
         ax.set_xticks(ticks)
         tx.set_xticks(ticks)
-        tx.set_xticklabels(ms)
+        tx.set_xticklabels(wvls)
         
         ax.set_xlabel('phase speed (m / s)')
-        tx.set_xlabel('m (1 / km)')
+        tx.set_xlabel('$\\lambda_z$ (km)')
 
         ax.grid(True, color='lightgray', zorder=0)
-
-    axes[0].set_ylabel('momentum flux (mPa)')
-    axes[1].set_ylabel('group velocity (m / s)')
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=400)
