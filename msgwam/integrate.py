@@ -4,6 +4,7 @@ from copy import copy
 from time import time as now
 from typing import Any
 
+import cftime
 import numpy as np
 import tqdm
 import xarray as xr
@@ -121,23 +122,29 @@ class Integrator(ABC):
         Return a Dataset holding the data from the integrated system.
         """
 
+        datetimes = cftime.num2date(
+            self.time[::config.n_skip],
+            units='seconds since 0000-01-01',
+            calendar='360_day'
+        )
+
         data: dict[str, Any] = {
-            'time' : self.time[::config.n_skip],
+            'time' : datetimes,
             'nray' : np.arange(config.n_ray_max),
-            'grid' : self.int_mean[0].r_centers
+            'z' : self.int_mean[0].r_centers,
         }
         
         for name in ['u', 'v']:
             stacked = np.vstack([getattr(mean, name) for mean in self.int_mean])
-            data[name] = (('time', 'grid'), stacked)
+            data[name] = (('time', 'z'), stacked)
 
         for name in RayCollection.props:
             stacked = np.vstack([getattr(rays, name) for rays in self.int_rays])
             data[name] = (('time', 'nray'), stacked)
 
         stacked = np.stack(self.int_pmf).transpose(1, 0, 2)
-        data['pmf_u'] = (('time', 'grid'), stacked[0])
-        data['pmf_v'] = (('time', 'grid'), stacked[1])
+        data['pmf_u'] = (('time', 'z'), stacked[0])
+        data['pmf_v'] = (('time', 'z'), stacked[1])
 
         return xr.Dataset(data, attrs={'runtime' : self.runtime})
     

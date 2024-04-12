@@ -1,3 +1,4 @@
+import cftime
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,7 +8,7 @@ from .mean import MeanFlow
 from .rays import RayCollection
 from .sources import _c_from, _m_from
 
-U_MAX = 15
+U_MAX = 25
 PMF_MAX = 0.5
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
@@ -26,26 +27,21 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     fig = plt.figure(constrained_layout=True)
     fig.set_size_inches(4.4, 6)
 
-    grid = gs.GridSpec(
-        nrows=2,
-        ncols=2,
-        figure=fig,
-        width_ratios=[20, 1]
-    )
-    
+    grid = gs.GridSpec(nrows=2, ncols=2, figure=fig, width_ratios=[20, 1])
     axes = [fig.add_subplot(grid[i, 0]) for i in range(2)]
     caxes = [fig.add_subplot(grid[i, 1]) for i in range(2)]
 
-    days = ds['time'] / (3600 * 24)
-    grid = ds['grid'] / 1000
-
+    z = ds['z'] / 1000
+    days = cftime.date2num(
+        ds['time'],
+        'days since 0000-01-01'
+    )
+    
     u = ds['u']
     pmf = ds['pmf_u'] * 1000
 
     u_plot = axes[0].pcolormesh(
-        days,
-        grid,
-        u.T,
+        days, z, u.T,
         vmin=-U_MAX,
         vmax=U_MAX,
         cmap='RdBu_r',
@@ -53,9 +49,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     )
 
     pmf_plot = axes[1].pcolormesh(
-        days,
-        grid,
-        pmf.T,
+        days, z, pmf.T,
         vmin=-PMF_MAX,
         vmax=PMF_MAX,
         cmap='RdBu_r',
@@ -79,8 +73,8 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
         ax.set_ylabel('height (km)')
 
         ax.set_xlim(0, days.max())
-        ax.set_ylim(grid.min(), grid.max())
-        ax.set_yticks(np.linspace(grid.min(), grid.max(), 7))
+        ax.set_ylim(z.min(), z.max())
+        ax.set_yticks(np.linspace(z.min(), z.max(), 7))
 
     plt.savefig(output_path, dpi=400)
 
