@@ -65,8 +65,8 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
         ax.set_ylabel('height (km)')
 
         ax.set_xlim(0, days.max())
-        ax.set_ylim(z.min(), z.max())
-        ax.set_yticks(np.linspace(z.min(), z.max(), 7))
+        ax.set_ylim(kms.min(), kms.max())
+        ax.set_yticks(np.linspace(kms.min(), kms.max(), 7))
 
     axes[0].set_title('mean wind')
     axes[1].set_title('pseudomomentum flux')
