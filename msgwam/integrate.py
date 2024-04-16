@@ -12,7 +12,8 @@ import xarray as xr
 from scipy.linalg import lu_factor, lu_solve as _lu_solve
 lu_solve = lambda A, b: _lu_solve(A, b.T).T
 
-from . import config, sources
+from . import config
+from .constants import EPOCH
 from .mean import MeanFlow
 from .rays import RayCollection
 
@@ -25,10 +26,13 @@ class Integrator(ABC):
 
         mean = MeanFlow()
         rays = RayCollection(mean)
+        self.time = cftime.num2date(
+            config.dt * np.arange(config.n_t_max),
+            units=f'seconds since {EPOCH}'
+        )
 
-        self.time = config.dt * np.arange(config.n_t_max)
         if not config.interactive_mean:
-            with xr.open_dataset(config.mean_file) as ds:
+            with xr.open_dataset(config.mean_file, use_cftime=True) as ds:
                 ds = ds.interp(time=self.time)
                 u = ds['u'].values
                 v = ds['v'].values
@@ -122,14 +126,8 @@ class Integrator(ABC):
         Return a Dataset holding the data from the integrated system.
         """
 
-        datetimes = cftime.num2date(
-            self.time[::config.n_skip],
-            units='seconds since 0000-01-01',
-            calendar='360_day'
-        )
-
         data: dict[str, Any] = {
-            'time' : datetimes,
+            'time' : self.time[::config.n_skip],
             'nray' : np.arange(config.n_ray_max),
             'z' : self.int_mean[0].r_centers,
         }

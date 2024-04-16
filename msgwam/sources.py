@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from . import config
-from .rays import _cg_r, _omega_hat
+from .utils import _cg_r, _omega_hat
 
 if TYPE_CHECKING:
     from .mean import MeanFlow

@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from .constants import EPOCH
 from .mean import MeanFlow
 from .rays import RayCollection
 from .sources import _c_from, _m_from
@@ -31,17 +32,11 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     axes = [fig.add_subplot(grid[i, 0]) for i in range(2)]
     caxes = [fig.add_subplot(grid[i, 1]) for i in range(2)]
 
-    z = ds['z'] / 1000
-    days = cftime.date2num(
-        ds['time'],
-        'days since 0000-01-01'
-    )
-    
-    u = ds['u']
-    pmf = ds['pmf_u'] * 1000
+    kms = ds['z'] / 1000
+    days = cftime.date2num(ds['time'], f'days since {EPOCH}')
 
     u_plot = axes[0].pcolormesh(
-        days, z, u.T,
+        days, kms, ds['u'].T,
         vmin=-U_MAX,
         vmax=U_MAX,
         cmap='RdBu_r',
@@ -49,7 +44,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     )
 
     pmf_plot = axes[1].pcolormesh(
-        days, z, pmf.T,
+        days, kms, ds['pmf_u'].T * 1000,
         vmin=-PMF_MAX,
         vmax=PMF_MAX,
         cmap='RdBu_r',
@@ -58,9 +53,6 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
     u_bar = plt.colorbar(u_plot, cax=caxes[0])
     pmf_bar = plt.colorbar(pmf_plot, cax=caxes[1])
-
-    axes[0].set_title('mean wind')
-    axes[1].set_title('pseudomomentum flux')
 
     u_bar.set_label('$u$ (m s$^{-1}$)')
     pmf_bar.set_label('$c_\mathrm{g} k\mathcal{A}$ (mPa)')
@@ -75,6 +67,9 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
         ax.set_xlim(0, days.max())
         ax.set_ylim(z.min(), z.max())
         ax.set_yticks(np.linspace(z.min(), z.max(), 7))
+
+    axes[0].set_title('mean wind')
+    axes[1].set_title('pseudomomentum flux')
 
     plt.savefig(output_path, dpi=400)
 
