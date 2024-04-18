@@ -3,23 +3,21 @@
 ################################################################################
 boussinesq = false
 show_progress = true
-interactive_mean = true
-mean_file = 'data/baselines/mean-wind.nc'
+interactive_mean = false
+mean_file = 'data/baselines/mean-state.nc'
 
 ################################################################################
 # time stepping
 ################################################################################
 dt = 120
-n_day = 60
-dt_output = 7200
+n_day = 15
+dt_output = 120
 
 ################################################################################
 # momentum flux calculation
 ################################################################################
-shapiro_filter = false
-proj_method = 'gaussian'
-smoothing = 4
-tau = 3600
+shapiro_filter = true
+proj_method = 'discrete'
 
 ################################################################################
 # vertical grid
@@ -33,7 +31,7 @@ grid_bounds = [0, 60e3]
 latitude = 0
 rhobar0 = 1.2
 H_scale = 7e3
-N0 = 0.01
+N0 = 0.02
 
 ################################################################################
 # mean flow initialization
@@ -46,9 +44,9 @@ sig_r = 5e3
 ################################################################################
 # flow parameters
 ################################################################################
-mu = 1e-2
+mu = 1e-3
 alpha = 1
-dissipation = true
+dissipation = 1
 
 ################################################################################
 # source and spectrum options (parameters in this section are likely to be used
@@ -57,10 +55,12 @@ dissipation = true
 source_type = 'gaussians'
 epsilon = 1
 
-n_ray_max = 5000
+n_ray_max = 22000
 bc_mom_flux = 3e-3
+purge = false
 
-wvl_hor_char = 200e3
+wvl_hor_char = 100e3
+# wvl_ver_char = 2e3
 direction = 0
 
 dk_init = 1e-4
@@ -72,6 +72,14 @@ dr_init = 250
 ################################################################################
 # 'gaussians' spectrum parameters
 ################################################################################
-c_center = 0
-c_width = 15
-n_source = 72
+c_center = 0 # Peak of Gaussians in phase speed space (m / s).
+c_width = 15 # Width if Gaussian is prescribed in phase speed space (m / s).
+n_source = 48 # How many ray volumes to discretize the interval into.
+
+################################################################################
+# 'desaubies' spectrum parameters
+################################################################################
+# n_c = 6
+# n_omega = 2
+# c_bounds = [0, 36]
+# omega_bounds = [1e-4, 5e-4]
