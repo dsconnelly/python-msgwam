@@ -108,12 +108,9 @@ def gaussians(_) -> np.ndarray:
 
     c_max = config.c_center + 2 * config.c_width
     c_min = max(config.c_center - 2 * config.c_width, 0.5)
-    c_bounds = np.linspace(c_min, c_max, (config.n_source // 2) + 1)
-    m_bounds = _m_from(k, l, c_bounds)
-
-    ms = (m_bounds[:-1] + m_bounds[1:]) / 2
-    dms = abs(m_bounds[1:] - m_bounds[:-1])
-    cs = _c_from(k, l, ms)
+    cs = np.linspace(c_min, c_max, config.n_source // 2)
+    ms = _m_from(k, l, cs)
+    dc = cs[1] - cs[0]
 
     fluxes = np.exp(-(((cs - config.c_center) / config.c_width) ** 2))
     fluxes = (config.bc_mom_flux / fluxes.sum()) * fluxes / 2
@@ -122,10 +119,9 @@ def gaussians(_) -> np.ndarray:
     dl = config.dl_init
 
     data = np.zeros((9, config.n_source))
-    for j, (m, dm, flux) in enumerate(zip(ms, dms, fluxes)):
-        volume = abs(dk * dl * dm)
-        cg_r = _cg_r(k=k, l=l, m=m)
-        dens = flux / abs(k * volume * cg_r)
+    for j, (m, flux) in enumerate(zip(ms, fluxes)):
+        dm = abs(k * dc / _cg_r(k, l, m))
+        dens = flux / (k ** 2 * dk * dl * dc)
 
         data[:, j] = np.array([r, dr, k, l, m, dk, dl, dm, dens])
         data[:, j + (config.n_source // 2)] = data[:, j]
