@@ -10,8 +10,8 @@ mean_file = 'data/baselines/mean-state.nc'
 # time stepping
 ################################################################################
 dt = 120
-n_day = 15
-dt_output = 120
+n_day = 30
+dt_output = 7200
 
 ################################################################################
 # momentum flux calculation
@@ -55,7 +55,7 @@ dissipation = 1
 source_type = 'gaussians'
 epsilon = 1
 
-n_ray_max = 22000
+n_ray_max = 40000
 bc_mom_flux = 3e-3
 purge = false
 

@@ -100,17 +100,12 @@ def save_mean_state() -> None:
     z = (faces[:-1] + faces[1:]) / 2
 
     width = 3e3
-    low = 10 * np.exp(-((z - 24e3) / width) ** 2)
-    mid = -10 * np.exp(-((z - 34e3) / width) ** 2)
-    high = 10 * np.exp(-((z - 44e3) / width) ** 2)
+    pos = 10 * np.exp(-((z - 30e3) / width) ** 2)
+    neg = -10 * np.exp(-((z - 40e3) / width) ** 2)
 
-    seconds = 86400 * np.linspace(0, 31, 128)
+    seconds = 86400 * np.arange(361)
     datetimes = cftime.num2date(seconds, units=f'seconds since {EPOCH}')
-
-    freq = 1 / (10 * 86400)
-    envelope = np.sin(2 * np.pi * seconds * freq)
-    u = np.broadcast_to(mid + high, (len(seconds), len(z)))
-    u = u + envelope[:, None] * low
+    u = np.broadcast_to(pos + neg, (len(seconds), len(z)))
 
     xr.Dataset({
         'time' : datetimes,
