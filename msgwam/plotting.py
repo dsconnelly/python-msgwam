@@ -10,7 +10,7 @@ from .rays import RayCollection
 from .sources import _c_from, _m_from
 
 U_MAX = 25
-PMF_MAX = 0.5
+PMF_MAX = 1
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -131,7 +131,7 @@ def plot_source(output_path: str, plot_cg: bool=True) -> None:
 
     cg_r = rays.cg_r()
     data = 1000 * k * rays.action * cg_r
-    cp = np.sign(k) * _c_from(k, l, m)
+    cp = _c_from(k, l, m)
     
     n_cols = 1 + plot_cg
     fig, axes = plt.subplots(ncols=n_cols, squeeze=False)

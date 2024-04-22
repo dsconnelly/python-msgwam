@@ -133,7 +133,7 @@ def _c_from(k: np.ndarray, l: np.ndarray, m: np.ndarray) -> np.ndarray:
     top = config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2
     bottom = (k ** 2 + l ** 2 + m ** 2) * k ** 2
 
-    return np.sqrt(top / bottom)
+    return np.sign(k) * np.sqrt(top / bottom)
 
 def _m_from(k: np.ndarray, l: np.ndarray, c: np.ndarray) -> np.ndarray:
     top = (k ** 2 + l ** 2) * (config.N0 ** 2 - c ** 2 * k ** 2)
