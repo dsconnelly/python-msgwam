@@ -276,18 +276,13 @@ class RayCollection:
         ddr_dt, ddm_dt = np.zeros((2, config.n_ray_max))
         dk_dt, dl_dt, ddk_dt, ddl_dt = np.zeros((4, config.n_ray_max))
 
-        ddens_dt = np.zeros(config.n_ray_max)
-        dage_dt = np.ones(config.n_ray_max)
-        dmeta_dt = np.zeros(config.n_ray_max)
-
         idx = self.r < config.r_launch
         dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
 
         return np.vstack((
             dr_dt, ddr_dt,
             dk_dt, dl_dt, dm_dt,
-            ddk_dt, ddl_dt, ddm_dt,
-            ddens_dt, dage_dt, dmeta_dt
+            ddk_dt, ddl_dt, ddm_dt
         ))
     
     def dissipate_and_break(self, mean: MeanFlow) -> None:
@@ -326,4 +321,3 @@ class RayCollection:
 
         factor = 1 - wvn_sq * np.max(intersects * kappa[:, None], axis=0)
         self.dens[:] = self.dens * factor
-        

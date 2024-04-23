@@ -205,27 +205,34 @@ class SBDF2Integrator(Integrator):
         mean: MeanFlow,
         rays: RayCollection
     ) -> tuple[MeanFlow, RayCollection]:
-        """Take an SBDF2 step, using semi-implicit Euler to initialize."""
+        """
+        Take an SBDF2 step. We use semi-implicit Euler to initialize. The scheme
+        is slightly complicated because ray volumes are created every time step,
+        and so we must always distinguish between trajectories that need to use
+        an Euler step and ones that can use the multi-step scheme.
+
+        Note also that wave action spectral density, age, and the metadata are
+        handled separately, since we have exact update equations for them.
+        
+        """
         
         dmean_dt = mean.dmean_dt(rays)
         drays_dt = rays.drays_dt(mean)
-        do_euler = len(self.last) == 0        
+        first_step = len(self.last) == 0        
 
-        if not do_euler:
-            jdx = rays.age == 0
-            new = rays.data[:, jdx].copy()
-
+        if not first_step:
             last_mean, last_rays = self.last
             last_dmean_dt, last_drays_dt = self.dlast_dt
 
         self.last = [mean.data, rays.data]
         self.dlast_dt = [dmean_dt, drays_dt]
         mean, rays = copy(mean), copy(rays)
+        rays.data = rays.data.copy()
 
-        if do_euler:
-            mean.data = lu_solve(self.A, (mean.data + config.dt * dmean_dt))
-            rays.data = rays.data + config.dt * drays_dt
-
+        if first_step:
+            mean.data = lu_solve(self.A, mean.data + config.dt * dmean_dt)
+            rays.data[:8] = rays.data[:8] + config.dt * drays_dt
+        
         else:
             mean.data = self.lhs(
                 mean.data, last_mean,
@@ -233,8 +240,18 @@ class SBDF2Integrator(Integrator):
                 stiff=True
             )
 
-            rays.data = self.lhs(rays.data, last_rays, drays_dt, last_drays_dt)
-            rays.data[:, jdx] = new + config.dt * drays_dt[:, jdx]
+            euler_jdx = rays.age == 0
+            euler_data = rays.data[:8, euler_jdx].copy()
+
+            rays.data[:8] = self.lhs(
+                rays.data[:8], last_rays[:8],
+                drays_dt, last_drays_dt
+            )
+
+            euler_delta = config.dt * drays_dt[:, euler_jdx]
+            rays.data[:8, euler_jdx] = euler_data + euler_delta
+
+        rays.data[9] = rays.data[9] + config.dt
 
         return mean, rays
 
