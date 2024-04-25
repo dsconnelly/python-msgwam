@@ -1,110 +1,48 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
+
 import cftime
-import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
+
+if TYPE_CHECKING:
+    from matplotlib.axes import Axes
+    from matplotlib.collections import QuadMesh
+    from matplotlib.colorbar import Colorbar
 
 from .constants import EPOCH
 from .mean import MeanFlow
 from .rays import RayCollection
 from .sources import _c_from, _m_from
 
-U_MAX = 25
-PMF_MAX = 1
+plt.rcParams['figure.dpi'] = 400
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
-    Plot the zonal wind and pseudomomentum flux in integration output.
+    _summary_
 
     Parameters
     ----------
     ds
-        Open xarray.Dataset with data to plot.
-    output_path
-        Where to save the output image.
-        
-    """
-    
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(4.4, 6)
-
-    grid = gs.GridSpec(nrows=2, ncols=2, figure=fig, width_ratios=[20, 1])
-    axes = [fig.add_subplot(grid[i, 0]) for i in range(2)]
-    caxes = [fig.add_subplot(grid[i, 1]) for i in range(2)]
-
-    kms = ds['z'] / 1000
-    days = cftime.date2num(ds['time'], f'days since {EPOCH}')
-
-    u_plot = axes[0].pcolormesh(
-        days, kms, ds['u'].T,
-        vmin=-U_MAX,
-        vmax=U_MAX,
-        cmap='RdBu_r',
-        shading='nearest'
-    )
-
-    pmf_plot = axes[1].pcolormesh(
-        days, kms, ds['pmf_u'].T * 1000,
-        vmin=-PMF_MAX,
-        vmax=PMF_MAX,
-        cmap='RdBu_r',
-        shading='nearest'
-    )
-
-    u_bar = plt.colorbar(u_plot, cax=caxes[0])
-    pmf_bar = plt.colorbar(pmf_plot, cax=caxes[1])
-
-    u_bar.set_label('$u$ (m s$^{-1}$)')
-    pmf_bar.set_label('$c_\mathrm{g} k\mathcal{A}$ (mPa)')
-
-    u_bar.set_ticks(np.linspace(-U_MAX, U_MAX, 5))
-    pmf_bar.set_ticks(np.linspace(-PMF_MAX, PMF_MAX, 5))
-
-    for ax in axes:
-        ax.set_xlabel('time (days)')
-        ax.set_ylabel('height (km)')
-
-        ax.set_xlim(0, days.max())
-        ax.set_ylim(kms.min(), kms.max())
-        ax.set_yticks(np.linspace(kms.min(), kms.max(), 7))
-
-    axes[0].set_title('mean wind')
-    axes[1].set_title('pseudomomentum flux')
-
-    plt.savefig(output_path, dpi=400)
-
-def plot_lifetimes(ds: xr.Dataset, output_path: str) -> None:
-    """
-    Plot a histogram of ray lifetimes in integration output.
-
-    Parameters
-    ----------
-    ds
-        Open xarray.Dataset with data to plot.
+        Open xarray.Dataset with integration output to plot.
     output_path
         Where to save the output image.
 
     """
 
-    age = np.nan_to_num(ds['age'].values)
-    deltas = age[1:] - age[:-1]
-    idx = deltas < 0
+    widths = [4.5, 0.2]
+    fig, axes = plt.subplots(nrows=2, ncols=2, width_ratios=widths)
+    fig.set_size_inches(sum(widths), 6)
 
-    data = -deltas[idx] / 3600
-    y, edges = np.histogram(data, bins=48, range=(0, 96))
-    x = (edges[:-1] + edges[1:]) / 2
-    width = edges[1] - edges[0]
+    _, u_cbar = plot_time_series(ds['u'], 25, axes[0])
+    _, pmf_cbar = plot_time_series(ds['pmf_u'] * 1000, 30, axes[1])
 
-    fig, ax = plt.subplots()
-    fig.set_size_inches(6, 4.5)
-    ax.bar(x, y, width=width, color='lightgrey', edgecolor='k')
-    
-    ax.set_xlim(edges[0], edges[-1])
-    ax.set_xlabel('lifetime (hr)')
-    ax.set_ylabel('count')
+    u_cbar.set_label('$\\bar{u}$ (m s$^{-1}$)')
+    pmf_cbar.set_label('PMF (mPa)')
 
     plt.tight_layout()
-    plt.savefig(output_path, dpi=400)
+    plt.savefig(output_path)
 
 def plot_source(output_path: str, plot_cg: bool=True) -> None:
     """
@@ -169,3 +107,64 @@ def plot_source(output_path: str, plot_cg: bool=True) -> None:
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=400)
+
+def plot_time_series(
+    data: xr.DataArray,
+    amax: float,
+    axes: Optional[list[Axes]]=None
+) -> tuple[QuadMesh, Optional[Colorbar]]:
+    """
+    Plot data with time and height coordinates.
+
+    Parameters
+    ----------
+    data
+        DataArray containing the data along with 'z' and 'time' coordinates.
+    axes
+        List containing the Axes object that should contain the color plot and,
+        if a colorbar is to be added, the Axes that will contain the colorbar.
+        If len(axes) == 1, no colorbar will be created. If axes is None, then
+        a new figure will be created with two axes.
+    amax
+        Maximum absolute value to use in the symmetric norm.
+
+    Returns
+    -------
+    QuadMesh, Colorbar
+        Result from pcolormesh and associated colorbar. If cax was None, then
+        the second return value will be None as well.
+
+    """
+
+    if axes is None:
+        widths = [4.5, 0.2]
+        fig, axes = plt.subplots(ncols=2, width_ratios=widths)
+        fig.set_size_inches(sum(widths), 3)
+    
+    z = data['z'] / 1000
+    yticks = np.linspace(z.min(), z.max(), 7)
+    ylabels = (10 * np.round((yticks / 10))).astype(int)
+    time = cftime.date2num(data['time'], f'days since {EPOCH}')
+
+    img = axes[0].pcolormesh(
+        time, z, data.T,
+        vmin=-amax, vmax=amax,
+        shading='nearest',
+        cmap='RdBu_r'
+    )
+
+    axes[0].set_xlabel('time (days)')
+    axes[0].set_ylabel('height (km)')
+
+    axes[0].set_xlim(0, time.max())
+    axes[0].set_ylim(z.min(), z.max())
+    axes[0].set_yticks(yticks, labels=ylabels)
+    
+    try:
+        cbar = plt.colorbar(img, cax=axes[1])
+        cbar.set_ticks(np.linspace(-amax, amax, 5))
+
+    except IndexError:
+        cbar = None
+
+    return img, cbar

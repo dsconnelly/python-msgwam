@@ -1,6 +1,28 @@
 import numpy as np
+import xarray as xr
 
 from . import config
+
+def open_dataset(*args, **kwargs) -> xr.Dataset:
+    """
+    Open a netCDF file as an xarray Dataset. This function exists simply so that
+    use_cftime=True can be the default.
+
+    Parameters
+    ----------
+    args
+        Positional arguments to xr.open_dataset.
+    kwargs
+        Keyword arguments to xr.open_dataset.
+
+    Returns
+    -------
+    xr.Dataset
+        The opened Dataset object, opened using cftime.
+
+    """
+
+    return xr.open_dataset(*args, use_cftime=True, **kwargs)
 
 def _omega_hat(k: np.ndarray, l: np.ndarray, m: np.ndarray) -> np.ndarray:
     """

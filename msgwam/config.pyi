@@ -6,6 +6,9 @@ def load_config(path: str) -> None:
 def refresh(config: Optional[dict[str, Any]]=None) -> None:
     ...
 
+def reset() -> None:
+    ...
+
 ################################################################################
 # global flags
 ################################################################################
@@ -113,6 +116,7 @@ n_source: int # How many ray volumes to discretize the interval into.
 ################################################################################
 # internal variables (set by the code, not the namelist)
 ################################################################################
+name: str # Name of the configuration. Determined from the file path.
 n_t_max: int # Number of time steps to take.
 n_skip: int # Number of time steps to skip between outputs.
 f0: float # Coriolis parameter (1 / s).

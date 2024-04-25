@@ -60,7 +60,6 @@ bc_mom_flux = 3e-3
 purge = false
 
 wvl_hor_char = 100e3
-# wvl_ver_char = 2e3
 direction = 0
 
 dk_init = 1e-4
@@ -75,11 +74,3 @@ dr_init = 250
 c_center = 0 # Peak of Gaussians in phase speed space (m / s).
 c_width = 15 # Width if Gaussian is prescribed in phase speed space (m / s).
 n_source = 48 # How many ray volumes to discretize the interval into.
-
-################################################################################
-# 'desaubies' spectrum parameters
-################################################################################
-# n_c = 6
-# n_omega = 2
-# c_bounds = [0, 36]
-# omega_bounds = [1e-4, 5e-4]

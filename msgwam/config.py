@@ -3,12 +3,15 @@ import tomllib
 
 from .constants import ROT_EARTH
 
+_DEFAULTS = None
+
 def load_config(path: str) -> None:
     """
     Load configuration data from a TOML file and update the module namespace so
-    that parameters can be accessed as `config.{name}`. Also perform simple
-    precalculations of values that are derived from configuration data but used
-    in several places.
+    that parameters can be accessed as `config.{name}`. Stores the loaded config
+    settings in a global variable, so that they can be reverted to later. Also
+    determines and saves the name of the config setup, since we can only do that
+    when we have access to the config file path.
 
     Parameters
     ----------
@@ -17,10 +20,15 @@ def load_config(path: str) -> None:
         
     """
 
+    global _DEFAULTS
     with open(path, 'rb') as f:
-        config = tomllib.load(f)
-        
-    refresh(config)
+        _DEFAULTS = tomllib.load(f)
+
+    name = path.split('/')[-1]
+    name = name.split('.')[0]
+    _DEFAULTS['name'] = name
+
+    refresh(_DEFAULTS.copy())
 
 def refresh(config: dict[str]=None) -> None:
     """
@@ -49,3 +57,13 @@ def refresh(config: dict[str]=None) -> None:
         config['r_ghost'] = config['r_launch'] - config['dr_init']
 
     globals().update(config)    
+
+def reset() -> None:
+    """
+    Reset the config state to the values from the most recently-read config
+    file. Exists so that the config settings can be changed and then reverted
+    without having to reload a file.
+
+    """
+
+    refresh(_DEFAULTS.copy())
