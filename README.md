@@ -9,14 +9,15 @@ To run the ray tracer you will need
 - matplotlib
 - numpy
 
-The code can be invoked by calling the `msgwam` directory as a module. You must pass a path to a configuration TOML file and a path where the integration data can be saved in netCDF form. For example
+The code can be invoked by calling the `msgwam` directory as a module. You must pass a path to a configuration TOML file. For example
 ```
-python -m msgwam config/bichromatic.toml data/bichromatic.nc
+python -m msgwam config/oscillation.toml
 ```
+will save the integration output to data/oscillation.nc and a plot to plots/oscillation.png.
 
-Several configuration files are provided in the `config` directory. Note that `desaubies.toml` probably behaves strangely.
+Several configuration files are provided in the `config` directory.
 
-The function `make_plots` in `plotting.py` can plot integrator output as below.
+The function `plot_integration` in `plotting.py` can plot integrator output as below.
 ![oscillation](oscillation.png)
 There is also `animate.py`, a utility for animating ray volume and mean flow behavior.
 
