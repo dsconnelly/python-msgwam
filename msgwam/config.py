@@ -1,23 +1,21 @@
-import numpy as np
 import tomllib
+
+from typing import Optional
+
+import torch
 
 from .constants import ROT_EARTH
 
 _DEFAULTS = None
 
-def load_config(path: str) -> None:
+def load(path: str) -> None:
     """
-    Load configuration data from a TOML file and update the module namespace so
-    that parameters can be accessed as `config.{name}`. Stores the loaded config
+    Load configuration file from a TOML file and update the module namespace so
+    that parameters can be accessed as `config.foo`. Stores the loaded config
     settings in a global variable, so that they can be reverted to later. Also
-    determines and saves the name of the config setup, since we can only do that
-    when we have access to the config file path.
-
-    Parameters
-    ----------
-    path
-        Path to TOML configuration file.
-        
+    determines and saves the name of the config setup, since we can only do so
+    at this stage when we have access to the config file path.
+    
     """
 
     global _DEFAULTS
@@ -30,39 +28,40 @@ def load_config(path: str) -> None:
 
     refresh(_DEFAULTS.copy())
 
-def refresh(config: dict[str]=None) -> None:
+def refresh(config: Optional[dict[str]]=None) -> None:
     """
-    Calculate internal parameters and update the module namespace. Available as
-    a separate function in case the user wishes to change parameters without
-    reloading a config file.
+    Some parameters accessible through the config module are not specified in
+    the config file, but instead derived automatically. This function adds those
+    derived parameters to the namespace, and is available as a separate function
+    in case the user wishes to change config parameters and update the derived
+    values without loading a new config file.
 
     Parameters
     ----------
     config
-        Dictionary of config parameters. If None, the global module namespace
-        will be used instead.
+        Dictionary of config parameters to add to the module namespace alongside
+        derived parameters. If None, the existing module namespace will be used.
 
     """
 
     if config is None:
         config = globals().copy()
 
-    config['latitude'] = np.deg2rad(config['latitude'])
-    config['f0'] = 2 * ROT_EARTH * np.sin(config['latitude'])
+    config['latitude'] = torch.deg2rad(torch.as_tensor(config['latitude']))
+    config['f0'] = 2 * ROT_EARTH * torch.sin(config['latitude'])
 
     config['n_t_max'] = int(86400 * config['n_day'] / config['dt']) + 1
     config['n_skip'] = round(config['dt_output'] / config['dt'])
 
-    if 'r_launch' in config:
-        config['r_ghost'] = config['r_launch'] - config['dr_init']
+    config['r_ghost'] = config['r_launch'] - config['dr_init']
 
-    globals().update(config)    
+    globals().update(config)
 
 def reset() -> None:
     """
-    Reset the config state to the values from the most recently-read config
-    file. Exists so that the config settings can be changed and then reverted
-    without having to reload a file.
+    Reset the config parameters to the values from the most recently-read config
+    file. This function exists so that the config settings can be changed and
+    then reverted without having to read in a file again.
 
     """
 

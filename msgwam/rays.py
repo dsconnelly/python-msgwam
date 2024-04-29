@@ -1,59 +1,46 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
+import torch
 
 from . import config, sources
-from .utils import _cg_r, _omega_hat
+from .dispersion import cg_r, omega_hat
+from .utils import interp, get_fracs
 
 if TYPE_CHECKING:
-    from .mean import MeanFlow
+    from .mean import MeanState
 
 class RayCollection:
     props = ['r', 'dr', 'k', 'l', 'm', 'dk', 'dl', 'dm', 'dens', 'age', 'meta']
-    indices = {prop: i for i, prop in enumerate(props)}
+    indices = {prop : i for i, prop in enumerate(props)}
 
-    r: np.ndarray; dr: np.ndarray
-    k: np.ndarray; l: np.ndarray; m: np.ndarray
-    dk: np.ndarray; dl: np.ndarray; dm: np.ndarray
-    dens: np.ndarray; age: np.ndarray; meta: np.ndarray
+    r: torch.Tensor; dr: torch.Tensor
+    k: torch.Tensor; l: torch.Tensor; m: torch.Tensor
+    dk: torch.Tensor; dl: torch.Tensor; dm: torch.Tensor
+    dens: torch.Tensor; age: torch.Tensor; meta: torch.Tensor
 
-    def __init__(self, mean: MeanFlow) -> None:
-        """
-        Initialize a RayCollection based on the loaded config settings and an
-        array of source information.
-
-        Parameters
-        ----------
-        mean
-            Initialized MeanFlow to be passed to the source function.
-
-        """
+    def __init__(self) -> None:
+        """Initialize the collection of ray volumes."""
 
         shape = (len(self.props), config.n_ray_max)
-        self.data = np.nan * np.zeros(shape)
+        self.data = torch.nan * torch.zeros(shape)
         self.next_meta = -1
 
-        source_func = getattr(sources, config.source_type)
-        self.sources: np.ndarray = source_func(mean)
-        
-        self.ghosts = {}
-        for slot, data in enumerate(self.sources.T):
-            self.ghosts[slot] = self.add_ray(data)
+        cls_name = config.source_type.capitalize() + 'Source'
+        self.source: sources.Source = getattr(sources, cls_name)()
 
-        if config.epsilon < 1:
-            self.cg_source = self.cg_r()[:self.sources.shape[1]]
-            times = np.ceil(config.dr_init / (self.cg_source * config.dt))
-            self.launch_rate = config.epsilon * (1 / times).sum()
+        self.ghosts = torch.zeros(self.source.n_slots).int()
+        for slot, data in enumerate(self.source.data.T):
+            self.ghosts[slot] = self.add_ray(data)
 
     def __getattr__(self, prop: str) -> Any:
         """
         Return the row of self.data corresponding to the named ray property.
-        Note that since __getattr__ is only called if an error is thrown during
-        __getattribute__ (i.e. if a ray property is requested) we only have to
-        handle those cases and can raise an error otherwise. This function is
-        added so that ray properties can be accessed as `rays.dr`, etc.
-
+        This function is added so that ray properties can be accessed as rays.k,
+        rays.dr, and so on. Because __getattr__ is only called if an error is
+        thrown during __getattribute__ (i.e. if a ray property is requested), we
+        only have to handles those cases and can raise an error otherwise.
+        
         Parameters
         ----------
         prop
@@ -61,41 +48,43 @@ class RayCollection:
 
         Returns
         -------
-        np.ndarray
+        torch.Tensor
             Corresponding row of self.data.
 
         Raises
         ------
         AttributeError
-            Indicates that no ray property of the given name exists.
+            Indicates that no ray property with the given name exists.
 
         """
 
         if prop in self.indices:
             return self.data[self.indices[prop]]
-
+        
         message = f'{type(self).__name__} object has no attribute {prop}'
         raise AttributeError(message)
-
+    
     @property
-    def valid(self) -> np.ndarray:
+    def valid(self) -> torch.Tensor:
         """
         Determine which columns of self.data correspond to active ray volumes.
 
         Returns
         -------
-        np.ndarray
-            Boolean array indicating whether each column of the array data is
+        torch.Tensor
+            Boolean tensor indicating whether each column of the data tensor is
             tracking an active ray volume or is free to be written over.
 
         """
 
-        return np.isnan(self.data).sum(axis=0) == 0
-
+        return torch.isnan(self.data).sum(dim=0) == 0
+    
     @property
     def count(self) -> int:
         """
-        Count the number of active ray volumes in the collection.
+        Count the number of active ray volumes in the collection. The cast is
+        for the benefit of the type checker; `self.valid` is a Boolean tensor
+        and so its sum is guaranteed to be an integer.
 
         Returns
         -------
@@ -104,24 +93,24 @@ class RayCollection:
 
         """
 
-        return self.valid.sum()
+        return cast(int, self.valid.sum().item())
     
     @property
-    def action(self) -> np.ndarray:
+    def action(self) -> torch.Tensor:
         """
-        Calculate the wave action density.
+        Calculate the wave action density of each ray volume.
 
         Returns
         -------
-        np.ndarray
-            Array of wave action densities, calculated as the spectral wave
-            action multiplied by the spectral volume of each ray.
+        torch.Tensor
+            Tensor of wave action densities, calculated as the spectral wave
+            action density multiplied by the spectral volume of each ray.
 
         """
 
         return self.dens * abs(self.dk * self.dl * self.dm)
     
-    def add_ray(self, data: np.ndarray) -> int:
+    def add_ray(self, data: torch.Tensor) -> int:
         """
         Add a ray to the collection, storing its data in the first available
         column. Raises an error if the collection is already at the maximum
@@ -146,114 +135,109 @@ class RayCollection:
 
         if self.count == config.n_ray_max:
             raise RuntimeError('RayCollection has too many rays')
-        
-        j = int(np.argmin(self.valid))
-        self.next_meta = self.next_meta + 1
-        self.data[:, j] = [*data, 0, self.next_meta]
 
+        self.next_meta = self.next_meta + 1
+        j = int(torch.argmin(self.valid.int()))
+
+        self.data[:-2, j] = data
+        self.data[-2:, j] = torch.tensor([0, self.next_meta])
+        
         return j
     
-    def delete_rays(self, j: int | np.ndarray) -> None:
+    def delete_rays(self, j: int | torch.Tensor) -> None:
         """
-        Delete a ray volume by filling the corresponding column with np.nan.
+        Delete one or more ray volumes by filling the corresponding columns of
+        self.data with torch.nan.
 
         Parameters
         ----------
         j
-            Index or array of indices of ray volumes to delete.
+            Index or tensor of indices of ray volumes to delete.
 
         """
 
-        self.data[:, j] = np.nan
+        self.data[:, j] = torch.nan
 
-    def omega_hat(self) -> np.ndarray:
+    def check_boundaries(self, mean: MeanState) -> None:
         """
-        Calculate the intrinsic frequencies of each ray in the collection. This
-        function is just a shorthand for calling _omega_hat with the appropriate
-        wave properties stored in this object.
+        Delete rays that have propagated outside of the physical domain.
 
-        Returns
-        -------
-        np.ndarray
-            Array of intrinsic frequencies. Will be np.nan at indices where no
-            ray volume is propagating.
-
-        """
-
-        return _omega_hat(self.k, self.l, self.m)
-    
-    def cg_r(self) -> np.ndarray:
-        """
-        Calculate the vertical group velocities for each ray in the collection.
-        This function is just a shorthand for calling _omega_hat with the
-        appropriate wave properties stored in this object.
-
-        Returns
-        -------
-        np.ndarray
-            Array of vertical group velocities. Will be np.nan at indices where
-            no ray volume is propagating.
-
-        """
-
-        return _cg_r(self.k, self.l, self.m)
-    
-    def check_boundaries(self, mean: MeanFlow) -> None:
-        """
-        Delete rays that have strayed outside of the physical domain.
-        
         Parameters
         ----------
         mean
-            MeanFlow providing the vertical extent of the system.
+            MeanState used to determine the vertical extent of the system.
 
         """
 
-        below = self.r - 0.5 * self.dr < mean.r_faces[0]
-        above = self.r + 0.5 * self.dr > mean.r_faces[-1]
+        below = self.r - 0.5 * self.dr < mean.z_faces[0]
+        above = self.r + 0.5 * self.dr > mean.z_faces[-1]
         self.delete_rays(below | above)
 
     def check_source(self) -> None:
         """
         Enforce the bottom boundary condition by adding ray volumes as necessary
         to replace those that have cleared the ghost layer.
+
         """
 
-        crossed: list | np.ndarray = []
-        for slot in range(self.sources.shape[1]):
-            i = self.ghosts[slot]
-            if self.r[i] - 0.5 * self.dr[i] > config.r_ghost:
-                crossed.append(slot)
+        r_lo = self.r[self.ghosts] - 0.5 * self.dr[self.ghosts]
+        crossed = torch.where(r_lo > config.r_ghost)[0]
 
-        if not crossed:
+        if len(crossed) == 0:
             return
+        
+        datas, slots, counts = self.source.launch(crossed)
+        excess = self.count + datas.shape[1] - config.n_ray_max
 
-        if config.epsilon < 1:
-            weights = self.cg_source[crossed]
-            weights = weights / weights.sum()
-
-            size = int(np.floor(self.launch_rate))
-            if np.random.rand() < self.launch_rate - size:
-                size = size + 1
-
-            size = min(len(crossed), size)
-            crossed = np.random.choice(crossed, size, False, weights)
-
-        excess = self.count + len(crossed) - config.n_ray_max
         if config.purge and excess > 0:
-            idx = np.argsort(self.action)
-            exclude = list(self.ghosts.values())
-            idx = idx[~np.isin(idx, exclude)]
+            idx = torch.argsort(self.action)
+            idx = idx[~torch.isin(idx, self.ghosts)]
 
             self.delete_rays(idx[:excess])
 
-        for slot in crossed:
-            data = self.sources[:, slot].copy()
-            self.ghosts[slot] = self.add_ray(data)
-    
-    def drays_dt(self, mean: MeanFlow) -> np.ndarray:
+        curr: int | torch.Tensor = 0
+        for j, data in enumerate(datas.T):
+            replaced = slots[curr:(curr + counts[j])]
+            self.ghosts[replaced] = self.add_ray(data)
+            curr = curr + counts[j]
+
+    def cg_r(self) -> torch.Tensor:
         """
-        Calculate the time tendency of each ray property.
+        Calculate the vertical group velocity of each ray in the collection.
+        This function is just a wrapper around cg_r called with the appropriate
+        wave properties stored in this object.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of vertical group velocities, with torch.nan at indices where
+            no ray volume is propagating.
+
+        """
+
+        return cg_r(self.k, self.l, self.m)
+    
+    def omega_hat(self) -> torch.Tensor:
+        """
+        Calculate the intrinsic frequency of each ray in the collection. This
+        function is just a wrapper around cg_r called with the appropriate wave
+        properties stored in this object.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of intrinsic frequencies, with torch.nan at indices where no
+            ray volume is propagating.
+
+        """
+
+        return omega_hat(self.k, self.l, self.m)
+    
+    def drays_dt(self, mean: MeanState) -> torch.Tensor:
+        """
+        Calculate the time tendency of each ray property. Note that no tendency
+        is returned for dens, age, or meta, as we have exact update equations
+        for these properties and so the integrator handles them separately.
 
         Parameters
         ----------
@@ -262,62 +246,62 @@ class RayCollection:
 
         Returns
         -------
-        np.ndarray
-            Array of time tendencies, each row of which corresponds to the ray
+        torch.Tensor
+            Tensor of time tendencies, each row of which corresponds to a ray
             property named in self.props.
 
         """
 
         dr_dt = self.cg_r()
-        du_dr = np.interp(self.r, mean.r_faces[1:-1], np.diff(mean.u) / mean.dr)
-        dv_dr = np.interp(self.r, mean.r_faces[1:-1], np.diff(mean.v) / mean.dr)
+        du_dr = interp(self.r, mean.z_faces[1:-1], torch.diff(mean.u) / mean.dz)
+        dv_dr = interp(self.r, mean.z_faces[1:-1], torch.diff(mean.v) / mean.dz)
         dm_dt = -(self.k * du_dr + self.l * dv_dr)
-        
-        ddr_dt, ddm_dt = np.zeros((2, config.n_ray_max))
-        dk_dt, dl_dt, ddk_dt, ddl_dt = np.zeros((4, config.n_ray_max))
+
+        ddr_dt, ddm_dt = torch.zeros((2, config.n_ray_max))
+        dk_dt, dl_dt, ddk_dt, ddl_dt = torch.zeros((4, config.n_ray_max))
 
         idx = self.r < config.r_launch
         dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
 
-        return np.vstack((
+        return torch.vstack((
             dr_dt, ddr_dt,
             dk_dt, dl_dt, dm_dt,
             ddk_dt, ddl_dt, ddm_dt
         ))
     
-    def dissipate_and_break(self, mean: MeanFlow) -> None:
+    def dissipate_and_break(self, mean: MeanState) -> None:
         """
-        First, dissipate waves according to viscosity. (For now, dissipation is
-        handled here rather than in the time tendencies, as dissipation means
-        the ray tracing equations have a term that should be handled implicitly,
-        but only for wave action density.) Then, determine where convective
-        instability-induced wave breaking should occur, and adjust the spectral
-        wave action densities accordingly.
+        First, dissipate waves according to viscosity. Then, determine where
+        convective instability-induced wave breaking should occur, and adjust
+        the spectral wave action densities accordingly. This function is meant
+        to be called separately be the integrator to advance the spectral wave
+        action densities, as they are the sole ray volume property that has a
+        term that needs to be handled implicitly.
 
         Parameters
         ----------
-        MeanFlow
+        mean
             Current mean state of the system.
 
         """
 
         omega_hat = self.omega_hat()
         wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
-        
-        nu = config.dissipation * np.interp(self.r, mean.r_faces, mean.nu)
+
+        nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
-        self.dens[:] = self.dens * np.exp(-config.dt * damping)
+        self.dens[:] = self.dens * torch.exp(-config.dt * damping)
 
         S = self.m ** 2 * omega_hat * self.action
         P = mean.project(self, S, 'centers') - mean.rho * config.N0 ** 2 / 2
         Q = mean.project(self, S * wvn_sq, 'centers')
 
         idx = Q != 0
-        kappa = np.zeros(mean.rho.shape)
-        kappa[idx] = np.maximum(P[idx], 0) / Q[idx]
+        kappa = torch.zeros(mean.rho.shape)
+        kappa[idx] = torch.clamp(P[idx], min=0) / Q[idx]
 
-        intersects = mean.get_fracs(self, mean.r_faces)
+        intersects = get_fracs(self, mean.z_faces)
         intersects[intersects > 0] = 1
 
-        factor = 1 - wvn_sq * np.max(intersects * kappa[:, None], axis=0)
+        factor = 1 - wvn_sq * (intersects * kappa[:, None]).max(dim=0)[0]
         self.dens[:] = self.dens * factor

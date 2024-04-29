@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-def load_config(path: str) -> None:
+def load(path: str) -> None:
     ...
 
 def refresh(config: Optional[dict[str, Any]]=None) -> None:
@@ -9,115 +9,102 @@ def refresh(config: Optional[dict[str, Any]]=None) -> None:
 def reset() -> None:
     ...
 
-################################################################################
+# ==============================================================================
 # global flags
-################################################################################
-boussinesq: bool # Whether density is constant with height.
-show_progress: bool # Whether to show a progress bar.
-interactive_mean: bool # Whether waves affect the mean flow.
-mean_file: str # Path to netCDF file containing prescribed wind time series
-    # (only used if not interactive_mean).
+# ==============================================================================
+show_progress: bool # Whether to show a progress bar during integration. 
+interactive_mean: bool # Whether the ray volumes affect the mean state.
+prescribed_wind_file: str # Path to netCDF file containing the prescribed wind
+    # time series. (Only used if not interactive_mean).
 
-################################################################################
+# ==============================================================================
 # time stepping
-################################################################################
+# ==============================================================================
 dt: int # Time step (s).
+dt_output: int # Output time step (s)
 n_day: int # Number of days to integrate for.
-dt_output: int # Output time step (s).
 
-################################################################################
+# ==============================================================================
 # vertical grid
-################################################################################
+# ==============================================================================
+grid_bounds: tuple[float, float] # Top and bottom of vertical grid (m).
 n_grid: int # Number of vertical grid cell boundaries.
-grid_bounds: tuple[float, float] # Extent of vertical grid (m).
 
-################################################################################
-# mean state parameters
-################################################################################
-latitude: float # Latitude (deg).
-rhobar0: float # Density at zero height (kg / m^3).
-H_scale: float # Density scale height (m).
+# ==============================================================================
+# mean state profiles
+# ==============================================================================
 N0: float # Buoyancy frequency (1 / s).
+rho0: float # Density at zero altitude (kg / m^3).
+boussinesq: bool # Whether density is constant with height.
+H_rho: float # Density scale height (m).
+latitude: float # Column latitude (degrees N).
 
-################################################################################
-# mean flow initialization
-################################################################################
-uv_init_method: str # How to initialize interactive u and v profiles. Must be
-    # one of 'sine_homogeneous' or 'gaussian'.
-u0: float # Reference velocity for initialization scheme.
-r0: float # Reference height for initialization scheme.
-sig_r: float # Reference standard deviation for initialization scheme.
+# ==============================================================================
+# mean wind initialization
+# ==============================================================================
+wind_init_method: str # How to initialize the mean wind profiles.
+z0: float # Altitude of the jet if the 'gaussian' method is used (m).
+sigma_uv: float # Width of the jet if the 'gaussian' method is used (m).
+u0: float # Amplitude of the u jet if the 'gaussian' method is used (m / s).
+v0: float # Amplitude of the v jet if the 'gaussian' method is used (m / s).
 
-################################################################################
-# momentum flux calculation
-################################################################################
-shapiro_filter: bool # Whether to apply a Shapiro filter to MF profiles.
+# ==============================================================================
+# pseudomomentum flux calculation
+# ==============================================================================
+shapiro_filter: bool # Whether to apply a Shapiro filter to flux profiles.
 proj_method: str # How to project wave quantities onto the vertical grid. Must
-    # be one of 'discrete' or 'gaussian'.
-smoothing: float # If proj_method == 'gaussian', the standard deviation of the
-    # Gaussian projection curves is this parameter times the ray volume height
-    # dr. Higher values lead to more smoothing.
+    # be 'discrete', for the time being.
 
-################################################################################
-# flow parameters
-################################################################################
+# ==============================================================================
+# viscosity and dissipation
+# ==============================================================================
 mu: float # Dynamic viscosity (m^2 / s).
-alpha: float # Fraction of Lindzen criterion at which waves break (unitless).
 dissipation: float # Ratio of the viscosity used in wave dissipation to that
     # used for the mean flow. If zero, waves do not dissipate.
 
-################################################################################
-# source and spectrum options (parameters in this section are likely to be used
-# by more than one source spectrum type)
-################################################################################
-source_type: str # How to calculate the source spectrum. Must be the name of a
-    # function defined in sources.py.
-epsilon: float # Intermittency parameter defining the percentage of the time
-    # that a new wave will be launched. Must be in (0, 1].
+# ==============================================================================
+# ray volumes and propagation
+# ==============================================================================
+n_ray_max: int # Maximum number of ray volumes that can exist at once.
+epsilon: float # Intermittency parameter defining the percentage of time that a
+    # new ray volume will be launched. Must be in (0, 1].
 
-n_ray_max: int # Maximum number of rays that can exist at once.
-bc_mom_flux: float # Momentum flux across lower boundary (Pa).
+# ==============================================================================
+# source and spectrum (parameters in this section are likely to be used by more
+# than one source or spectrum type)
+# ==============================================================================
+source_type: str # How ray volumes should be sampled from the source spectrum.
+    # Must be the name of a subclass of Source defined in sources.py.
+spectrum_type: str # Parameterization of the source spectrum to use. Must be the
+    # name of a function defined in spectra.py.
 purge: bool # Whether to purge existing rays to enforce the bottom boundary
     # condition. If False, an error will be raised if the boundary condition
-    # cannot be enforced because there are too many rays.
+    # cannot be enforced because there are two many rays.
 
-wvl_hor_char: float # Characteristic horizontal wavelength (m).
-wvl_ver_char: float # Characteristic vertical wavelength (m).
-direction: float # Horizontal direction (deg relative to due east).
-
-dk_init: float # Initial width of volumes in k space.
-dl_init: float # Initial width of volumes in l space.
-dm_init: float # Initial width of volumes in m space.
+relaunch: bool # Whether to launch waves beyond the first time step.
+bc_mom_flux: float # Momentum flux across lower boundary (Pa).
 
 r_launch: float # Launch height of ray volumes (m).
-dr_init: float # Initial height of ray volumes (m).
+dr_init: float # Initial vertical extent of ray volumes (m).
 
-################################################################################
-# 'legacy' spectrum parameters
-################################################################################
-r_m_area: float # Initial area of volumes in r-m space (unitless).
-r_init_bounds: tuple[float, float] # Lower and upper extent of wave packet.
+dk_init: float # Initial extent of ray volumes in k space. 
+dl_init: float # Initial extent of ray volumes in l space.
 
-################################################################################
-# 'desaubies' spectrum parameters
-################################################################################
-n_c: int # Number of \tilde{c} grid points.
-n_omega: int # Number of \tilde{\omega} grid points.
-c_bounds: tuple[float, float] # Bounds on \tilde{c} (m / s).
-omega_bounds: tuple[float, float] # Bounds on \tilde{\omega} (1 / s).
+wvl_hor_char: float # Characteristic horizontal wavelength (m).
+direction: float # Direction of horizontal propagation (deg relative to east).
 
-################################################################################
-# 'gaussians' spectrum parameters
-################################################################################
-c_center: float # Peak of Gaussians in phase speed space (m / s).
-c_width: float # Width if Gaussian is prescribed in phase speed space (m / s).
-n_source: int # How many ray volumes to discretize the interval into.
+# ==============================================================================
+# 'gaussians' spectrum
+# ==============================================================================
+c_center: float # Phase speed with peak amplitude (m / s).
+c_width: float # Width of Gaussian in phase speed space (m / s).
+n_source: int # How many ray volumes to discretize source into. Must be even.
 
-################################################################################
-# internal variables (set by the code, not the namelist)
-################################################################################
-name: str # Name of the configuration. Determined from the file path.
+# ==============================================================================
+# derived parameters (set by the code, not the namelist)
+# ==============================================================================
+name: str # Name of the configuration, derived from the file path.
 n_t_max: int # Number of time steps to take.
 n_skip: int # Number of time steps to skip between outputs.
 f0: float # Coriolis parameter (1 / s).
-r_ghost: float # Height of the ghost layer (m).
+r_ghost: float # Vertical extent of the ghost layer (m).

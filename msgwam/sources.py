@@ -1,142 +1,103 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING
+from abc import ABC, abstractmethod
 
-import numpy as np
+import torch
 
-from . import config
-from .utils import _cg_r, _omega_hat
+from . import config, spectra
+from .dispersion import cg_r
 
-if TYPE_CHECKING:
-    from .mean import MeanFlow
+class Source(ABC):
+    def __init__(self) -> None:
+        """
+        Initialize the source with data from the spectrum type specified in the
+        config file. That parameter must correspond to the name of a function
+        defined in spectra.py.
 
-# Each function in this module should accept a MeanFlow and return an array with
-# rows corresponding to the ray properties named in RayCollection.props and
-# columns corresponding the ray volumes that should be launched at the source.
+        """
 
-def desaubies(mean: MeanFlow) -> np.ndarray:
-    c_grid = np.linspace(*config.c_bounds, 2 * config.n_c + 1)
-    omega_grid = np.linspace(*config.omega_bounds, 2 * config.n_omega + 1)
-    c_grid, omega_grid = c_grid[1:-1:2], omega_grid[1:-1:2]
-    c, omega = np.meshgrid(c_grid, omega_grid)
-    c, omega = c.flatten(), omega.flatten()
+        spectrum_func = getattr(spectra, config.spectrum_type)
+        self.data: torch.Tensor = spectrum_func()
+        self.n_slots = self.data.shape[1]
 
-    dc = c_grid[1] - c_grid[0]
-    domega = omega_grid[1] - omega_grid[0]
-    dphi = np.pi / 2
+    @abstractmethod
+    def launch(
+        self,
+        j: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Each spectrum is discretized into a fixed number of slots, each of which
+        corresponds to a column in `self.data`. This function takes in a tensor
+        containing the slots of rays that have cleared the launch level and then
+        returns the properties of the ray volumes that should be launched.
 
-    m = -config.N0 / c
-    wvn_hor = omega / c
-    dm = dc * m ** 2 / config.N0
-    m_star = -2 * np.pi / config.wvl_ver_char
+        For a constant source, this might be as simple as returning the columns
+        of `self.data` indexed by `j`. However, a stochastic source might return
+        only a subset of the slots indexed in `j`, while a neural network source
+        might return a small number of ray volumes, each of which stands in for
+        several of the ones requested.
 
-    top = c * config.N0 ** 3 * omega ** (-2 / 3)
-    bottom = config.N0 ** 4 + m_star ** 4 * c ** 4
-    F0 = m_star ** 3 * top / bottom
+        In addition to the properties of the ray volumes to launch, the source
+        returns two helper tensors. The first is a tensor of the slots that are
+        replaced by one of the returned ray volumes, and the second is the
+        number of slots each returned ray volume is intended to replace.
+        
+        Parameters
+        ----------
+        j
+            Tensor of slots of ray volumes that have cleared the launch level.
 
-    n_each = config.n_c * config.n_omega
-    data = np.zeros((9, 4 * n_each))
+        Returns
+        -------
+        torch.Tensor
+            Tensor of properties of the ray volumes that should be launched.
+        torch.Tensor
+            Tensor of slots that are replaced by one of the rays in the first
+            output tensor.
+        torch.Tensor
+            Tensor whose length is the number of columns in the first output
+            tensor, and whose values indicate how many of the slots in the 
+            second output tensor each returned ray volume replaces.
+            
+        """
+        ...
 
-    dr = np.ones(n_each) * config.dr_init
-    r = np.ones(n_each) * (config.r_ghost - 0.5 * config.dr_init)
-    rhobar = np.interp(r[0], mean.r_centers, mean.rho)
+class ConstantSource(Source):
+    def launch(
+        self,
+        j: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Simply return the columns of `self.data` indexed by j."""
+
+        return self.data[:, j], j, torch.ones(len(j)).int()
     
-    C = config.bc_mom_flux / (4 * rhobar * F0.sum() * dc * domega * dphi)
-    F3 = C * config.N0 ** 3 * F0 / (m ** 4 * omega)
+class StochasticSource(Source):
+    def __init__(self) -> None:
+        """
+        At initialization, the stochastic source calculates the vertical group
+        velocity of each ray volume in the spectrum and thereby estimates the
+        launch rate that would be attained without stochasticity.
+        """
 
-    for i in range(4):
-        phi = i * dphi
-        k = wvn_hor * np.round(np.cos(phi))
-        l = wvn_hor * np.round(np.sin(phi))
+        super().__init__()
 
-        dk = domega * abs(m) / config.N0
-        dl = wvn_hor * dphi
+        self.cg_source = cg_r(*self.data[2:5])
+        times = torch.ceil(config.dr_init / (self.cg_source * config.dt))
+        self.launch_rate = config.epsilon * (1 / times).sum()
 
-        if i % 2 == 1:
-            dk, dl = dl, dk
+    def launch(
+        self,
+        j: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Return `config.epsilon` times the number of rays requested, sampled such
+        that faster ray volumes are launched more frequently.
+        """
 
-        cg_r = _cg_r(k, l, m)
-        dens = rhobar * F3 / (wvn_hor * cg_r)
-        chunk = np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
-        data[:, (i * n_each):((i + 1) * n_each)] = chunk
+        size = int(torch.floor(self.launch_rate))
+        if torch.rand(1) < self.launch_rate - size:
+            size = size + 1
 
-    return data
+        weights = self.cg_source[j]
+        weights = weights / weights.sum()
+        j = j[torch.multinomial(weights, num_samples=size)]
 
-def legacy(mean: MeanFlow) -> np.ndarray:
-    """
-    Calculate source ray volumes as was done in the original version of this
-    Python code. Note that the library defaults to not launching more rays at
-    the lower boundary when this option is chosen.
-    """
-    
-    wvn_hor = 2 * np.pi / config.wvl_hor_char
-    direction = np.deg2rad(config.direction)
-
-    k = wvn_hor * np.cos(direction) * np.ones(config.n_ray_max)
-    l = wvn_hor * np.sin(direction) * np.ones(config.n_ray_max)
-    m = -2 * np.pi / config.wvl_ver_char * np.ones(config.n_ray_max)
-
-    r_min, r_max = config.r_init_bounds
-    r_edges = np.linspace(r_min, r_max, config.n_ray_max + 1)
-    dr = r_edges[1] - r_edges[0] * np.ones(config.n_ray_max)
-    r = (r_edges[:-1] + r_edges[1:]) / 2
-
-    dk = config.dk_init * np.ones(config.n_ray_max)
-    dl = config.dl_init * np.ones(config.n_ray_max)
-    dm = config.r_m_area / dr
-
-    rhobar = np.interp(r, mean.r_centers, mean.rho)
-    omega_hat = _omega_hat(k=k, l=l, m=m)
-
-    amplitude = (
-        (config.alpha ** 2 * rhobar * omega_hat * config.N0 ** 2) /
-        (2 * m ** 2 * (omega_hat ** 2 - config.f0 ** 2))
-    )
-
-    profile = np.exp(-0.5 * ((r - r.mean()) / 2000) ** 2)
-    dens = amplitude * profile / (dk * dl * dm)
-
-    return np.vstack((r, dr, k, l, m, dk, dl, dm, dens))
-
-def gaussians(_) -> np.ndarray:
-    dr = config.dr_init
-    r = config.r_ghost - 0.5 * dr
-
-    wvn_hor = 2 * np.pi / config.wvl_hor_char
-    direction = np.deg2rad(config.direction)
-    k = wvn_hor * np.cos(direction)
-    l = wvn_hor * np.sin(direction)
-
-    c_max = config.c_center + 2 * config.c_width
-    c_min = max(config.c_center - 2 * config.c_width, 0.5)
-    cs = np.linspace(c_min, c_max, config.n_source // 2)
-    ms = _m_from(k, l, cs)
-    dc = cs[1] - cs[0]
-
-    fluxes = np.exp(-(((cs - config.c_center) / config.c_width) ** 2))
-    fluxes = (config.bc_mom_flux / fluxes.sum()) * fluxes / 2
-
-    dk = config.dk_init
-    dl = config.dl_init
-
-    data = np.zeros((9, config.n_source))
-    for j, (m, flux) in enumerate(zip(ms, fluxes)):
-        dm = abs(k * dc / _cg_r(k, l, m))
-        dens = flux / (k ** 2 * dk * dl * dc)
-
-        data[:, j] = np.array([r, dr, k, l, m, dk, dl, dm, dens])
-        data[:, j + (config.n_source // 2)] = data[:, j]
-        data[2, j + (config.n_source // 2)] *= -1
-
-    return data
-
-def _c_from(k: np.ndarray, l: np.ndarray, m: np.ndarray) -> np.ndarray:
-    top = config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2
-    bottom = (k ** 2 + l ** 2 + m ** 2) * k ** 2
-
-    return np.sign(k) * np.sqrt(top / bottom)
-
-def _m_from(k: np.ndarray, l: np.ndarray, c: np.ndarray) -> np.ndarray:
-    top = (k ** 2 + l ** 2) * (config.N0 ** 2 - c ** 2 * k ** 2)
-    bottom = (c ** 2 * k ** 2 - config.f0 ** 2)
-
-    return -np.sqrt(top / bottom)
+        return self.data[:, j], j, torch.ones(len(j)).int()

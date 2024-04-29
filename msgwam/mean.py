@@ -1,83 +1,85 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-import numpy as np
+import torch
 
 from . import config
+from .utils import interp, get_fracs, pad_ends, shapiro_filter
 
 if TYPE_CHECKING:
     from .rays import RayCollection
 
-class MeanFlow:
+class MeanState:
     def __init__(self) -> None:
-        """
-        Initialize a MeanFlow using the settings set by config.load_config.
-        """
+        """Initialize the mean state of the model."""
 
-        self.r_faces = np.linspace(*config.grid_bounds, config.n_grid)
-        self.r_centers = (self.r_faces[:-1] + self.r_faces[1:]) / 2
-        self.dr: float = self.r_faces[1] - self.r_faces[0]
+        self.z_faces = torch.linspace(*config.grid_bounds, config.n_grid)
+        self.z_centers = (self.z_faces[:-1] + self.z_faces[1:]) / 2
+        self.dz = self.z_faces[1] - self.z_faces[0]
 
         self.rho = self._init_rho()
-        self.data = self._init_uv()
+        self.wind = self._init_wind()
         self.grad_p = self._init_grad_p()
 
-        nu_centers = config.mu / self.rho
-        self.nu = np.interp(self.r_faces, self.r_centers, nu_centers)
-        self.pmf_bar = np.zeros((2, *self.r_faces.shape))
+        self.nu = interp(
+            self.z_faces,
+            self.z_centers,
+            config.mu / self.rho
+        )
 
     @property
-    def u(self) -> np.ndarray:
+    def u(self) -> torch.Tensor:
         """
         Return the zonal component of the mean wind.
 
         Returns
         -------
-        np.ndarray
-            Array of zonal wind velocities at cell centers.
+        torch.Tensor
+            Tensor of zonal wind velocities at cell centers.
 
         """
 
-        return self.data[0]
+        return self.wind[0]
     
     @property
-    def v(self) -> np.ndarray:
+    def v(self) -> torch.Tensor:
         """
         Return the meridional component of the mean wind.
 
         Returns
         -------
-        np.ndarray
-            Array of meridional wind velocities at cell centers.
+        torch.Tensor
+            Tensor of meridional wind velocities at cell centers.
 
         """
 
-        return self.data[1]
+        return self.wind[1]
     
     def project(
         self,
         rays: RayCollection,
-        data: np.ndarray,
+        data: torch.Tensor,
         onto: str
-    ) -> np.ndarray:
+    ) -> torch.Tensor:
         """
-        Project ray volume data onto a vertical grid.
+        Project data corresponding to each ray volume onto the vertical grid of
+        the mean state.
 
         Parameters
         ----------
         rays
-            Current ray volume properties.
+            Collection of current ray volume properties.
         data
-            Array of data to project (for example pseudomomentum fluxes). Should
-            have the same shape as the properties stored in `rays`.
+            Data to project (for example, pseudomomentum fluxes). Should have
+            the same shape as the properties stored in `rays`.
         onto
-            Whether to project onto cell 'faces' or cell 'centers'.
+            Whether to project onto cell `'faces'` or cell `'centers'`.
 
         Returns
         -------
-        np.ndarray
+        torch.Tensor
             Projected values at each vertical grid point. Has the same length as
-            either `self.r_faces` or `self.r_centers`, depending on `onto`.
+            either `self.z_faces` or `self.z_centers`, depending on `onto`.
 
         Raises
         ------
@@ -87,44 +89,36 @@ class MeanFlow:
         """
 
         if config.proj_method == 'discrete':
-            edges = {'faces' : self.r_centers, 'centers' : self.r_faces}[onto]
-            output = np.nansum(self.get_fracs(rays, edges) * data, axis=1)
+            edges = {'faces' : self.z_centers, 'centers' : self.z_faces}[onto]
+            output = torch.nansum(get_fracs(rays, edges) * data, dim=1)
 
             if onto == 'faces':
-                output = np.pad(output, 1, 'edge')
+                output = pad_ends(output)
 
             return output
         
-        elif config.proj_method == 'gaussian':
-            sigma = rays.dr * config.smoothing
-            grid = {'faces' : self.r_faces, 'centers' : self.r_centers}[onto]
-            env = np.exp(-0.5 * ((rays.r - grid[:, None]) / sigma) ** 2)
-            amplitude = data * rays.dr / np.sqrt(2 * np.pi) / sigma
-
-            return np.nansum(amplitude * env, axis=1)
-        
         message = f'Unknown projection method: {config.proj_method}'
         raise ValueError(message)
-        
-    def pmf(self, rays: RayCollection, onto: str='faces') -> np.ndarray:
+    
+    def pmf(self, rays: RayCollection, onto: str='faces') -> torch.Tensor:
         """
         Calculate the zonal and meridional pseudomomentum fluxes.
 
         Parameters
         ----------
         rays
-            Current ray properties.
-        onto
+            Collection of current ray volume properties.
+        onto, optional
             Passed to `self.project` to indicate where to calculate the fluxes.
-            Can be either 'faces' (useful during integration) or 'centers' (for
-            saving offline diagnostics).
+            Can be either `'faces'` (default, useful during integration) or
+            `'centers'` (for saving offline diagnostics).
 
         Returns
         -------
-        np.ndarray
-            Array of shape (2, config.n_grid) or (2, config.n_grid - 1),
-            depending on the value of `onto`, whose rows correspond to the zonal
-            and meridional pseudomomentum fluxes, respectively.
+        torch.Tensor
+            Tensor of shape (2, config.n_grid) or (2, config.n_grid - 1),
+            depending on the value of `onto`, whose rows contain the zonal and
+            meridional pseudomomentum fluxes, respectively.
 
         """
 
@@ -133,59 +127,79 @@ class MeanFlow:
         pmf_y = self.project(rays, action_flux * rays.l, onto=onto)
 
         if config.shapiro_filter:
-            pmf_x[1:-1] = self._shapiro_filter(pmf_x)
-            pmf_y[1:-1] = self._shapiro_filter(pmf_y)
+            pmf_x[1:-1] = shapiro_filter(pmf_x)
+            pmf_y[1:-1] = shapiro_filter(pmf_y)
 
-        return np.vstack((pmf_x, pmf_y))
+        return torch.vstack((pmf_x, pmf_y))
 
-    def dmean_dt(self, rays: RayCollection) -> np.ndarray:
+    def dmean_dt(self, rays: RayCollection) -> torch.Tensor:
         """
         Calculate the time tendency of the mean wind, including Coriolis terms
-        and pseudomomentum flux divergences from the ray volumes.
+        as well as the pseudomomentm flux divergences. Note that the diffusion
+        of the mean flow is not included here, as it is handled implicitly by
+        the integrator.
 
         Parameters
         ----------
         rays
-            Current ray properties.
+            Collection of current ray volume properties.
 
         Returns
         -------
-        np.ndarray
-            Array whose first and second rows are the time tendencies of the
-            zonal and meridional wind, respectively, at cell centers.
+        torch.Tensor
+            Tensor whose first and second rows contain the time tendencies of
+            the zonal and meridional wind, respectively, at cell centers.
 
         """
 
-        dpmf_dr = np.diff(self.pmf(rays), axis=1) / self.dr
-        coriolis = config.f0 * np.vstack((self.v, -self.u))
+        dpmf_dz = torch.diff(self.pmf(rays), dim=1) / self.dz
+        coriolis = config.f0 * torch.vstack((self.v, -self.u))
 
-        return coriolis - (self.grad_p + dpmf_dr) / self.rho
+        return coriolis - (self.grad_p + dpmf_dz) / self.rho
 
-    def _init_rho(self) -> np.ndarray:
+    def _init_grad_p(self) -> torch.Tensor:
         """
-        Initialize the mean density profile depending on whether the Boussinesq
-        approximation is to be made.
+        Initialize the geostrophic horizontal pressure gradients.
 
         Returns
         -------
-        np.ndarray
+        torch.Tensor
+            Tensor whose first and second rows contain the zonal and meridional
+            pressure gradients, respectively, at cell centers.
+
+        """
+
+        return torch.vstack((
+            self.rho * config.f0 * self.v,
+            -self.rho * config.f0 * self.u
+        ))
+
+    def _init_rho(self) -> torch.Tensor:
+        """
+        Initialize the mean density profile, depending on whether the Boussinesq
+        approximation should be made.
+
+        Returns
+        -------
+        torch.Tensor
             Mean density profile at cell centers.
 
         """
 
         if config.boussinesq:
-            return config.rhobar0 * np.ones(self.r_centers.shape)
+            return config.rho0 * torch.ones_like(self.z_centers)
         
-        return config.rhobar0 * np.exp(-self.r_centers / config.H_scale)
+        return config.rho0 * torch.exp(-self.z_centers / config.H_rho)
     
-    def _init_uv(self) -> np.ndarray:
+    def _init_wind(self) -> torch.Tensor:
         """
-        Initialize the mean wind profiles using the method identified in config.
+        Initialize the mean wind profiles with the method specified in config.
 
         Returns
         -------
-        np.ndarray
-            Array whose first row stores u and whose second row stores v.
+        torch.Tensor
+            Tensor whose first and second rows contain the zonal and meridional
+            velocities, respectively, at cell centers.
 
         Raises
         ------
@@ -195,77 +209,18 @@ class MeanFlow:
 
         """
 
-        method = config.uv_init_method
+        if not config.interactive_mean:
+            return torch.zeros((2, config.n_grid - 1))
+
+        method = config.wind_init_method
         if method == 'gaussian':
-            arg = -0.5 * (((self.r_centers - config.r0) / config.sig_r) ** 2)
-            u = config.u0 * np.exp(arg)
-            v = np.zeros(u.shape)
+            scale = (self.z_centers - config.z0) / config.sigma_uv
+            envelope = torch.exp(-0.5 * scale ** 2)
 
-            return np.vstack((u, v))
+            return torch.vstack((
+                config.u0 * envelope,
+                config.v0 * envelope
+            ))
         
-        message = f'Unknown method for initializing mean flow: {method}'
+        message = f'Unknown method for initializing mean wind: {method}'
         raise ValueError(message)
-    
-    def _init_grad_p(self) -> np.ndarray:
-        """
-        Initialize the horizontal pressure gradients according to the
-        geostrophic approximation.
-
-        Returns
-        -------
-        np.ndarray
-            Array whose first and second rows correspond to the zonal and
-            meridional pressure gradients, respectively, at cell centers.
-
-        """
-
-        return np.vstack((
-            self.rho * config.f0 * self.v,
-            -self.rho * config.f0 * self.u
-        ))
-    
-    @staticmethod
-    def get_fracs(rays: RayCollection, edges: np.ndarray) -> np.ndarray:
-        """
-        Find the fraction of each grid cell that intersects each ray volume.
-
-        Parameters
-        ----------
-        rays
-            Current ray volume properties
-        edges
-            Edges of the vertical regions to project onto.
-
-        Returns
-        -------
-        Fraction of each grid cell intersected by each ray volume. Has shape
-        (len(grid - 1), config.n_ray_max).
-
-        """
-
-        r_lo = rays.r - 0.5 * rays.dr
-        r_hi = rays.r + 0.5 * rays.dr
-
-        r_mins = np.maximum(r_lo, edges[:-1, None])
-        r_maxs = np.minimum(r_hi, edges[1:, None])
-
-        return np.maximum(r_maxs - r_mins, 0) / (edges[1] - edges[0])
-    
-    @staticmethod
-    def _shapiro_filter(data: np.ndarray) -> np.ndarray:
-        """
-        Apply a zeroth-order Shapiro filter.
-
-        Parameters
-        ----------
-        data
-            Array to filter.
-
-        Returns
-        -------
-        np.ndarray
-            Filtered array. Has two fewer elements than the array passed in.
-
-        """
-
-        return (data[:-2] + 2 * data[1:-1] + data[2:]) / 4
