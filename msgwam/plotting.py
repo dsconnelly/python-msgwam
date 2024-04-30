@@ -24,7 +24,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     ds
         Open `xr.Dataset` containing integration output to plot.
     output_path
-        Where to sae the output image.
+        Where to save the output image.
 
     """
 
@@ -35,8 +35,8 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     _, u_cbar = plot_time_series(ds['u'], 25, axes[0])
     _, pmf_cbar = plot_time_series(ds['pmf_u'] * 1000, 30, axes[1])
 
-    u_cbar.set_label('$\\bar{u}$ (m s$^{-1}$)')
-    pmf_cbar.set_label('PMF (mPa)')
+    u_cbar.set_label('$\\bar{u}$ (m s$^{-1}$)') # type: ignore
+    pmf_cbar.set_label('PMF (mPa)') # type: ignore
 
     plt.tight_layout()
     plt.savefig(output_path)
@@ -74,7 +74,7 @@ def plot_time_series(
         fig, axes = plt.subplots(ncols=2, width_ratios=widths)
         fig.set_size_inches(sum(widths), 3)
 
-    z = data['z'] / 1000
+    z = data['z'].values / 1000
     yticks = np.linspace(z.min(), z.max(), 7)
     ylabels = (10 * np.round((yticks / 10))).astype(int)
     time = cftime.date2num(data['time'], f'days since {EPOCH}')
@@ -95,7 +95,7 @@ def plot_time_series(
     
     try:
         cbar = plt.colorbar(img, cax=axes[1])
-        cbar.set_ticks(np.linspace(-amax, amax, 5))
+        cbar.set_ticks(np.linspace(-amax, amax, 5)) # type: ignore
 
     except IndexError:
         cbar = None

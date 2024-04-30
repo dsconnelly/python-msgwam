@@ -34,12 +34,18 @@ class Integrator(ABC):
         )
 
         if not config.interactive_mean:
-            with open_dataset(config.prescribed_wind_file) as ds:
-                ds = ds.interp(time=self.time)
-                u = torch.tensor(ds['u'].values)
-                v = torch.tensor(ds['v'].values)
+            if isinstance(config.prescribed_wind, str):
+                with open_dataset(config.prescribed_wind) as ds:
+                    ds = ds.interp(time=self.time)
+                    u = torch.tensor(ds['u'].values)
+                    v = torch.tensor(ds['v'].values)
 
-            self.prescribed_wind = torch.stack((u, v), dim=1).float()
+                self.prescribed_wind = torch.stack((u, v), dim=1).float()
+
+            else:
+                shape = (len(self.time), -1, -1)
+                self.prescribed_wind = config.prescribed_wind.expand(shape)
+
             mean.wind = self.prescribed_wind[0]
 
         self.snapshots_mean = [mean]

@@ -1,5 +1,7 @@
 from typing import Any, Optional
 
+import torch
+
 def load(path: str) -> None:
     ...
 
@@ -12,10 +14,13 @@ def reset() -> None:
 # ==============================================================================
 # global flags
 # ==============================================================================
-show_progress: bool # Whether to show a progress bar during integration. 
+show_progress: bool # Whether to show a progress bar during integration.
 interactive_mean: bool # Whether the ray volumes affect the mean state.
-prescribed_wind_file: str # Path to netCDF file containing the prescribed wind
-    # time series. (Only used if not interactive_mean).
+prescribed_wind: str | torch.Tensor # Prescribed mean wind field to use if
+    # interactive_mean is False. If specified in the namelist, should be a path
+    # to a netCDF file containing a (time-varying) mean wind field. If specified
+    # dynamically, should be a tensor with two rows containing the constant u
+    # and v profiles, respectively.
 
 # ==============================================================================
 # time stepping
@@ -43,10 +48,10 @@ latitude: float # Column latitude (degrees N).
 # mean wind initialization
 # ==============================================================================
 wind_init_method: str # How to initialize the mean wind profiles.
-z0: float # Altitude of the jet if the 'gaussian' method is used (m).
-sigma_uv: float # Width of the jet if the 'gaussian' method is used (m).
 u0: float # Amplitude of the u jet if the 'gaussian' method is used (m / s).
 v0: float # Amplitude of the v jet if the 'gaussian' method is used (m / s).
+z0: float # Altitude of the jet if the 'gaussian' method is used (m).
+sigma_uv: float # Width of the jet if the 'gaussian' method is used (m).
 
 # ==============================================================================
 # pseudomomentum flux calculation
@@ -76,7 +81,9 @@ epsilon: float # Intermittency parameter defining the percentage of time that a
 source_type: str # How ray volumes should be sampled from the source spectrum.
     # Must be the name of a subclass of Source defined in sources.py.
 spectrum_type: str # Parameterization of the source spectrum to use. Must be the
-    # name of a function defined in spectra.py.
+    # name of a function defined in spectra.py. For dynamically created spectra,
+    # a function that returns the desired ray volume data should be monkey
+    # patched into that module.
 purge: bool # Whether to purge existing rays to enforce the bottom boundary
     # condition. If False, an error will be raised if the boundary condition
     # cannot be enforced because there are two many rays.

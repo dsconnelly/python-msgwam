@@ -3,7 +3,7 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind_file = 'data/centered-gaussians/mean-state.nc'
+prescribed_wind = 'data/centered-gaussians/mean-state.nc'
 
 # ==============================================================================
 # time stepping
@@ -31,10 +31,10 @@ latitude = 0
 # mean wind initialization
 # ==============================================================================
 # wind_init_method =
-# z0 =
-# sigma_uv =
 # u0 =
 # v0 =
+# z0 =
+# sigma_uv =
 
 # ==============================================================================
 # pseudomomentum flux calculation
@@ -62,6 +62,7 @@ source_type = 'constant'
 spectrum_type = 'gaussians'
 purge = false
 
+relaunch = true
 bc_mom_flux = 3e-3
 
 r_launch = 15e3
