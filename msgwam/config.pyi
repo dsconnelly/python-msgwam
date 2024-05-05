@@ -71,6 +71,11 @@ dissipation: float # Ratio of the viscosity used in wave dissipation to that
 # ray volumes and propagation
 # ==============================================================================
 n_ray_max: int # Maximum number of ray volumes that can exist at once.
+n_chromatic: int # Number of waves considered at once when determining which ray
+    # volumes should break. If 1, breaking is monochromatic, and if -1, breaking
+    # is polychromatic over the whole collection of rays. If 0, no ray volume
+    # breaking occurs. Values are than these are most useful during batch
+    # integrations, so that subsets of ray volumes can break individually.
 epsilon: float # Intermittency parameter defining the percentage of time that a
     # new ray volume will be launched. Must be in (0, 1].
 

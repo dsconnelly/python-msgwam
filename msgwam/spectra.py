@@ -3,7 +3,21 @@ import torch
 from . import config
 from .dispersion import cg_r, m_from
 
-def gaussians() -> torch.Tensor:
+def get_spectrum() -> torch.Tensor:
+    """
+    Return the ray volume properties of the spectrum specified in the config.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor whose rows correspond to ray volume properties and whose columns
+        correspond to individual ray volumes in the spectrum.
+
+    """
+
+    return globals()['_' + config.spectrum_type]()
+
+def _gaussians() -> torch.Tensor:
     """Spectrum consisting of Gaussian peaks symmetric about the origin."""
 
     dr = config.dr_init

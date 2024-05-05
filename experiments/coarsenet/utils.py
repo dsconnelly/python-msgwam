@@ -1,47 +1,54 @@
-from typing import Optional
+import sys
 
-import numpy as np
 import torch
-import xarray as xr
 
-def pad_jagged(
-    a: np.ndarray | xr.DataArray,
-    keep: np.ndarray,
-    width: Optional[int]=None
+sys.path.insert(0, '.')
+from msgwam import config, spectra
+from msgwam.integration import SBDF2Integrator
+from msgwam.utils import get_fracs, shapiro_filter
+
+def batch_integrate(
+    wind: torch.Tensor,
+    spectrum: torch.Tensor,
+    rays_per_packet: int,
+    out: torch.Tensor
 ) -> torch.Tensor:
     """
-    Given an array `a`, return a tensor containing just those elements indicated
-    by the Boolean array `keep`, with each row padded with zeros as necessary.
+    Integrate the system with the given mean wind profiles (held constant) and
+    source spectrum. Then, assume the ray volumes correspond to distinct packets
+    and return a time series of zonal pseudomomentum flux profiles for each one.
 
     Parameters
     ----------
-    a
-        Array to select from. If an `xr.DataArray`, will be cast to a numpy
-        array and assumed to have two dimensions.
-    keep
-        Boolean array indicating which elements of `a` to keep.
-    width
-        Width to pad to. Note that if `n` is smaller than the maximum number of
-        elements to be kept in a row of `a`, that number will be used instead.
-
-    Returns
-    -------
-    torch.Tensor
-        Padded array of values selected from `a`.
+    wind
+        Zonal and meridional wind profiles to prescribe during integration.
+    spectrum
+        Properties of the source spectrum ray volumes.
+    rays_per_packet
+        How many source ray volumes are in each packet. Used to extract the
+        time series for each packet after integration.
+    out
+        Where to store the computed time series. Should be a tensor of shape
+        `(n_snapshots, packets_per_batch, n_wind)`, where `n_snapshots` is the
+        number of steps in the time series and `n_wind` is the number of grid
+        points the wind (and pseudomomentum fluxes) are reported on.
 
     """
 
-    if isinstance(a, xr.DataArray):
-        a = a.values
+    config.prescribed_wind = wind
+    config.n_ray_max = spectrum.shape[1]
+    config.n_chromatic = rays_per_packet
 
-    per_row = keep.sum(axis=1)
-    max_pos = per_row.max()
+    config.spectrum_type = 'custom'
+    spectra._custom = lambda: spectrum
+    config.refresh()
 
-    if width is not None:
-        max_pos = max(max_pos, width)
+    solver = SBDF2Integrator().integrate()
+    faces = solver.snapshots_mean[0].z_faces
+    shape = (wind.shape[1], -1, rays_per_packet)
 
-    out = np.zeros((a.shape[0], max_pos))
-    idx = np.arange(max_pos) < per_row[:, None]
-    out[idx] = a[keep]
-
-    return torch.as_tensor(out)
+    for j, rays in enumerate(solver.snapshots_rays):
+        pmf = get_fracs(rays, faces) * rays.cg_r() * rays.action * rays.k
+        profiles = torch.nansum(pmf.reshape(shape), dim=2)
+        profiles[1:-1] = shapiro_filter(profiles)
+        out[j] = profiles.transpose(0, 1)

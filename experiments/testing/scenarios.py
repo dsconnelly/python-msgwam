@@ -7,7 +7,7 @@ import xarray as xr
 
 sys.path.insert(0, '.')
 from msgwam import config
-from msgwam.constants import EPOCH
+from msgwam.constants import EPOCH, RAD_EARTH
 from msgwam.plotting import plot_time_series
 
 def save_mean_state(scenario: str) -> None:
@@ -24,13 +24,52 @@ def save_mean_state(scenario: str) -> None:
 
     func_name = '_' + scenario.replace('-', '_')
     ds: xr.Dataset = globals()[func_name]()
-    
+
     _, cbar = plot_time_series(ds['u'], 12)
     cbar.set_label('$\\bar{u}$ (m s$^{-1}$)')
 
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/mean-state.png')
     ds.to_netcdf(f'data/{config.name}/mean-state.nc')
+
+def _jra_midlatitudes() -> xr.Dataset:
+    """
+    Return a mean flow scenario taken from JRA-55 in the midlatitudes.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset containing the mean flow scenario.
+
+    """
+
+    lat_slice = slice(45, 35)
+    lon_slice = slice(280, 290)
+
+    kwargs = {'engine' : 'cfgrib', 'indexpath' : ''}
+    with xr.open_dataset('data/JRA-55/gh.grib', **kwargs) as ds:
+        ds = ds.sel(latitude=lat_slice, longitude=lon_slice)
+        z = ds['gh'] * RAD_EARTH / (RAD_EARTH - ds['gh'])
+        z = z.mean(('time', 'latitude', 'longitude'))
+        z = z * config.grid_bounds[1] / z.max()
+        
+    with xr.open_dataset('data/JRA-55/u.grib', **kwargs) as ds:
+        ds = ds.sel(latitude=lat_slice, longitude=lon_slice)
+        u = ds['u'].mean(('latitude', 'longitude')).values
+        v = np.zeros_like(u)
+
+        seconds = (ds['time'] - ds['time'][0]).values.astype(int) / 1e9
+        time = cftime.num2date(seconds, f'seconds since {EPOCH}')
+
+    faces = np.linspace(*config.grid_bounds, config.n_grid)
+    centers = (faces[:-1] + faces[1:]) / 2
+
+    return xr.Dataset({
+        'time' : time,
+        'z' : z.values,
+        'u' : (('time', 'z'), u),
+        'v' : (('time', 'z'), v)
+    }).interp(z=centers)
 
 def _oscillating_jets() -> xr.Dataset:
     """

@@ -4,9 +4,12 @@ import torch, torch.nn as nn
 
 sys.path.insert(0, '.')
 from msgwam import config
+from msgwam.dispersion import cg_r
 from msgwam.rays import RayCollection
 
 PROPS = ['dr', 'm', 'dm']
+LOOKUP = RayCollection.props[:-2]
+INDICES = RayCollection.indices
 
 class CoarseNet(nn.Module):
     """
@@ -23,11 +26,9 @@ class CoarseNet(nn.Module):
 
         super().__init__()
 
-        props = ['dr', 'm', 'dm']
-
         n_wind = config.n_grid - 1
-        n_inputs = n_wind + config.n_source * len(props)
-        n_outputs = len(props)
+        n_inputs = n_wind + config.n_source * len(PROPS)
+        n_outputs = len(PROPS)
 
         self.layers = nn.Sequential(
             nn.Linear(n_inputs, 256), nn.ReLU(),
@@ -61,10 +62,28 @@ class CoarseNet(nn.Module):
         n_wind = config.n_grid - 1
         u, data = X[:, :n_wind], X[:, n_wind:]
         data = data.reshape(X.shape[0], -1, config.n_source)
-
-        lookup = RayCollection.props
-        jdx = [lookup.index(prop) for prop in PROPS]
+        
+        jdx = [INDICES[prop] for prop in PROPS]
         to_use = data[:, jdx].reshape(-1, len(PROPS) * config.n_source)
-        output = self.layers(torch.hstack((u, to_use)))
+        output = torch.exp(self.layers(torch.hstack((u, to_use))))
 
-        print(output.shape)
+        j = PROPS.index('m')
+        output[:, j] = -1 * output[:, j]
+
+        Y = torch.zeros(len(LOOKUP), output.shape[0])
+        for i, prop in enumerate(LOOKUP[:-1]):
+            if prop in PROPS:
+                Y[i] = output[:, PROPS.index(prop)]
+
+            else:
+                Y[i] = data[:, i, 0]
+
+        def _get(prop: str) -> torch.Tensor:
+            return data[:, LOOKUP.index(prop)]
+        
+        cg = cg_r(_get('k'), _get('l'), _get('m'))
+        volume = _get('dk') * _get('dl') * _get('dm')
+        flux = _get('k') * _get('dens') * volume * cg
+
+        budget = torch.sum(torch.nan_to_num(torch.abs(flux)), dim=1)
+

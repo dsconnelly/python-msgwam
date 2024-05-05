@@ -3,7 +3,10 @@ import sys
 sys.path.insert(0, '.')
 from msgwam import config
 
-from preprocess import save_training_data
+from preprocessing import save_training_data
+
+import torch
+torch.set_default_dtype(torch.float64)
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]

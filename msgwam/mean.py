@@ -71,7 +71,9 @@ class MeanState:
             Collection of current ray volume properties.
         data
             Data to project (for example, pseudomomentum fluxes). Should have
-            the same shape as the properties stored in `rays`.
+            the same number of elements as the properties stored in `rays`. If
+            `data` has more than one dimension, then the projection is done in
+            batches and the returned tensor will have a profile for each batch.
         onto
             Whether to project onto cell `'faces'` or cell `'centers'`.
 
@@ -90,7 +92,8 @@ class MeanState:
 
         if config.proj_method == 'discrete':
             edges = {'faces' : self.z_centers, 'centers' : self.z_faces}[onto]
-            output = torch.nansum(get_fracs(rays, edges) * data, dim=1)
+            fracs = get_fracs(rays, edges).reshape(-1, *data.shape)
+            output = torch.nansum(fracs * data, dim=-1)
 
             if onto == 'faces':
                 output = pad_ends(output)

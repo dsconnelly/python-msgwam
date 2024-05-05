@@ -144,6 +144,7 @@ def pad_ends(data: torch.Tensor) -> torch.Tensor:
 
     Returns
     -------
+    torch.Tensor
         Padded tensor. Has two more elements than the tensor passed in.
 
     """
@@ -161,35 +162,9 @@ def shapiro_filter(data: torch.Tensor) -> torch.Tensor:
 
     Returns
     -------
+    torch.Tensor
         Filtered tensor. Has two fewer elements than the tensor passed in.
 
     """
 
     return (data[:-2] + 2 * data[1:-1] + data[2:]) / 4
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    x = np.linspace(0, 1, 10)
-    y = np.random.rand(10)
-
-    x_new = 2 * np.linspace(0, 1, 100) - 0.5
-    y_new_np = np.interp(x_new, x, y)
-    y_new_torch = interp(
-        torch.tensor(x_new),
-        torch.tensor(x),
-        torch.tensor(y)
-    ).numpy()
-
-    plt.scatter(x, y, color='k')
-    plt.plot(x_new, y_new_torch, color='royalblue', label='torch')
-    plt.plot(x_new, y_new_np, color='forestgreen', ls='dashed', label='numpy')
-    plt.legend()
-    
-    idx = (x_new > 0) & (x_new < 1)
-    error = np.max((y_new_torch[idx] - y_new_np[idx]) ** 2)
-
-    plt.title(f'max error is {error.max():.3g}')
-    plt.tight_layout()
-    plt.show()

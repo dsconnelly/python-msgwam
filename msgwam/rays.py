@@ -292,16 +292,26 @@ class RayCollection:
         damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
         self.dens[:] = self.dens * torch.exp(-config.dt * damping)
 
+        if config.n_chromatic == 0:
+            return
+
         S = self.m ** 2 * omega_hat * self.action
-        P = mean.project(self, S, 'centers') - mean.rho * config.N0 ** 2 / 2
-        Q = mean.project(self, S * wvn_sq, 'centers')
-
-        idx = Q != 0
-        kappa = torch.zeros(mean.rho.shape)
-        kappa[idx] = torch.clamp(P[idx], min=0) / Q[idx]
-
+        threshold = mean.rho * config.N0 ** 2 / 2
         intersects = get_fracs(self, mean.z_faces)
         intersects[intersects > 0] = 1
 
-        factor = 1 - wvn_sq * (intersects * kappa[:, None]).max(dim=0)[0]
-        self.dens[:] = self.dens * factor
+        if config.n_chromatic != -1:
+            S = S.reshape(-1, config.n_chromatic)
+            wvn_sq = wvn_sq.reshape(-1, config.n_chromatic)
+            intersects = intersects.reshape(intersects.shape[0], *S.shape)
+            threshold = threshold[:, None]
+
+        P = mean.project(self, S, 'centers') - threshold
+        Q = mean.project(self, S * wvn_sq, 'centers')
+
+        idx = Q != 0
+        kappa = torch.zeros(P.shape)
+        kappa[idx] = torch.clamp(P[idx], min=0) / Q[idx]
+
+        factor = 1 - wvn_sq * (intersects * kappa[..., None]).max(dim=0)[0]
+        self.dens[:] = self.dens * factor.reshape(-1)

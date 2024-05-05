@@ -2,8 +2,9 @@ from abc import ABC, abstractmethod
 
 import torch
 
-from . import config, spectra
+from . import config
 from .dispersion import cg_r
+from .spectra import get_spectrum
 
 class Source(ABC):
     def __init__(self) -> None:
@@ -14,8 +15,7 @@ class Source(ABC):
 
         """
 
-        spectrum_func = getattr(spectra, config.spectrum_type)
-        self.data: torch.Tensor = spectrum_func()
+        self.data = get_spectrum()
         self.n_slots = self.data.shape[1]
 
     @abstractmethod
