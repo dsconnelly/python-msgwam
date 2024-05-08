@@ -1,9 +1,11 @@
+from time import time
+
 import torch
 
 from architectures import CoarseNet
 from utils import integrate_batches
 
-MAX_HOURS = 23
+MAX_HOURS = 22
 N_EPOCHS = 45
 
 def train_network() -> None:
@@ -26,6 +28,7 @@ def train_network() -> None:
     params = model.parameters()
     optimizer = torch.optim.Adam(params, lr=0.005)
 
+    start = time()
     for n_epoch in range(N_EPOCHS):
         for u_batch, X_batch, Z_batch in zip(u_tr, X_tr, Z_tr):
             optimizer.zero_grad()
@@ -45,6 +48,10 @@ def train_network() -> None:
 
             print(f'epoch {n_epoch + 1}: loss = {loss:.4g}')
             model.train()
+
+        hours = (time() - start) / 60
+        if hours > MAX_HOURS:
+            break
 
     torch.save(model.state_dict(), 'data/coarsenet/model.pkl')
 
