@@ -3,6 +3,7 @@ import sys
 import torch, torch.nn as nn
 
 sys.path.insert(0, '.')
+from msgwam import config
 from msgwam.rays import RayCollection
 
 from preprocessing import RAYS_PER_PACKET
@@ -26,7 +27,8 @@ class CoarseNet(nn.Module):
 
         super().__init__()
 
-        n_inputs = 9 * RAYS_PER_PACKET
+        n_z = config.n_grid - 1
+        n_inputs = n_z + 9 * RAYS_PER_PACKET
         n_outputs = len(self.props)
 
         self.layers = nn.Sequential(
@@ -41,7 +43,7 @@ class CoarseNet(nn.Module):
         self.to(torch.double)
         self.layers.apply(_xavier_init)
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def forward(self, u: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
         """
         Apply the CoarseNet, including unpacking the ray volume data, applying
         the neural network, and repacking the calculated wave properties as
@@ -49,6 +51,8 @@ class CoarseNet(nn.Module):
 
         Parameters
         ----------
+        u
+            Tensor containing a single zonal wind profile.
         X
             Tensor containing ray volume properties, structured like a batch in
             the output of `_sample_wave_packets`.
@@ -64,7 +68,10 @@ class CoarseNet(nn.Module):
 
         shape = (-1, 9 * RAYS_PER_PACKET)
         packets = X.transpose(0, 1).reshape(shape)
-        output = self.layers(torch.nan_to_num(packets))
+        u = u[None].expand(X.shape[1], -1)
+        
+        stacked = torch.hstack((u, packets))
+        output = self.layers(torch.nan_to_num(stacked))
         means = torch.nanmean(X[self.idx], dim=2)
 
         return output.T * means

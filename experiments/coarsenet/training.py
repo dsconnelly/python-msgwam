@@ -3,41 +3,54 @@ import torch
 from architectures import CoarseNet
 from utils import integrate_batches
 
-N_EPOCHS = 10
+MAX_HOURS = 23
+N_EPOCHS = 45
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
 
     wind = torch.load('data/coarsenet/wind.pkl')
-    X = torch.load('data/coarsenet/spectra.pkl')
+    X = torch.load('data/coarsenet/packets.pkl')
     Z = torch.load('data/coarsenet/targets.pkl')
+    u = wind[:, 0]
 
+    m = int(0.8 * X.shape[0])
+    idx = torch.randperm(X.shape[0])
+    idx_tr, idx_te = idx[:m], idx[m:]
+
+    u_tr, u_te = u[idx_tr], u[idx_te]
+    X_tr, X_te = X[idx_tr], X[idx_te]
+    Z_tr, Z_te = Z[idx_tr], Z[idx_te]
+    
     model = CoarseNet()
     params = model.parameters()
-    optim = torch.optim.Adam(params, lr=0.005)
+    optimizer = torch.optim.Adam(params, lr=0.005)
 
     for n_epoch in range(N_EPOCHS):
-        print('=' * 8, f'epoch {n_epoch + 1}', '=' * 8)
+        for u_batch, X_batch, Z_batch in zip(u_tr, X_tr, Z_tr):
+            optimizer.zero_grad()
+            output = model(u_batch, X_batch)
+            grad = _grad_loss(u_batch, X_batch, output, Z_batch)
 
-        for i in range(X.shape[0]):
-            optim.zero_grad()
-            output = model(X[i])
-            grad = _grad_loss(X[i], wind[i], output.detach(), Z[i])
             output.backward(grad)
-            optim.step()
+            optimizer.step()
 
-            with torch.no_grad():
-                model.eval()
-                output = model(X[i])
-                loss = _loss(X[i], wind[i], output, Z[i]).sum().item()
-                print(f'    batch {i + 1}: loss = {loss:.4g}')
-                model.train()
+        with torch.no_grad():
+            model.eval()
+
+            loss = 0
+            for u_batch, X_batch, Z_batch in zip(u_te, X_te, Z_te):
+                output = model(u_batch, X_batch)
+                loss = loss + _loss(u_batch, X_batch, output, Z).sum().item()
+
+            print(f'epoch {n_epoch + 1}: loss = {loss:.4g}')
+            model.train()
 
     torch.save(model.state_dict(), 'data/coarsenet/model.pkl')
 
 def _grad_loss(
+    u: torch.Tensor,
     X: torch.Tensor,
-    wind: torch.Tensor,
     output: torch.Tensor,
     Z: torch.Tensor
 ) -> torch.Tensor:
@@ -47,13 +60,12 @@ def _grad_loss(
 
     Parameters 
     ----------
+    u
+        Fixed zonal wind profile to use during integration.
     model
-        Neural network (only used for `build_spectrum`).
-    wind
-        Fixed zonal and meridional wind profiles to use during integration.
+        Neural network (only used for `build_spectrum`).  
     output
-        Replacement ray volume properties as returned by `model`. Make sure that
-        this tensor is detached before being passed in.
+        Replacement ray volume properties as returned by `model`.
     Z
         Correct online pseudomomentum fluxes for each packet.
 
@@ -65,21 +77,24 @@ def _grad_loss(
     
     """
 
+    if output.requires_grad:
+        output = output.detach()
+
     grad = torch.zeros(output.shape)
     for k in range(output.shape[0]):
         dprop = torch.zeros(output.shape)
-        dprop[k] = 0.1 * output[k]
+        dprop[k] = 0.08 * output[k]
 
-        L_plus = _loss(X, wind, output + dprop, Z)
-        L_minus = _loss(X, wind, output - dprop, Z)
+        L_plus = _loss(u, X, output + dprop, Z)
+        L_minus = _loss(u, X, output - dprop, Z)
 
         grad[k] = (L_plus - L_minus) / (2 * dprop[k])
 
     return grad
 
 def _loss(
+    u: torch.Tensor,
     X: torch.Tensor,
-    wind: torch.Tensor,
     output: torch.Tensor,
     Z: torch.Tensor
 ) -> torch.Tensor:
@@ -90,10 +105,10 @@ def _loss(
 
     Parameters
     ----------
+    u
+        Fixed zonal wind profile to use during integration.
     X
         Original wave packet properties.
-    wind
-        Fixed zonal and meridional wind profiles to use during integration.
     output
         Replacement ray volume properties as returned by a `CoarseNet`.
     Z
@@ -106,6 +121,7 @@ def _loss(
 
     """
     
+    wind = torch.vstack((u, torch.zeros_like(u)))
     spectrum = CoarseNet.build_spectrum(X, output)
     Z_hat = integrate_batches(wind, spectrum, 1).mean(dim=1)
 

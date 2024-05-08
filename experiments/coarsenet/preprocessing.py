@@ -10,8 +10,8 @@ from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
-N_BATCHES = 20
-PACKETS_PER_BATCH = 2000
+N_BATCHES = 200
+PACKETS_PER_BATCH = 1500
 RAYS_PER_PACKET = 10
 
 def save_training_data():
@@ -28,7 +28,7 @@ def save_training_data():
     Z = _generate_targets(X, wind)
 
     torch.save(wind, 'data/coarsenet/wind.pkl')
-    torch.save(X, 'data/coarsenet/spectra.pkl')
+    torch.save(X, 'data/coarsenet/packets.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
 
 def _sample_wave_packets() -> torch.Tensor:
