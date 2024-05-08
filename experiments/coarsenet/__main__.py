@@ -4,6 +4,7 @@ sys.path.insert(0, '.')
 from msgwam import config
 
 from preprocessing import save_training_data
+from training import train_network
 
 import torch
 torch.set_default_dtype(torch.float64)

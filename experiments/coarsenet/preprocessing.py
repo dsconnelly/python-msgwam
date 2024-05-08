@@ -8,10 +8,10 @@ from msgwam import config, spectra
 from msgwam.constants import EPOCH
 from msgwam.utils import open_dataset
 
-from utils import batch_integrate
+from utils import integrate_batches
 
-N_BATCHES = 2
-PACKETS_PER_BATCH = 1000
+N_BATCHES = 5
+PACKETS_PER_BATCH = 75
 RAYS_PER_PACKET = 10
 
 def save_training_data():
@@ -27,38 +27,40 @@ def save_training_data():
     wind = _sample_wind_profiles()
     Z = _generate_targets(X, wind)
 
-    torch.save(X, 'data/coarsenet/spectra.pkl')
     torch.save(wind, 'data/coarsenet/wind.pkl')
+    torch.save(X, 'data/coarsenet/spectra.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
 
 def _sample_wave_packets() -> torch.Tensor:
     """
-    Sample wave packets containing at most `N_PER_PACKET` ray volumes from the
-    spectrum defined in the config file.
+    Sample wave packets containing at most `RAYS_PER_PACKET` ray volumes from
+    the spectrum defined in the config file, making sure to only sample packets
+    with ray volumes all having the same sign horizontal wavenumber.
 
     Returns
     -------
     torch.Tensor
-        Tensor of shape `(N_BATCHES, N_PER_BATCH, 9, N_PER_PACKET)` whose first
-        dimension ranges over batches, whose second dimension ranges over wave
-        packets within a batch, whose third dimension ranges over ray volume
-        properties, and whose fourth dimension ranges over individual rays in a
-        particular packet.
+        Tensor of shape `(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)`
+        whose first dimension ranges over batches, whose second dimension ranges
+        over ray volume properties, whose third dimension ranges over wave
+        packets within a batch, and whose fourth dimension ranges over
+        individual rays in a particular packet.
 
     """
 
-    X = torch.zeros((N_BATCHES, PACKETS_PER_BATCH, 9, RAYS_PER_PACKET))
-
+    spectrum = spectra.get_spectrum()
+    X = torch.zeros((N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET))
+    
     for i in range(N_BATCHES):
-        spectrum = spectra.get_spectrum()
         rands = torch.rand(PACKETS_PER_BATCH, config.n_source)
         idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
+        drop = torch.rand(*idx.shape) > 0.8
 
         data = spectrum[:, idx]
-        data[:, torch.rand(*idx.shape) > 0.8] = 0
-        X[i] = data.transpose(0, 1)
+        data[:, drop] = torch.nan
+        X[i] = data
 
-    return X        
+    return X
 
 def _sample_wind_profiles() -> torch.Tensor:
     """
@@ -103,17 +105,20 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
 
     Returns
     -------
-        _description_
+    torch.Tensor
+        Tensor of shape `(N_BATCHES, PACKETS_PER_BATCH, n_z)` whose first
+        dimension ranges over batches, whose second dimension ranges over wave
+        packets within a batch, and whose third dimension ranges over vertical
+        grid points. Values are the mean fluxes over the integration.
 
     """
 
-    n_wind = config.n_grid - 1
+    n_z = config.n_grid - 1
     n_snapshots = config.n_t_max // config.n_skip + 1
-    Z = torch.zeros((N_BATCHES, PACKETS_PER_BATCH, n_snapshots, n_wind))
+    Z = torch.zeros((N_BATCHES, PACKETS_PER_BATCH, n_snapshots, n_z))
 
     for i in range(N_BATCHES):
-        out = Z[i].transpose(0, 1)
-        spectrum = X[i].transpose(0, 1).reshape(9, -1)
-        batch_integrate(wind[i], spectrum, RAYS_PER_PACKET, out)
+        spectrum = X[i].reshape(9, -1)
+        integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, Z[i])
 
-    return Z
+    return Z.mean(dim=2)
