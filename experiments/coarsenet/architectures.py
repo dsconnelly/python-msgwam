@@ -33,7 +33,8 @@ class CoarseNet(nn.Module):
 
         self.layers = nn.Sequential(
             nn.BatchNorm1d(n_inputs),
-            nn.Linear(n_inputs, 256), nn.ReLU(),
+            nn.Linear(n_inputs, 512), nn.ReLU(),
+            nn.Linear(512, 256), nn.ReLU(),
             nn.Linear(256, 128), nn.ReLU(),
             nn.Linear(128, 64), nn.ReLU(),
             nn.Linear(64, 32), nn.ReLU(),
