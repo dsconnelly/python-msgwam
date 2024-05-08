@@ -10,8 +10,8 @@ from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
-N_BATCHES = 5
-PACKETS_PER_BATCH = 75
+N_BATCHES = 20
+PACKETS_PER_BATCH = 2000
 RAYS_PER_PACKET = 10
 
 def save_training_data():
@@ -49,18 +49,23 @@ def _sample_wave_packets() -> torch.Tensor:
     """
 
     spectrum = spectra.get_spectrum()
-    X = torch.zeros((N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET))
+    spectrum_pos = spectrum[:, spectrum[2] > 0]
+    spectrum_neg = spectrum[:, spectrum[2] < 0]
+
+    shape = (N_BATCHES, 9, 2, PACKETS_PER_BATCH // 2, RAYS_PER_PACKET)
+    X = torch.zeros(shape)
     
     for i in range(N_BATCHES):
-        rands = torch.rand(PACKETS_PER_BATCH, config.n_source)
-        idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
-        drop = torch.rand(*idx.shape) > 0.8
+        for j, half in enumerate((spectrum_pos, spectrum_neg)):
+            rands = torch.rand(PACKETS_PER_BATCH // 2, half.shape[1])
+            idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
+            drop = torch.rand(*idx.shape) > 0.8
 
-        data = spectrum[:, idx]
-        data[:, drop] = torch.nan
-        X[i] = data
+            data = half[:, idx]
+            data[:, drop] = torch.nan
+            X[i, :, j] = data
 
-    return X
+    return X.reshape(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)
 
 def _sample_wind_profiles() -> torch.Tensor:
     """

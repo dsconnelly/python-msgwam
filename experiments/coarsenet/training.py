@@ -14,23 +14,24 @@ def train_network() -> None:
 
     model = CoarseNet()
     params = model.parameters()
-    optim = torch.optim.Adam(params, lr=0.01)
+    optim = torch.optim.Adam(params, lr=0.005)
 
-    for k in range(1, N_EPOCHS + 1):
-        print('=' * 8, f'epoch {k}', '=' * 8)
+    for n_epoch in range(N_EPOCHS):
+        print('=' * 8, f'epoch {n_epoch + 1}', '=' * 8)
 
         for i in range(X.shape[0]):
             optim.zero_grad()
-            output = model(wind[i], X[i])
-
+            output = model(X[i])
             grad = _grad_loss(X[i], wind[i], output.detach(), Z[i])
             output.backward(grad)
             optim.step()
 
             with torch.no_grad():
-                output = model(wind[i], X[i])
+                model.eval()
+                output = model(X[i])
                 loss = _loss(X[i], wind[i], output, Z[i]).sum().item()
-                print(f'    batch {i}: loss = {loss:.4g}')
+                print(f'    batch {i + 1}: loss = {loss:.4g}')
+                model.train()
 
     torch.save(model.state_dict(), 'data/coarsenet/model.pkl')
 

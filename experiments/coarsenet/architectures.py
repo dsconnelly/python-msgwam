@@ -3,7 +3,6 @@ import sys
 import torch, torch.nn as nn
 
 sys.path.insert(0, '.')
-from msgwam import config
 from msgwam.rays import RayCollection
 
 from preprocessing import RAYS_PER_PACKET
@@ -20,7 +19,6 @@ class CoarseNet(nn.Module):
     """
 
     props = ['dr', 'm', 'dm']
-    dprops = torch.tensor([10, 2 * torch.pi / 50, 2 * torch.pi / 50])[:, None]
     idx = [RayCollection.indices[prop] for prop in props]
 
     def __init__(self) -> None:
@@ -28,11 +26,11 @@ class CoarseNet(nn.Module):
 
         super().__init__()
 
-        n_wind = config.n_grid - 1
-        n_inputs = n_wind + len(self.props) * RAYS_PER_PACKET
+        n_inputs = 9 * RAYS_PER_PACKET
         n_outputs = len(self.props)
 
         self.layers = nn.Sequential(
+            nn.BatchNorm1d(n_inputs),
             nn.Linear(n_inputs, 256), nn.ReLU(),
             nn.Linear(256, 128), nn.ReLU(),
             nn.Linear(128, 64), nn.ReLU(),
@@ -41,9 +39,9 @@ class CoarseNet(nn.Module):
         )
 
         self.to(torch.double)
-        # self.layers.apply(_xavier_init)
+        self.layers.apply(_xavier_init)
 
-    def forward(self, wind: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
         """
         Apply the CoarseNet, including unpacking the ray volume data, applying
         the neural network, and repacking the calculated wave properties as
@@ -51,32 +49,23 @@ class CoarseNet(nn.Module):
 
         Parameters
         ----------
-        wind
-            Tensor containing the fixed zonal and meridional wind profiles to
-            use while integrating each packet.
         X
-            Tensor containing zonal wind profiles and ray volume properties,
-            structured like a batch in the output of `_sample_wave_packets`.
+            Tensor containing ray volume properties, structured like a batch in
+            the output of `_sample_wave_packets`.
         
         Returns
         -------
         Z
             Tensor containing the properties of the replacement ray volumes
-            whose first row ranges over the properties in `self.props` and whose
-            second row ranges over the packets being replaced.
+            whose first dimension ranges over the properties in `self.props` and
+            whose second dimension ranges over the packets being replaced.
 
         """
 
-        wind = wind[0].expand(X.shape[1], -1)
-        shape = (-1, len(self.props) * RAYS_PER_PACKET)
-        data = X[self.idx].transpose(0, 1).reshape(shape)
-
-        stacked = torch.hstack((wind, torch.nan_to_num(data)))
-        output = self.layers(stacked)
-
-        means = X[self.idx]
-        means[means == 0] = torch.nan
-        means = torch.nanmean(means, dim=2)
+        shape = (-1, 9 * RAYS_PER_PACKET)
+        packets = X.transpose(0, 1).reshape(shape)
+        output = self.layers(torch.nan_to_num(packets))
+        means = torch.nanmean(X[self.idx], dim=2)
 
         return output.T * means
     
