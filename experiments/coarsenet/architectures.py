@@ -5,6 +5,7 @@ import torch, torch.nn as nn
 sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.rays import RayCollection
+from msgwam.utils import put
 
 from preprocessing import RAYS_PER_PACKET
 from utils import get_batch_pmf
@@ -19,7 +20,7 @@ class CoarseNet(nn.Module):
     conserve momentum flux.
     """
 
-    props = ['dr', 'm', 'dm']
+    props = ['dr', 'k', 'm', 'dm']
     idx = [RayCollection.indices[prop] for prop in props]
 
     def __init__(self) -> None:
@@ -31,18 +32,16 @@ class CoarseNet(nn.Module):
         n_inputs = n_z + 9 * RAYS_PER_PACKET
         n_outputs = len(self.props)
 
-        self.layers = nn.Sequential(
-            nn.BatchNorm1d(n_inputs),
-            nn.Linear(n_inputs, 512), nn.ReLU(),
-            nn.Linear(512, 256), nn.ReLU(),
-            nn.Linear(256, 128), nn.ReLU(),
-            nn.Linear(128, 64), nn.ReLU(),
-            nn.Linear(64, 32), nn.ReLU(),
-            nn.Linear(32, n_outputs), nn.Softplus()
-        )
+        args = [nn.BatchNorm1d(n_inputs)]
+        sizes = [n_inputs, 512, 256, 128, 64, 32, n_outputs]
+        for n_in, n_out in zip(sizes[:-1], sizes[1:]):
+            args.append(nn.Linear(n_in, n_out))
+            args.append(nn.ReLU())
 
-        self.to(torch.double)
+        args = args[:-1] + [nn.Softplus()]
+        self.layers = nn.Sequential(*args)
         self.layers.apply(_xavier_init)
+        self.to(torch.double)
 
     def forward(self, u: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
         """
@@ -107,8 +106,10 @@ class CoarseNet(nn.Module):
         """
 
         Y = torch.nanmean(X, dim=-1)
-        Y[cls.idx] = output.detach()
-        Y[-1] = Y[-1] * get_batch_pmf(X) / get_batch_pmf(Y)
+        Y[cls.idx] = output
+        
+        factor = get_batch_pmf(X) / get_batch_pmf(Y)
+        Y = put(Y, -1, Y[-1] * factor)
 
         return Y
 

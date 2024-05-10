@@ -151,6 +151,24 @@ def pad_ends(data: torch.Tensor) -> torch.Tensor:
 
     return pad(data.view(1, -1), (1, 1), mode='replicate').flatten()
 
+def put(a: torch.Tensor, i: int, values: torch.Tensor):
+    """
+    Wrapper around Tensor.index_put, useful for assigning rows of tensors while
+    maintaining differentiability.
+
+    Parameters
+    ----------
+    a
+        Array to be cloned and then rewritten.
+    i
+        Row to be overwritten.
+    values
+        New data to write in row `i`.
+
+    """
+
+    return a.index_put((torch.tensor(i),), values)
+
 def shapiro_filter(data: torch.Tensor) -> torch.Tensor:
     """
     Apply a zeroth-order Shapiro filter.

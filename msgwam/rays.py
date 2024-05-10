@@ -5,7 +5,7 @@ import torch
 
 from . import config, sources
 from .dispersion import cg_r, omega_hat
-from .utils import interp, get_fracs
+from .utils import interp, get_fracs, put
 
 if TYPE_CHECKING:
     from .mean import MeanState
@@ -77,7 +77,7 @@ class RayCollection:
 
         """
 
-        return torch.isnan(self.data).sum(dim=0) == 0
+        return ~torch.isnan(self.meta)
     
     @property
     def count(self) -> int:
@@ -156,7 +156,8 @@ class RayCollection:
 
         """
 
-        self.data[:, j] = torch.nan
+        self.data[8, j] = 0
+        self.data[9:, j] = torch.nan
 
     def check_boundaries(self, mean: MeanState) -> None:
         """
@@ -290,7 +291,8 @@ class RayCollection:
 
         nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f0 ** 2 / omega_hat ** 2)
-        self.dens[:] = self.dens * torch.exp(-config.dt * damping)
+        damped = self.dens * torch.exp(-config.dt * damping)
+        self.data = put(self.data, 8, damped)
 
         if config.n_chromatic == 0:
             return
@@ -314,4 +316,4 @@ class RayCollection:
         kappa[idx] = torch.clamp(P[idx], min=0) / Q[idx]
 
         factor = 1 - wvn_sq * (intersects * kappa[..., None]).max(dim=0)[0]
-        self.dens[:] = self.dens * factor.reshape(-1)
+        self.data = put(self.data, 8, self.dens * factor.reshape(-1))

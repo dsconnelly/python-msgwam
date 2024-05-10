@@ -114,7 +114,7 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
         Tensor of shape `(N_BATCHES, PACKETS_PER_BATCH, n_z)` whose first
         dimension ranges over batches, whose second dimension ranges over wave
         packets within a batch, and whose third dimension ranges over vertical
-        grid points. Values are the mean fluxes over the integration.
+        grid points. Values are the mean fluxes over the integration in mPa.
 
     """
 
@@ -126,4 +126,4 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
         spectrum = X[i].reshape(9, -1)
         integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, Z[i])
 
-    return Z.mean(dim=2)
+    return Z
