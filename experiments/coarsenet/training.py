@@ -1,10 +1,12 @@
 from time import time
 
+import numpy as np
 import torch
 
 from architectures import CoarseNet
 from utils import integrate_batches
 
+FD_FACTOR = (np.finfo(float).eps) ** (1 / 3)
 MAX_HOURS = 22
 N_EPOCHS = 45
 
@@ -30,13 +32,20 @@ def train_network() -> None:
 
     start = time()
     for n_epoch in range(N_EPOCHS):
-        for u_batch, X_batch, Z_batch in zip(u_tr, X_tr, Z_tr):
+        print(f'==== starting epoch {n_epoch + 1} ====')
+        for i, (u_batch, X_batch, Z_batch) in enumerate(zip(u_tr, X_tr, Z_tr)):
+            batch_start = time()
             optimizer.zero_grad()
+
             output = model(u_batch, X_batch)
             grad = _grad_loss(u_batch, X_batch, output, Z_batch)
-
             output.backward(grad)
             optimizer.step()
+
+            batch_time = time() - batch_start
+            message = f'    completed batch {i + 1} / {X_tr.shape[0]}'
+            message = message + f' ({batch_time:.2f} seconds)'
+            print(message)
 
         with torch.no_grad():
             model.eval()
@@ -46,10 +55,10 @@ def train_network() -> None:
                 output = model(u_batch, X_batch)
                 loss = loss + _loss(u_batch, X_batch, output, Z).sum().item()
 
-            print(f'epoch {n_epoch + 1}: loss = {loss:.4g}')
+            print(f'    test loss = {loss:.4g}')
             model.train()
 
-        hours = (time() - start) / 60
+        hours = (time() - start) / 3600
         if hours > MAX_HOURS:
             break
 
@@ -87,17 +96,24 @@ def _grad_loss(
     if output.requires_grad:
         output = output.detach()
 
-    grad = torch.zeros(output.shape)
+    n_props = len(CoarseNet.props)
+    spectrum = torch.zeros((9, n_props, 2, output.shape[1]))
+
     for k in range(output.shape[0]):
         dprop = torch.zeros(output.shape)
-        dprop[k] = 0.08 * output[k]
+        dprop[k] = FD_FACTOR * output[k]
 
-        L_plus = _loss(u, X, output + dprop, Z)
-        L_minus = _loss(u, X, output - dprop, Z)
+        spectrum[:, k, 0] = CoarseNet.build_spectrum(X, output - dprop)
+        spectrum[:, k, 1] = CoarseNet.build_spectrum(X, output + dprop)
 
-        grad[k] = (L_plus - L_minus) / (2 * dprop[k])
+    spectrum = spectrum.reshape(9, -1)
+    wind = torch.vstack((u, torch.zeros_like(u)))
 
-    return grad
+    Z_hat = integrate_batches(wind, spectrum, 1).mean(dim=1)
+    Z_hat = Z_hat.reshape(n_props, 2, output.shape[1], -1)
+    loss = ((Z_hat - Z) ** 2).sum(dim=-1)
+
+    return (loss[:, 1] - loss[:, 0]) / (2 * FD_FACTOR * output)
 
 def _loss(
     u: torch.Tensor,
