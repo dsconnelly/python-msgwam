@@ -5,8 +5,8 @@ import torch
 from architectures import CoarseNet
 from utils import integrate_batches
 
-BETA = 0
-MAX_HOURS = 22
+BETA = 0.3
+MAX_HOURS = 4
 N_EPOCHS = 45
 
 def train_network() -> None:
@@ -24,6 +24,7 @@ def train_network() -> None:
     u_tr, u_te = u, u
     X_tr, X_te = X[:, :, idx_tr], X[:, :, idx_te]
     Z_tr, Z_te = Z[:, idx_tr], Z[:, idx_te]
+    stds = Z_tr.std(dim=(0, 1))
 
     model = CoarseNet()
     params = model.parameters()
@@ -37,13 +38,15 @@ def train_network() -> None:
             optimizer.zero_grad()
 
             output = model(u_batch, X_batch)
-            L2, reg = _loss(u_batch, X_batch, output, Z_batch)
+            spectrum = CoarseNet.build_spectrum(X_batch, output)
+            L2 = _l2_loss(u_batch, spectrum, Z_batch, stds)
+            reg = _reg_loss(output)
             (reg + L2).backward()
             optimizer.step()
 
             batch_time = time() - batch_start
             message = f'    batch {i + 1} ({batch_time:.2f} seconds): '
-            message = message + f'L2 error = {L2.item():.4g}'
+            message += f'L2 = {L2.item():.4f} reg = {reg.item():.4f}'
             print(message)
 
         with torch.no_grad():
@@ -53,13 +56,15 @@ def train_network() -> None:
 
             for u_batch, X_batch, Z_batch in zip(u_te, X_te, Z_te):
                 output = model(u_batch, X_batch)
-                L2, reg = _loss(u_batch, X_batch, output, Z_batch)
+                spectrum = CoarseNet.build_spectrum(X_batch, output)
+                L2 = _l2_loss(u_batch, spectrum, Z_batch, stds)
+                reg = _reg_loss(output)
 
                 total_L2 = total_L2 + L2.item()
                 total_reg = total_reg + reg.item()
 
-            print(' ' * 8 + f'test L2 error  = {total_L2:.4g}')
-            print(' ' * 8 + f'test reg error = {total_reg:.4g}')
+            print(' ' * 8 + f'test L2 error  = {total_L2:.4f}')
+            print(' ' * 8 + f'test reg error = {total_reg:.4f}\n')
             model.train()
 
         hours = (time() - start) / 3600
@@ -68,43 +73,60 @@ def train_network() -> None:
 
     torch.save(model.state_dict(), 'data/coarsenet/model.pkl')
 
-def _loss(
+def _l2_loss(
     u: torch.Tensor,
-    X: torch.Tensor,
-    output: torch.Tensor,
-    Z: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+    spectrum: torch.Tensor,
+    Z: torch.Tensor,
+    stds: torch.Tensor
+) -> torch.Tensor:
     """
-    Calculate the squared error between the pseudomomentum fluxes associated
-    with the original wave packet and those from the replacement ray volume,
-    summed over the duration of the integration.
+    _summary_
 
     Parameters
     ----------
     u
         Fixed zonal wind profile to use during integration.
-    X
-        Original wave packet properties.
-    output
-        Replacement ray volume properties as returned by a `CoarseNet`.
+    spectrum
+        Spectrum of wave packets to launch, as returned by the `build_spectrum`
+        method of `CoarseNet`.
     Z
-        Correct online pseudomomentum fluxes for each wave packet.
+        Target momentum fluxes at each level, averaged over the integration.
+    stds
+        Standard deviation of the momentum flux at each level, used to scale the
+        loss to interpretable units.
 
     Returns
     -------
     torch.Tensor
-        Squared error in momentum flux for each wave packet.
-    torch.Tensor
-        Regularization error penalizing deviations from the mean packet size.
+        Mean-square error over all wave packets and levels.
 
     """
-    
+
     wind = torch.vstack((u, torch.zeros_like(u)))
-    spectrum = CoarseNet.build_spectrum(X, output)
     Z_hat = integrate_batches(wind, spectrum, 1).mean(dim=1)
-    L2 = ((Z - Z_hat) ** 2).sum()
 
-    means = torch.nanmean(X[CoarseNet.idx], dim=2)
-    reg = BETA * (((output / means) - 1) ** 2).sum()
+    idx = stds != 0
+    errors = torch.zeros_like(Z)
+    errors[:, idx] = (Z_hat - Z)[:, idx] / stds[idx]
 
-    return L2, reg
+    return (errors ** 2).mean()
+
+def _reg_loss(output: torch.Tensor) -> torch.Tensor:
+    """
+    Regularization loss based on some notion of physical plausibility of the
+    replacement ray volume. Currently penalizes deviation of the replacement ray
+    from the one obtained by simply taking the mean of each ray property.
+
+    Parameters
+    ----------
+    output
+        Neural network output, before rescaling by physical dimensions.
+
+    Returns
+    -------
+    torch.Tensor
+        Regularization loss.
+
+    """
+
+    return BETA * ((output - 1) ** 2).mean()

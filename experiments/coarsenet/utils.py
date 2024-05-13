@@ -91,4 +91,4 @@ def integrate_batches(
         profiles[1:-1] = shapiro_filter(profiles)
         out[:, j] = profiles.transpose(0, 1)
 
-    return 1000 * out
+    return out

@@ -72,9 +72,8 @@ class CoarseNet(nn.Module):
         
         stacked = torch.hstack((u, packets))
         output = self.layers(torch.nan_to_num(stacked))
-        means = torch.nanmean(X[self.idx], dim=2)
 
-        return output.T * means
+        return output.T
     
     @classmethod
     def build_spectrum(
@@ -106,8 +105,7 @@ class CoarseNet(nn.Module):
         """
 
         Y = torch.nanmean(X, dim=-1)
-        Y[cls.idx] = output
-        
+        Y = put(Y, cls.idx, output * Y[cls.idx])
         factor = get_batch_pmf(X) / get_batch_pmf(Y)
         Y = put(Y, -1, Y[-1] * factor)
 
