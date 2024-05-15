@@ -7,6 +7,7 @@ from msgwam import config
 from msgwam.rays import RayCollection
 from msgwam.utils import put
 
+from hyperparameters import network_size
 from preprocessing import RAYS_PER_PACKET
 from utils import get_batch_pmf
 
@@ -32,8 +33,10 @@ class CoarseNet(nn.Module):
         n_inputs = n_z + 9 * RAYS_PER_PACKET
         n_outputs = len(self.props)
 
+        sizes = [n_inputs] + [512] * network_size
+        sizes = sizes + [256, 128, 64, 32, n_outputs]
         args = [nn.BatchNorm1d(n_inputs)]
-        sizes = [n_inputs, 512, 256, 128, 64, 32, n_outputs]
+
         for n_in, n_out in zip(sizes[:-1], sizes[1:]):
             args.append(nn.Linear(n_in, n_out))
             args.append(nn.ReLU())

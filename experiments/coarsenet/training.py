@@ -2,76 +2,112 @@ from time import time
 
 import torch
 
+from torch.utils.data import DataLoader, TensorDataset
+
 from architectures import CoarseNet
+from hyperparameters import beta, learning_rate, task_id, weight_decay
 from utils import integrate_batches
 
-BETA = 0.3
-MAX_HOURS = 4
-N_EPOCHS = 45
+MAX_HOURS = 7
+N_BATCHES = 20
+N_EPOCHS = 100
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
 
-    wind = torch.load('data/coarsenet/wind.pkl')
-    X = torch.load('data/coarsenet/packets.pkl')
-    Z = torch.load('data/coarsenet/targets.pkl').mean(dim=2)
-    u = wind[:, 0]
-
-    m = int(0.8 * X.shape[2])
-    idx = torch.randperm(X.shape[2])
-    idx_tr, idx_te = idx[:m], idx[m:]
-
-    u_tr, u_te = u, u
-    X_tr, X_te = X[:, :, idx_tr], X[:, :, idx_te]
-    Z_tr, Z_te = Z[:, idx_tr], Z[:, idx_te]
+    loader_tr, loader_te = _load_data()
+    *_, Z_tr = loader_tr.dataset.tensors
     stds = Z_tr.std(dim=(0, 1))
 
     model = CoarseNet()
-    params = model.parameters()
-    optimizer = torch.optim.Adam(params, lr=0.001)
+    optimizer = torch.optim.Adam(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay
+    )
 
     start = time()
     for n_epoch in range(N_EPOCHS):
         print(f'==== starting epoch {n_epoch + 1} ====')
-        for i, (u_batch, X_batch, Z_batch) in enumerate(zip(u_tr, X_tr, Z_tr)):
+
+        for i, (u, X, Z) in enumerate(loader_tr):
             batch_start = time()
             optimizer.zero_grad()
+            output = model(u, X)
 
-            output = model(u_batch, X_batch)
-            spectrum = CoarseNet.build_spectrum(X_batch, output)
-            L2 = _l2_loss(u_batch, spectrum, Z_batch, stds)
+            spectrum = CoarseNet.build_spectrum(X, output)
+            L2 = _l2_loss(u, spectrum, Z, stds)
             reg = _reg_loss(output)
+
             (reg + L2).backward()
             optimizer.step()
 
             batch_time = time() - batch_start
-            message = f'    batch {i + 1} ({batch_time:.2f} seconds): '
+            message = f'batch {i + 1} ({batch_time:.2f} seconds): '
             message += f'L2 = {L2.item():.4f} reg = {reg.item():.4f}'
             print(message)
+
+            del L2, reg
+            if i + 1 == N_BATCHES:
+                break
 
         with torch.no_grad():
             model.eval()
             total_L2 = 0
             total_reg = 0
 
-            for u_batch, X_batch, Z_batch in zip(u_te, X_te, Z_te):
-                output = model(u_batch, X_batch)
-                spectrum = CoarseNet.build_spectrum(X_batch, output)
-                L2 = _l2_loss(u_batch, spectrum, Z_batch, stds)
+            for i, (u, X, Z) in enumerate(loader_te):
+                output = model(u, X)
+                spectrum = CoarseNet.build_spectrum(X, output)
+                L2 = _l2_loss(u, spectrum, Z, stds)
                 reg = _reg_loss(output)
 
                 total_L2 = total_L2 + L2.item()
                 total_reg = total_reg + reg.item()
 
-            print(' ' * 8 + f'test L2 error  = {total_L2:.4f}')
-            print(' ' * 8 + f'test reg error = {total_reg:.4f}\n')
+                if i + 1 == N_BATCHES:
+                    break
+
+            avg_L2 = total_L2 / N_BATCHES
+            avg_reg = total_reg / N_BATCHES
+
+            print(f'\ntest L2 error  = {avg_L2:.4f}')
+            print(f'test reg error = {avg_reg:.4f}\n')
             model.train()
 
         hours = (time() - start) / 3600
         if hours > MAX_HOURS:
             break
 
-    torch.save(model.state_dict(), 'data/coarsenet/model.pkl')
+    torch.save(model.state_dict(), f'data/coarsenet/model-{task_id}.pkl')
+
+def _load_data() -> tuple[DataLoader, DataLoader]:
+    """
+    Construct `DataLoader` objects containing training and test datasets.
+
+    Returns
+    -------
+    DataLoader
+        Training (u, X, Z) triples.
+    DataLoader
+        Test (u, X, Z) triples.
+
+    """
+
+    X = torch.load('data/coarsenet/packets.pkl')
+    Z = torch.load('data/coarsenet/targets.pkl').mean(dim=2)
+    u = torch.load('data/coarsenet/wind.pkl')[:, 0]
+    
+    m = int(0.8 * X.shape[2])
+    idx = torch.randperm(X.shape[2])
+    idx_tr, idx_te = idx[:m], idx[m:]
+
+    data_tr = TensorDataset(u, X[:, :, idx_tr], Z[:, idx_tr])
+    data_te = TensorDataset(u, X[:, :, idx_te], Z[:, idx_te])
+    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=True)
+    loader_te = DataLoader(data_te, batch_size=None, shuffle=True)
+
+    return loader_tr, loader_te
 
 def _l2_loss(
     u: torch.Tensor,
@@ -80,7 +116,7 @@ def _l2_loss(
     stds: torch.Tensor
 ) -> torch.Tensor:
     """
-    _summary_
+    Compute the mean-square error in integration output.
 
     Parameters
     ----------
@@ -129,4 +165,4 @@ def _reg_loss(output: torch.Tensor) -> torch.Tensor:
 
     """
 
-    return BETA * ((output - 1) ** 2).mean()
+    return beta * ((output - 1) ** 2).mean()
