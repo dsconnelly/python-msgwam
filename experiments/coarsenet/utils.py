@@ -82,13 +82,15 @@ def integrate_batches(
     config.refresh()
 
     solver = SBDF2Integrator().integrate()
-    faces = solver.snapshots_mean[0].z_faces
-    shape = (wind.shape[1], -1, rays_per_packet)
+    mean = solver.snapshots_mean[0]
+
+    # config.proj_method = 'gaussian'
+    # config.smoothing = 10
+    # config.refresh()
 
     for j, rays in enumerate(solver.snapshots_rays):
-        pmf = get_fracs(rays, faces) * rays.cg_r() * rays.action * rays.k
-        profiles = torch.nansum(pmf.reshape(shape), dim=2)
-        profiles[1:-1] = shapiro_filter(profiles)
+        pmf = (rays.cg_r() * rays.action * rays.k).reshape(-1, rays_per_packet)
+        profiles = mean.project(rays, pmf, onto='centers')
         out[:, j] = profiles.transpose(0, 1)
 
     return out

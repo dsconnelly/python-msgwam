@@ -9,7 +9,7 @@ from hyperparameters import beta, learning_rate, task_id, weight_decay
 from utils import integrate_batches
 
 MAX_HOURS = 7
-N_BATCHES = 20
+N_BATCHES = 2
 N_EPOCHS = 100
 
 def train_network() -> None:
@@ -97,7 +97,7 @@ def _load_data() -> tuple[DataLoader, DataLoader]:
     X = torch.load('data/coarsenet/packets.pkl')
     Z = torch.load('data/coarsenet/targets.pkl').mean(dim=2)
     u = torch.load('data/coarsenet/wind.pkl')[:, 0]
-    
+
     m = int(0.8 * X.shape[2])
     idx = torch.randperm(X.shape[2])
     idx_tr, idx_te = idx[:m], idx[m:]

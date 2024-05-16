@@ -21,8 +21,11 @@ class CoarseNet(nn.Module):
     conserve momentum flux.
     """
 
-    props = ['dr', 'k', 'm', 'dm']
-    idx = [RayCollection.indices[prop] for prop in props]
+    props_in = ['k', 'm', 'dm', 'dens']
+    props_out = ['dr', 'k', 'm', 'dm']
+
+    idx_in = [RayCollection.indices[prop] for prop in props_in]
+    idx_out = [RayCollection.indices[prop] for prop in props_out]
 
     def __init__(self) -> None:
         """Initialize a CoarseNet."""
@@ -30,8 +33,8 @@ class CoarseNet(nn.Module):
         super().__init__()
 
         n_z = config.n_grid - 1
-        n_inputs = n_z + 9 * RAYS_PER_PACKET
-        n_outputs = len(self.props)
+        n_inputs = n_z + len(self.props_in) * RAYS_PER_PACKET
+        n_outputs = len(self.props_out)
 
         sizes = [n_inputs] + [512] * network_size
         sizes = sizes + [256, 128, 64, 32, n_outputs]
@@ -64,13 +67,13 @@ class CoarseNet(nn.Module):
         -------
         Z
             Tensor containing the properties of the replacement ray volumes
-            whose first dimension ranges over the properties in `self.props` and
+            whose first dimension ranges over the properties in `props_out` and
             whose second dimension ranges over the packets being replaced.
 
         """
 
-        shape = (-1, 9 * RAYS_PER_PACKET)
-        packets = X.transpose(0, 1).reshape(shape)
+        shape = (-1, len(self.props_in) * RAYS_PER_PACKET)
+        packets = X[self.idx_in].transpose(0, 1).reshape(shape)
         u = u[None].expand(X.shape[1], -1)
         
         stacked = torch.hstack((u, packets))
@@ -108,7 +111,7 @@ class CoarseNet(nn.Module):
         """
 
         Y = torch.nanmean(X, dim=-1)
-        Y = put(Y, cls.idx, output * Y[cls.idx])
+        Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
         factor = get_batch_pmf(X) / get_batch_pmf(Y)
         Y = put(Y, -1, Y[-1] * factor)
 

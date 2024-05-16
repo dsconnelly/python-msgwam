@@ -58,7 +58,9 @@ sigma_uv: float # Width of the jet if the 'gaussian' method is used (m).
 # ==============================================================================
 shapiro_filter: bool # Whether to apply a Shapiro filter to flux profiles.
 proj_method: str # How to project wave quantities onto the vertical grid. Must
-    # be 'discrete', for the time being.
+    # be 'discrete' or 'gaussian'.
+smoothing: float # If Gaussian projection is used, higher smoothing values widen
+    # the Gaussian momentum flux curve associated with each wave packet.
 
 # ==============================================================================
 # viscosity and dissipation
