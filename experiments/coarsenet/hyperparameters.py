@@ -5,13 +5,15 @@ import torch
 beta: float
 learning_rate: float
 network_size: int
+smoothing: float
 weight_decay: float
 
 _grid = {
     'beta' : [0, 0.5, 1],
-    'learning_rate' : [1e-4, 1e-3],
-    'network_size' : [1, 2, 3],
-    'weight_decay' : [0, 2e-5]
+    'learning_rate' : [1e-3, 2e-4],
+    'network_size' : [1, 3],
+    'smoothing' : [2.5, 7],
+    'weight_decay' : [0, 1e-4]
 }
 
 def _set_hyperparameters():
@@ -33,5 +35,5 @@ def _set_hyperparameters():
 
     print()
 
-task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
+task_id = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
 _set_hyperparameters()

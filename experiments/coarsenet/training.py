@@ -8,8 +8,8 @@ from architectures import CoarseNet
 from hyperparameters import beta, learning_rate, task_id, weight_decay
 from utils import integrate_batches
 
-MAX_HOURS = 7
-N_BATCHES = 2
+MAX_HOURS = 6
+N_BATCHES = 50
 N_EPOCHS = 100
 
 def train_network() -> None:
@@ -139,7 +139,11 @@ def _l2_loss(
     """
 
     wind = torch.vstack((u, torch.zeros_like(u)))
-    Z_hat = integrate_batches(wind, spectrum, 1).mean(dim=1)
+    Z_hat = integrate_batches(
+        wind, spectrum,
+        rays_per_packet=1,
+        smooth=True
+    ).mean(dim=1)
 
     idx = stds != 0
     errors = torch.zeros_like(Z)

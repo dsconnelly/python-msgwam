@@ -58,7 +58,7 @@ def cp_x(
         
     """
 
-    return torch.sign(k) * omega_hat(k, l, m) / k
+    return omega_hat(k, l, m) / k
 
 def m_from(
     k: torch.Tensor,

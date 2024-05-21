@@ -8,7 +8,9 @@ sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.dispersion import cg_r
 from msgwam.integration import SBDF2Integrator
-from msgwam.utils import get_fracs, shapiro_filter
+from msgwam.utils import shapiro_filter
+
+from hyperparameters import smoothing
 
 def get_batch_pmf(X: torch.Tensor) -> torch.Tensor:
     """
@@ -42,7 +44,8 @@ def integrate_batches(
     wind: torch.Tensor,
     spectrum: torch.Tensor,
     rays_per_packet: int,
-    out: Optional[torch.Tensor]=None
+    out: Optional[torch.Tensor]=None,
+    smooth: bool=False
 ) -> torch.Tensor:
     """
     Integrate the system with the given mean wind profiles (held constant) and
@@ -64,6 +67,8 @@ def integrate_batches(
         number of steps in the time series and `n_z` is the number of grid
         points the wind (and pseudomomentum fluxes) are reported on. If `None`,
         a newly-created array will be returned.
+    smooth
+        Whether to use Gaussian projection instead of discrete.
 
     """
 
@@ -76,21 +81,30 @@ def integrate_batches(
     config.prescribed_wind = wind
     config.n_ray_max = spectrum.shape[1]
     config.n_chromatic = rays_per_packet
-
-    config.spectrum_type = 'custom'
     spectra._custom = lambda: spectrum
-    config.refresh()
+    config.spectrum_type = 'custom'
 
+    config.refresh()
     solver = SBDF2Integrator().integrate()
     mean = solver.snapshots_mean[0]
 
-    # config.proj_method = 'gaussian'
-    # config.smoothing = 10
-    # config.refresh()
+    if smooth:
+        config.proj_method = 'gaussian'
+        config.shapiro_filter = False
+        config.smoothing = smoothing
+        
+    else:
+        config.proj_method = 'discrete'
+        config.shapiro_filter = True
 
+    config.refresh()
     for j, rays in enumerate(solver.snapshots_rays):
         pmf = (rays.cg_r() * rays.action * rays.k).reshape(-1, rays_per_packet)
         profiles = mean.project(rays, pmf, onto='centers')
+
+        if config.shapiro_filter:
+            profiles[1:-1] = shapiro_filter(profiles)
+
         out[:, j] = profiles.transpose(0, 1)
 
     return out

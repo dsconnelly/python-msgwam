@@ -28,11 +28,11 @@ def _gaussians() -> torch.Tensor:
     k = wvn_hor * torch.cos(direction)
     l = wvn_hor * torch.sin(direction)
 
+    n_c = config.n_source // 2
     c_max = config.c_center + 2 * config.c_width
-    c_min = max(config.c_center - 2 * config.c_width, 0.5)
-    cp_xs = torch.linspace(c_min, c_max, config.n_source // 2)
+    cp_xs = (torch.arange(n_c) + 0.5) * c_max / (n_c - 0.5)
     ms = m_from(k, l, cp_xs)
-
+    
     dk = config.dk_init
     dl = config.dl_init
     dc = cp_xs[1] - cp_xs[0]

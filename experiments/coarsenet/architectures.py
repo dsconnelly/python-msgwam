@@ -1,5 +1,6 @@
 import sys
 
+import numpy as np
 import torch, torch.nn as nn
 
 sys.path.insert(0, '.')
@@ -21,7 +22,7 @@ class CoarseNet(nn.Module):
     conserve momentum flux.
     """
 
-    props_in = ['k', 'm', 'dm', 'dens']
+    props_in = ['r', 'k', 'm', 'dm', 'dens']
     props_out = ['dr', 'k', 'm', 'dm']
 
     idx_in = [RayCollection.indices[prop] for prop in props_in]
@@ -80,7 +81,7 @@ class CoarseNet(nn.Module):
         output = self.layers(torch.nan_to_num(stacked))
 
         return output.T
-    
+
     @classmethod
     def build_spectrum(
         cls,
@@ -95,8 +96,8 @@ class CoarseNet(nn.Module):
         Parameters
         ----------
         X
-            Tensor containing zonal wind profiles and ray volume properties,
-            structured like a batch in the output of `_sample_wave_packets`.
+            Tensor containing ray volume properties for each packet, structured
+            like a batch in the output of `_sample_wave_packets`.
         output
             Tensor containing the properties of the replacement ray volumes, as
             in the output of `self.forward`.
@@ -110,12 +111,42 @@ class CoarseNet(nn.Module):
 
         """
 
-        Y = torch.nanmean(X, dim=-1)
+        Y = _get_replacement(X)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
         factor = get_batch_pmf(X) / get_batch_pmf(Y)
         Y = put(Y, -1, Y[-1] * factor)
 
         return Y
+
+def _get_replacement(X: torch.Tensor) -> torch.Tensor:
+    """
+    Get the base replacement ray volume for each packet. The base replacement
+    has the mean properties of all ray volumes in the packet, except for `dr`
+    and `dm`, which have the bounding box properties instead.
+
+    Parameters
+    ----------
+    X
+        Tensor containing ray volume properties for each packet, structured
+        like a batch in the output of `_sample_wave_packets`.
+
+    Returns
+    -------
+        Tensor of base replacement ray volumes.
+
+    """
+    
+    r_lo = np.nanmin((X[0] - 0.5 * X[1]).numpy(), axis=-1)
+    r_hi = np.nanmax((X[0] + 0.5 * X[1]).numpy(), axis=-1)
+
+    m_lo = np.nanmin((X[4] - 0.5 * X[7]).numpy(), axis=-1)
+    m_hi = np.nanmax((X[4] + 0.5 * X[7]).numpy(), axis=-1)
+
+    base = torch.nanmean(X, dim=-1)
+    base[1] = torch.as_tensor(r_hi - r_lo)
+    base[7] = torch.as_tensor(m_hi - m_lo)
+
+    return base
 
 def _xavier_init(layer: nn.Module):
     """

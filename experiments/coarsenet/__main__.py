@@ -8,7 +8,6 @@ from training import train_network
 
 import torch
 torch.set_default_dtype(torch.float64)
-torch.manual_seed(7272)
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]

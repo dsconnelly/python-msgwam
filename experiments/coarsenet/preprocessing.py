@@ -6,13 +6,14 @@ import torch
 sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.constants import EPOCH
+from msgwam.dispersion import cp_x
 from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
 N_BATCHES = 200
-PACKETS_PER_BATCH = 1500
-RAYS_PER_PACKET = 10
+PACKETS_PER_BATCH = 128
+RAYS_PER_PACKET = 9
 
 def save_training_data():
     """
@@ -34,8 +35,7 @@ def save_training_data():
 def _sample_wave_packets() -> torch.Tensor:
     """
     Sample wave packets containing at most `RAYS_PER_PACKET` ray volumes from
-    the spectrum defined in the config file, making sure to only sample packets
-    with ray volumes all having the same sign horizontal wavenumber.
+    the spectrum defined in the config file.
 
     Returns
     -------
@@ -48,24 +48,58 @@ def _sample_wave_packets() -> torch.Tensor:
 
     """
 
-    spectrum = spectra.get_spectrum()
-    spectrum_pos = spectrum[:, spectrum[2] > 0]
-    spectrum_neg = spectrum[:, spectrum[2] < 0]
+    squares = _squarify(spectra.get_spectrum())
+    X = torch.zeros((N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET))
 
-    shape = (N_BATCHES, 9, 2, PACKETS_PER_BATCH // 2, RAYS_PER_PACKET)
-    X = torch.zeros(shape)
-    
+    size = (N_BATCHES, PACKETS_PER_BATCH)
+    sdx = torch.randint(squares.shape[0], size=size)
+
     for i in range(N_BATCHES):
-        for j, half in enumerate((spectrum_pos, spectrum_neg)):
-            rands = torch.rand(PACKETS_PER_BATCH // 2, half.shape[1])
-            idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
-            drop = torch.rand(*idx.shape) > 0.8
+        data = squares[sdx[i]].transpose(0, 1)
+        drop = torch.rand(*data.shape[1:]) > 0.8
+        data[:, drop] = torch.nan
+        X[i] = data
 
-            data = half[:, idx]
-            data[:, drop] = torch.nan
-            X[i, :, j] = data
+    return X
 
-    return X.reshape(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)
+def _squarify(spectrum: torch.Tensor) -> torch.Tensor:
+    """
+    Group the ray volumes in a given source spectrum into squares according to
+    the square root of `RAYS_PER_PACKET`.
+
+    Parameters
+    ----------
+    spectrum
+        Source spectrum as returned by `spectra.get_spectrum`.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape `(n_squares, 9, RAYS_PER_PACKET)` whose first dimension
+        ranges over square bounding boxes, whose second dimension ranges over
+        ray volume properties, and whose third dimension ranges over individual
+        rays within a particular square.
+
+    """
+
+    idx = torch.argsort(cp_x(*spectrum[2:5]))
+    spectrum = spectrum[:, idx]
+
+    root = int(RAYS_PER_PACKET ** 0.5)
+    cols = torch.arange(config.n_source)
+    jdx = torch.floor_divide(cols, root)
+    
+    n_squares = jdx.max() + 1
+    out = torch.zeros((n_squares, 9, RAYS_PER_PACKET))
+
+    for j in range(n_squares):
+        packet = spectrum[:, jdx == j].repeat(1, root)
+        offsets = torch.arange(root).repeat_interleave(root)
+        packet[0] = packet[0] - packet[1, 0] * offsets
+
+        out[j] = packet
+
+    return out
 
 def _sample_wind_profiles() -> torch.Tensor:
     """
@@ -125,5 +159,6 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
     for i in range(N_BATCHES):
         spectrum = X[i].reshape(9, -1)
         integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, Z[i])
+        print(f'finished integrating batch {i + 1}')
 
     return Z
