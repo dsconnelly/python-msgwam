@@ -9,10 +9,10 @@ smoothing: float
 weight_decay: float
 
 _grid = {
-    'beta' : [0, 0.5, 1],
+    'beta' : [0.1, 0.8],
     'learning_rate' : [1e-3, 2e-4],
-    'network_size' : [1, 3],
-    'smoothing' : [2.5, 7],
+    'network_size' : [2, 5],
+    'smoothing' : [4, 9],
     'weight_decay' : [0, 1e-4]
 }
 

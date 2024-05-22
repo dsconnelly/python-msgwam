@@ -39,7 +39,7 @@ class CoarseNet(nn.Module):
 
         sizes = [n_inputs] + [512] * network_size
         sizes = sizes + [256, 128, 64, 32, n_outputs]
-        args = [nn.BatchNorm1d(n_inputs)]
+        args = [nn.BatchNorm1d(n_inputs, track_running_stats=False)]
 
         for n_in, n_out in zip(sizes[:-1], sizes[1:]):
             args.append(nn.Linear(n_in, n_out))

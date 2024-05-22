@@ -13,7 +13,7 @@ from utils import integrate_batches
 
 N_BATCHES = 200
 PACKETS_PER_BATCH = 128
-RAYS_PER_PACKET = 9
+RAYS_PER_PACKET = 10
 
 def save_training_data():
     """
@@ -24,7 +24,7 @@ def save_training_data():
     generation functions for more details.
     """
     
-    X = _sample_wave_packets()
+    X = _sample_random_packets()
     wind = _sample_wind_profiles()
     Z = _generate_targets(X, wind)
 
@@ -32,10 +32,47 @@ def save_training_data():
     torch.save(X, 'data/coarsenet/packets.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
 
-def _sample_wave_packets() -> torch.Tensor:
+def _sample_random_packets() -> torch.Tensor:
     """
     Sample wave packets containing at most `RAYS_PER_PACKET` ray volumes from
-    the spectrum defined in the config file.
+    the spectrum defined in the config file, making sure to only sample packets
+    with ray volumes all having the same sign horizontal wavenumber.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape `(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)`
+        whose first dimension ranges over batches, whose second dimension ranges
+        over ray volume properties, whose third dimension ranges over wave
+        packets within a batch, and whose fourth dimension ranges over
+        individual rays in a particular packet.
+
+    """
+
+    spectrum = spectra.get_spectrum()
+    spectrum_pos = spectrum[:, spectrum[2] > 0]
+    spectrum_neg = spectrum[:, spectrum[2] < 0]
+
+    shape = (N_BATCHES, 9, 2, PACKETS_PER_BATCH // 2, RAYS_PER_PACKET)
+    X = torch.zeros(shape)
+    
+    for i in range(N_BATCHES):
+        for j, half in enumerate((spectrum_pos, spectrum_neg)):
+            rands = torch.rand(PACKETS_PER_BATCH // 2, half.shape[1])
+            idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
+            drop = torch.rand(*idx.shape) > 0.8
+
+            data = half[:, idx]
+            data[:, drop] = torch.nan
+            X[i, :, j] = data
+
+    return X.reshape(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)
+
+def _sample_square_packets() -> torch.Tensor:
+    """
+    Sample wave packets containing at most `RAYS_PER_PACKET` ray volumes from
+    the spectrum defined in the config file. Packets will contain only rays from
+    a common square bounding box.
 
     Returns
     -------

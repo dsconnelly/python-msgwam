@@ -8,9 +8,9 @@ from architectures import CoarseNet
 from hyperparameters import beta, learning_rate, task_id, weight_decay
 from utils import integrate_batches
 
-MAX_HOURS = 6
+MAX_HOURS = 5
 N_BATCHES = 50
-N_EPOCHS = 100
+N_EPOCHS = 10
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
@@ -39,7 +39,7 @@ def train_network() -> None:
             L2 = _l2_loss(u, spectrum, Z, stds)
             reg = _reg_loss(output)
 
-            (reg + L2).backward()
+            (beta * reg + L2).backward()
             optimizer.step()
 
             batch_time = time() - batch_start
@@ -65,11 +65,8 @@ def train_network() -> None:
                 total_L2 = total_L2 + L2.item()
                 total_reg = total_reg + reg.item()
 
-                if i + 1 == N_BATCHES:
-                    break
-
-            avg_L2 = total_L2 / N_BATCHES
-            avg_reg = total_reg / N_BATCHES
+            avg_L2 = total_L2 / len(loader_te)
+            avg_reg = total_reg / len(loader_te)
 
             print(f'\ntest L2 error  = {avg_L2:.4f}')
             print(f'test reg error = {avg_reg:.4f}\n')
@@ -101,6 +98,10 @@ def _load_data() -> tuple[DataLoader, DataLoader]:
     m = int(0.8 * X.shape[2])
     idx = torch.randperm(X.shape[2])
     idx_tr, idx_te = idx[:m], idx[m:]
+
+    print('==== separating training and test data ====')
+    print('idx_tr:', idx_tr.tolist())
+    print('idx_te:', idx_te.tolist(), '\n')
 
     data_tr = TensorDataset(u, X[:, :, idx_tr], Z[:, idx_tr])
     data_te = TensorDataset(u, X[:, :, idx_te], Z[:, idx_te])
@@ -169,4 +170,4 @@ def _reg_loss(output: torch.Tensor) -> torch.Tensor:
 
     """
 
-    return beta * ((output - 1) ** 2).mean()
+    return ((output - 1) ** 2).mean()
