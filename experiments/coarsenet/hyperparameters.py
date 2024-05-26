@@ -9,18 +9,18 @@ smoothing: float
 weight_decay: float
 
 _grid = {
-    'beta' : [0.1, 0.8],
+    'beta' : [0, 0.5, 1],
     'learning_rate' : [1e-3, 2e-4],
     'network_size' : [2, 5],
-    'smoothing' : [4, 9],
+    'smoothing' : [4, 8],
     'weight_decay' : [0, 1e-4]
 }
 
 def _set_hyperparameters():
     """
     Set the hyperparameters according to the Slurm array index. Involves some
-    manipulation of `globals()` which are not for the faint of heart. Also
-    prints the hyperparameter choices.
+    manipulation of `globals()` which is not for the faint of heart. Also prints
+    the hyperparameter choices.
     """
 
     func = lambda a: torch.as_tensor(a, dtype=torch.double)

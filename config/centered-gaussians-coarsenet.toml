@@ -9,7 +9,7 @@ interactive_mean = false
 # time stepping
 # ==============================================================================
 dt = 120
-dt_output = 120
+dt_output = 1200
 n_day = 2
 
 # ==============================================================================
@@ -66,7 +66,7 @@ purge = false
 relaunch = false
 bc_mom_flux = 3e-3
 
-r_launch = 15e3
+r_launch = 10e3
 dr_init = 250
 
 dk_init = 1e-4
@@ -80,4 +80,4 @@ direction = 0
 # ==============================================================================
 c_center = 0
 c_width = 15
-n_source = 48
+n_source = 54

@@ -6,12 +6,12 @@ import torch
 sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.constants import EPOCH
-from msgwam.dispersion import cp_x
+from msgwam.dispersion import cg_r, cp_x
 from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
-N_BATCHES = 200
+N_BATCHES = 5
 PACKETS_PER_BATCH = 128
 RAYS_PER_PACKET = 10
 
@@ -24,13 +24,53 @@ def save_training_data():
     generation functions for more details.
     """
     
-    X = _sample_random_packets()
+    X = _permute_packets(_sample_random_packets())
     wind = _sample_wind_profiles()
     Z = _generate_targets(X, wind)
 
     torch.save(wind, 'data/coarsenet/wind.pkl')
     torch.save(X, 'data/coarsenet/packets.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
+
+def _randomize_spectrum() -> None:
+    """Randomizes a Gaussian spectrum, within reasonable parameters."""
+
+    bounds = {
+        'bc_mom_flux' : [1e-3, 5e-3],
+        'wvl_hor_char' : [20e3, 200e3],
+        'c_center' : [0, 25],
+        'c_width' : [8, 16]
+    }
+
+    for name, (lo, hi) in bounds.items():
+        sample = (hi - lo) * torch.rand(1) + lo
+        setattr(config, name, sample.item())
+
+    config.refresh()
+
+def _permute_packets(X: torch.Tensor) -> torch.Tensor:
+    """
+    Permute sampled packets between batches, so that different randomizations of
+    the spectrum get mixed between wind profiles.
+
+    Parameters
+    ----------
+    X
+        Batches of sampled wave packets, of the form produced by one of the
+        sampling functions in this module.
+
+    Returns
+    -------
+    torch.Tensor
+        Same wave packets, but with the batch and packet dimensions shuffled.
+
+    """
+
+    n_packets = N_BATCHES * PACKETS_PER_BATCH
+    X = X.transpose(0, 1).flatten(1, 2)[:, torch.randperm(n_packets)]
+    X = X.reshape(9, N_BATCHES, PACKETS_PER_BATCH, RAYS_PER_PACKET)
+
+    return X.transpose(0, 1)
 
 def _sample_random_packets() -> torch.Tensor:
     """
@@ -49,14 +89,15 @@ def _sample_random_packets() -> torch.Tensor:
 
     """
 
-    spectrum = spectra.get_spectrum()
-    spectrum_pos = spectrum[:, spectrum[2] > 0]
-    spectrum_neg = spectrum[:, spectrum[2] < 0]
-
     shape = (N_BATCHES, 9, 2, PACKETS_PER_BATCH // 2, RAYS_PER_PACKET)
     X = torch.zeros(shape)
     
     for i in range(N_BATCHES):
+        _randomize_spectrum()
+        spectrum = spectra.get_spectrum()
+        spectrum_pos = spectrum[:, spectrum[2] > 0]
+        spectrum_neg = spectrum[:, spectrum[2] < 0]
+
         for j, half in enumerate((spectrum_pos, spectrum_neg)):
             rands = torch.rand(PACKETS_PER_BATCH // 2, half.shape[1])
             idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
@@ -66,7 +107,7 @@ def _sample_random_packets() -> torch.Tensor:
             data[:, drop] = torch.nan
             X[i, :, j] = data
 
-    return X.reshape(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)
+    return X.flatten(2, 3)
 
 def _sample_square_packets() -> torch.Tensor:
     """
@@ -85,14 +126,14 @@ def _sample_square_packets() -> torch.Tensor:
 
     """
 
-    squares = _squarify(spectra.get_spectrum())
     X = torch.zeros((N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET))
 
-    size = (N_BATCHES, PACKETS_PER_BATCH)
-    sdx = torch.randint(squares.shape[0], size=size)
-
     for i in range(N_BATCHES):
-        data = squares[sdx[i]].transpose(0, 1)
+        _randomize_spectrum()
+        squares = _squarify(spectra.get_spectrum())
+        sdx = torch.randint(squares.shape[0], size=(PACKETS_PER_BATCH,))
+
+        data = squares[sdx].transpose(0, 1)
         drop = torch.rand(*data.shape[1:]) > 0.8
         data[:, drop] = torch.nan
         X[i] = data
@@ -155,11 +196,11 @@ def _sample_wind_profiles() -> torch.Tensor:
     """
 
     name = config.name.replace('-coarsenet', '')
-    path = f'data/{name}/reference.nc'
+    path = f'data/{name}/mean-state.nc'
 
     with open_dataset(path) as ds:
         days = cftime.date2num(ds['time'], f'days since {EPOCH}')
-        ds = ds.isel(time=((10 <= days) & (days <= 20)))
+        ds = ds.isel(time=((10 <= days) & (days <= 50)))
 
         idx = torch.randperm(len(ds['time']))[:N_BATCHES]
         u = torch.as_tensor(ds['u'].values)[idx]
@@ -170,7 +211,8 @@ def _sample_wind_profiles() -> torch.Tensor:
 def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
     """
     Integrate the model with each mean wind profile and batch of wave packets,
-    and then postprocess the outputs accordingly.
+    and then postprocess the outputs accordingly. For smoothness, the output
+    time step is set to the physics time step.
 
     Parameters
     ----------
@@ -185,17 +227,20 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
         Tensor of shape `(N_BATCHES, PACKETS_PER_BATCH, n_z)` whose first
         dimension ranges over batches, whose second dimension ranges over wave
         packets within a batch, and whose third dimension ranges over vertical
-        grid points. Values are the mean fluxes over the integration in mPa.
+        grid points. Values are the mean fluxes over the integration.
 
     """
 
+    config.dt_output = config.dt
+    config.refresh()
+    
     n_z = config.n_grid - 1
     n_snapshots = config.n_t_max // config.n_skip + 1
-    Z = torch.zeros((N_BATCHES, PACKETS_PER_BATCH, n_snapshots, n_z))
+    Z = torch.zeros((N_BATCHES, PACKETS_PER_BATCH, n_snapshots, n_z))    
 
     for i in range(N_BATCHES):
         spectrum = X[i].reshape(9, -1)
-        integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, Z[i])
+        integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, Z[i], smooth=True)
         print(f'finished integrating batch {i + 1}')
 
     return Z

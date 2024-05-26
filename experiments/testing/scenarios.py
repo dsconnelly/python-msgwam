@@ -25,7 +25,7 @@ def save_mean_state(scenario: str) -> None:
     func_name = '_' + scenario.replace('-', '_')
     ds: xr.Dataset = globals()[func_name]()
 
-    _, cbar = plot_time_series(ds['u'], 12)
+    _, cbar = plot_time_series(ds['u'], 45)
     cbar.set_label('$\\bar{u}$ (m s$^{-1}$)')
 
     plt.tight_layout()
@@ -92,11 +92,46 @@ def _oscillating_jets() -> xr.Dataset:
     n_days = 35
     seconds = 86400 * np.linspace(0, n_days, 24 * n_days)
     datetimes = cftime.num2date(seconds, f'seconds since {EPOCH}')
-    envelope = np.sin(2 * np.pi * seconds / 86400 / 30)
+    arg = 2 * np.pi * seconds / 86400 / 30
 
     shape = (len(seconds), len(centers))
-    dipole = np.broadcast_to(low - high, shape)
-    u = envelope[:, None] * dipole
+    low = np.broadcast_to(low, shape) * np.sin(arg)[:, None]
+    high = np.broadcast_to(high, shape) * np.cos(arg)[:, None]
+
+    u = low - high
+    v = np.zeros_like(u)
+
+    return xr.Dataset({
+        'z' : centers,
+        'time' : datetimes,
+        'u' : (('time', 'z'), u),
+        'v' : (('time', 'z'), v)
+    })
+
+def _descending_jets() -> xr.Dataset:
+    """
+    Return a mean flow scenario with descending jets approximating the QBO.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset containing the mean flow scenario.
+
+    """
+
+    faces = np.linspace(*config.grid_bounds, config.n_grid)
+    centers = (faces[:-1] + faces[1:]) / 2
+
+    n_days = 60
+    seconds = 86400 * np.linspace(0, n_days, 24 * n_days)
+    datetimes = cftime.num2date(seconds, f'seconds since {EPOCH}')
+
+    k = 2 * np.pi / (40 * 86400)
+    ell = 2 * np.pi / 25e3
+
+    x, y = np.meshgrid(seconds, centers)
+    env = 40 * np.exp(-((centers - 33e3) / 10e3) ** 2)
+    u = env * np.exp(1j * (k * x + ell * y)).real.T
     v = np.zeros_like(u)
 
     return xr.Dataset({

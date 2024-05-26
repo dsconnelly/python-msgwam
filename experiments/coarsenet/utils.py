@@ -10,7 +10,7 @@ from msgwam.dispersion import cg_r
 from msgwam.integration import SBDF2Integrator
 from msgwam.utils import shapiro_filter
 
-from hyperparameters import smoothing
+import hyperparameters as hparams
 
 def get_batch_pmf(X: torch.Tensor) -> torch.Tensor:
     """
@@ -91,7 +91,7 @@ def integrate_batches(
     if smooth:
         config.proj_method = 'gaussian'
         config.shapiro_filter = False
-        config.smoothing = smoothing
+        config.smoothing = hparams.smoothing
         
     else:
         config.proj_method = 'discrete'

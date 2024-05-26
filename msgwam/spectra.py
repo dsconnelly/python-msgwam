@@ -30,7 +30,10 @@ def _gaussians() -> torch.Tensor:
 
     n_c = config.n_source // 2
     c_max = config.c_center + 2 * config.c_width
-    cp_xs = (torch.arange(n_c) + 0.5) * c_max / (n_c - 0.5)
+    c_min = max(0, config.c_center - 2 * config.c_width)
+
+    c_bounds = torch.linspace(c_min, c_max, n_c + 1)
+    cp_xs = (c_bounds[:-1] + c_bounds[1:]) / 2
     ms = m_from(k, l, cp_xs)
     
     dk = config.dk_init

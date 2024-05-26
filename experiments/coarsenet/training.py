@@ -4,13 +4,14 @@ import torch
 
 from torch.utils.data import DataLoader, TensorDataset
 
+import hyperparameters as hparams
+
 from architectures import CoarseNet
-from hyperparameters import beta, learning_rate, task_id, weight_decay
 from utils import integrate_batches
 
 MAX_HOURS = 5
 N_BATCHES = 50
-N_EPOCHS = 10
+N_EPOCHS = 5
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
@@ -22,8 +23,8 @@ def train_network() -> None:
     model = CoarseNet()
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=learning_rate,
-        weight_decay=weight_decay
+        lr=hparams.learning_rate,
+        weight_decay=hparams.weight_decay
     )
 
     start = time()
@@ -39,7 +40,7 @@ def train_network() -> None:
             L2 = _l2_loss(u, spectrum, Z, stds)
             reg = _reg_loss(output)
 
-            (beta * reg + L2).backward()
+            (hparams.beta * reg + L2).backward()
             optimizer.step()
 
             batch_time = time() - batch_start
@@ -76,7 +77,8 @@ def train_network() -> None:
         if hours > MAX_HOURS:
             break
 
-    torch.save(model.state_dict(), f'data/coarsenet/model-{task_id}.pkl')
+    path = f'data/coarsenet/model-{hparams.task_id}.pkl'
+    torch.save(model.state_dict(), path)
 
 def _load_data() -> tuple[DataLoader, DataLoader]:
     """

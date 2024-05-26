@@ -8,7 +8,8 @@ from msgwam import config
 from msgwam.rays import RayCollection
 from msgwam.utils import put
 
-from hyperparameters import network_size
+import hyperparameters as hparams
+
 from preprocessing import RAYS_PER_PACKET
 from utils import get_batch_pmf
 
@@ -23,7 +24,7 @@ class CoarseNet(nn.Module):
     """
 
     props_in = ['r', 'k', 'm', 'dm', 'dens']
-    props_out = ['dr', 'k', 'm', 'dm']
+    props_out = ['dr', 'k', 'm', 'dm', 'dens']
 
     idx_in = [RayCollection.indices[prop] for prop in props_in]
     idx_out = [RayCollection.indices[prop] for prop in props_out]
@@ -37,7 +38,7 @@ class CoarseNet(nn.Module):
         n_inputs = n_z + len(self.props_in) * RAYS_PER_PACKET
         n_outputs = len(self.props_out)
 
-        sizes = [n_inputs] + [512] * network_size
+        sizes = [n_inputs] + [512] * hparams.network_size
         sizes = sizes + [256, 128, 64, 32, n_outputs]
         args = [nn.BatchNorm1d(n_inputs, track_running_stats=False)]
 
@@ -76,7 +77,7 @@ class CoarseNet(nn.Module):
         shape = (-1, len(self.props_in) * RAYS_PER_PACKET)
         packets = X[self.idx_in].transpose(0, 1).reshape(shape)
         u = u[None].expand(X.shape[1], -1)
-        
+
         stacked = torch.hstack((u, packets))
         output = self.layers(torch.nan_to_num(stacked))
 
@@ -113,8 +114,10 @@ class CoarseNet(nn.Module):
 
         Y = _get_replacement(X)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
-        factor = get_batch_pmf(X) / get_batch_pmf(Y)
-        Y = put(Y, -1, Y[-1] * factor)
+        factor = torch.sqrt(get_batch_pmf(X) / get_batch_pmf(Y))
+
+        Y = put(Y, 5, Y[5] * factor)
+        Y = put(Y, 6, Y[6] * factor)
 
         return Y
 
