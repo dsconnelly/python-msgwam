@@ -10,8 +10,6 @@ from msgwam.dispersion import cg_r
 from msgwam.integration import SBDF2Integrator
 from msgwam.utils import shapiro_filter
 
-import hyperparameters as hparams
-
 def get_batch_pmf(X: torch.Tensor) -> torch.Tensor:
     """
     Compute the pseudomomentum flux of each wave packet in a source spectrum.
@@ -45,7 +43,7 @@ def integrate_batches(
     spectrum: torch.Tensor,
     rays_per_packet: int,
     out: Optional[torch.Tensor]=None,
-    smooth: bool=False
+    smoothing: Optional[float]=None
 ) -> torch.Tensor:
     """
     Integrate the system with the given mean wind profiles (held constant) and
@@ -67,8 +65,9 @@ def integrate_batches(
         number of steps in the time series and `n_z` is the number of grid
         points the wind (and pseudomomentum fluxes) are reported on. If `None`,
         a newly-created array will be returned.
-    smooth
-        Whether to use Gaussian projection instead of discrete.
+    smoothing
+        If `None`, discrete projection is used to compute the fluxes. Otherwise,
+        sets the smoothing parameter used for Gaussian projection.
 
     """
 
@@ -88,14 +87,14 @@ def integrate_batches(
     solver = SBDF2Integrator().integrate()
     mean = solver.snapshots_mean[0]
 
-    if smooth:
-        config.proj_method = 'gaussian'
-        config.shapiro_filter = False
-        config.smoothing = hparams.smoothing
-        
-    else:
+    if smoothing is None:
         config.proj_method = 'discrete'
         config.shapiro_filter = True
+
+    else:
+        config.proj_method = 'gaussian'
+        config.shapiro_filter = False
+        config.smoothing = smoothing
 
     config.refresh()
     for j, rays in enumerate(solver.snapshots_rays):

@@ -6,14 +6,14 @@ import torch
 sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.constants import EPOCH
-from msgwam.dispersion import cg_r, cp_x
+from msgwam.dispersion import cp_x
 from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
-N_BATCHES = 5
+N_BATCHES = 200
 PACKETS_PER_BATCH = 128
-RAYS_PER_PACKET = 10
+RAYS_PER_PACKET = 9
 
 def save_training_data():
     """
@@ -24,7 +24,7 @@ def save_training_data():
     generation functions for more details.
     """
     
-    X = _permute_packets(_sample_random_packets())
+    X = _sample_square_packets()
     wind = _sample_wind_profiles()
     Z = _generate_targets(X, wind)
 
@@ -38,7 +38,7 @@ def _randomize_spectrum() -> None:
     bounds = {
         'bc_mom_flux' : [1e-3, 5e-3],
         'wvl_hor_char' : [20e3, 200e3],
-        'c_center' : [0, 25],
+        'c_center' : [0, 15],
         'c_width' : [8, 16]
     }
 
@@ -47,6 +47,34 @@ def _randomize_spectrum() -> None:
         setattr(config, name, sample.item())
 
     config.refresh()
+
+def _normalize_packets(X: torch.Tensor, total_flux=3e-3) -> torch.Tensor:
+    """
+    Scale sampled wave packets to all contain the same momentum flux.
+
+    Parameters
+    ----------
+    X
+        Batches of sampled wave packets, of the form produced by one of the
+        sampling functions in this module.
+    total_flux
+        Momentum flux each packet should contain, in Pa.
+
+    Returns
+    -------
+    torch.Tensor
+        Rescaled packets, in the same shape as `X`.
+
+    """
+
+    from msgwam.dispersion import cg_r
+    k, l, m, dk, dl, dm, dens = X.transpose(0, 1)[2:]
+    flux = k * cg_r(k, l, m) * dens * dk * dl * dm
+    
+    factor = total_flux / abs(torch.nan_to_num(flux).sum(dim=-1))
+    X[:, -1] = X[:, -1] * factor[..., None]
+
+    return X
 
 def _permute_packets(X: torch.Tensor) -> torch.Tensor:
     """
@@ -107,7 +135,7 @@ def _sample_random_packets() -> torch.Tensor:
             data[:, drop] = torch.nan
             X[i, :, j] = data
 
-    return X.flatten(2, 3)
+    return _permute_packets(X.flatten(2, 3))
 
 def _sample_square_packets() -> torch.Tensor:
     """
@@ -138,7 +166,7 @@ def _sample_square_packets() -> torch.Tensor:
         data[:, drop] = torch.nan
         X[i] = data
 
-    return X
+    return _normalize_packets(_permute_packets(X))
 
 def _squarify(spectrum: torch.Tensor) -> torch.Tensor:
     """
@@ -240,7 +268,14 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
 
     for i in range(N_BATCHES):
         spectrum = X[i].reshape(9, -1)
-        integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, Z[i], smooth=True)
+        integrate_batches(
+            wind[i],
+            spectrum,
+            RAYS_PER_PACKET,
+            Z[i],
+            smoothing=4
+        )
+        
         print(f'finished integrating batch {i + 1}')
 
     return Z

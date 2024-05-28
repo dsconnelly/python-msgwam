@@ -114,10 +114,8 @@ class CoarseNet(nn.Module):
 
         Y = _get_replacement(X)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
-        factor = torch.sqrt(get_batch_pmf(X) / get_batch_pmf(Y))
-
-        Y = put(Y, 5, Y[5] * factor)
-        Y = put(Y, 6, Y[6] * factor)
+        factor = get_batch_pmf(X) / get_batch_pmf(Y)
+        Y = put(Y, 8, Y[8] * factor)
 
         return Y
 
