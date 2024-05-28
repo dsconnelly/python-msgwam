@@ -268,14 +268,7 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
 
     for i in range(N_BATCHES):
         spectrum = X[i].reshape(9, -1)
-        integrate_batches(
-            wind[i],
-            spectrum,
-            RAYS_PER_PACKET,
-            Z[i],
-            smoothing=4
-        )
-        
+        Z[i] = integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, 4)        
         print(f'finished integrating batch {i + 1}')
 
     return Z

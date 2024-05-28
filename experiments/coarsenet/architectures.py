@@ -1,17 +1,15 @@
 import sys
+sys.path.insert(0, '.')
 
-import numpy as np
 import torch, torch.nn as nn
 
-sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.rays import RayCollection
 from msgwam.utils import put
 
-import hyperparameters as hparams
-
+from hyperparameters import network_size
 from preprocessing import RAYS_PER_PACKET
-from utils import get_batch_pmf
+from utils import get_batch_pmf, get_base_replacement, xavier_init
 
 class CoarseNet(nn.Module):
     """
@@ -35,23 +33,27 @@ class CoarseNet(nn.Module):
         super().__init__()
 
         n_z = config.n_grid - 1
-        n_inputs = n_z + len(self.props_in) * RAYS_PER_PACKET
-        n_outputs = len(self.props_out)
+        n_in = n_z + len(self.props_in) * RAYS_PER_PACKET
+        n_out = len(self.props_out)
 
-        sizes = [n_inputs] + [512] * hparams.network_size
-        sizes = sizes + [256, 128, 64, 32, n_outputs]
-        args = [nn.BatchNorm1d(n_inputs, track_running_stats=False)]
+        sizes = [n_in] + [512] * network_size
+        sizes = sizes + [256, 128, 64, 32, n_out]
+        args = [nn.BatchNorm1d(n_in, track_running_stats=False)]
 
-        for n_in, n_out in zip(sizes[:-1], sizes[1:]):
-            args.append(nn.Linear(n_in, n_out))
+        for a, b in zip(sizes[:-1], sizes[1:]):
+            args.append(nn.Linear(a, b))
             args.append(nn.ReLU())
 
         args = args[:-1] + [nn.Softplus()]
         self.layers = nn.Sequential(*args)
-        self.layers.apply(_xavier_init)
+        self.layers.apply(xavier_init)
         self.to(torch.double)
 
-    def forward(self, u: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        u: torch.Tensor,
+        X: torch.Tensor
+    ) -> torch.Tensor:
         """
         Apply the CoarseNet, including unpacking the ray volume data, applying
         the neural network, and repacking the calculated wave properties as
@@ -64,25 +66,25 @@ class CoarseNet(nn.Module):
         X
             Tensor containing ray volume properties, structured like a batch in
             the output of `_sample_wave_packets`.
-        
+
         Returns
         -------
-        Z
-            Tensor containing the properties of the replacement ray volumes
-            whose first dimension ranges over the properties in `props_out` and
-            whose second dimension ranges over the packets being replaced.
+        torch.Tensor
+            Tensor containing positive scale factors whose first dimension
+            ranges over the properties in `props_out` and whose second dimension
+            ranges over the packets being replaced.
 
         """
 
         shape = (-1, len(self.props_in) * RAYS_PER_PACKET)
         packets = X[self.idx_in].transpose(0, 1).reshape(shape)
-        u = u[None].expand(X.shape[1], -1)
 
+        u = u[None].expand(X.shape[1], -1)
         stacked = torch.hstack((u, packets))
         output = self.layers(torch.nan_to_num(stacked))
 
         return output.T
-
+        
     @classmethod
     def build_spectrum(
         cls,
@@ -112,53 +114,9 @@ class CoarseNet(nn.Module):
 
         """
 
-        Y = _get_replacement(X)
+        Y = get_base_replacement(X)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
         factor = get_batch_pmf(X) / get_batch_pmf(Y)
         Y = put(Y, 8, Y[8] * factor)
 
         return Y
-
-def _get_replacement(X: torch.Tensor) -> torch.Tensor:
-    """
-    Get the base replacement ray volume for each packet. The base replacement
-    has the mean properties of all ray volumes in the packet, except for `dr`
-    and `dm`, which have the bounding box properties instead.
-
-    Parameters
-    ----------
-    X
-        Tensor containing ray volume properties for each packet, structured
-        like a batch in the output of `_sample_wave_packets`.
-
-    Returns
-    -------
-        Tensor of base replacement ray volumes.
-
-    """
-    
-    r_lo = np.nanmin((X[0] - 0.5 * X[1]).numpy(), axis=-1)
-    r_hi = np.nanmax((X[0] + 0.5 * X[1]).numpy(), axis=-1)
-
-    m_lo = np.nanmin((X[4] - 0.5 * X[7]).numpy(), axis=-1)
-    m_hi = np.nanmax((X[4] + 0.5 * X[7]).numpy(), axis=-1)
-
-    base = torch.nanmean(X, dim=-1)
-    base[1] = torch.as_tensor(r_hi - r_lo)
-    base[7] = torch.as_tensor(m_hi - m_lo)
-
-    return base
-
-def _xavier_init(layer: nn.Module):
-    """
-    Apply Xavier initialization to a layer if it is an `nn.Linear`.
-
-    Parameters
-    ----------
-    layer
-        Module to potentially initialize.
-
-    """
-
-    if isinstance(layer, nn.Linear):
-        nn.init.xavier_uniform_(layer.weight)
