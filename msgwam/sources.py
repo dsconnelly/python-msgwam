@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 
 from . import config
-from .dispersion import cg_r
+from .dispersion import cg_r, cp_x
 from .spectra import get_spectrum
 
 class Source(ABC):
@@ -21,7 +21,8 @@ class Source(ABC):
     @abstractmethod
     def launch(
         self,
-        j: torch.Tensor
+        j: torch.Tensor,
+        u: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Each spectrum is discretized into a fixed number of slots, each of which
@@ -44,6 +45,8 @@ class Source(ABC):
         ----------
         j
             Tensor of slots of ray volumes that have cleared the launch level.
+        u
+            Current zonal wind profile (can be discarded by subclasses).
 
         Returns
         -------
@@ -63,12 +66,104 @@ class Source(ABC):
 class ConstantSource(Source):
     def launch(
         self,
-        j: torch.Tensor
+        j: torch.Tensor,
+        _
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Simply return the columns of `self.data` indexed by j."""
 
         return self.data[:, j], j, torch.ones(len(j)).int()
     
+class NetworkSource(Source):
+    def __init__(self) -> None:
+        """
+        At initialization, the neural network source divides the source up into
+        packets that will be replaced later.
+        """
+
+        super().__init__()
+        idx = torch.argsort(cp_x(*self.data[2:5]))
+        self.data = self.data[:, idx]
+
+        speedup = config.rays_per_packet
+        self.dt_launch = speedup * config.dt
+        self.repeats = self.dt_launch * cg_r(*self.data[2:5]) / self.data[1]
+
+        root = int(speedup ** 0.5)
+        columns = torch.arange(self.n_slots)
+        self.sdx = torch.floor_divide(columns, root)
+        
+        self.model = torch.jit.load(config.model_path)
+
+    def launch(
+        self,
+        j: torch.Tensor,
+        u: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Takes the requested slots, calculates how many times each ray volume
+        would have cleared the lower boundary since the last launch, then builds
+        packets of nearby ray volumes and their repeats and coarsens them using
+        the loaded neural network. 
+        """
+
+        repeats = torch.floor(self.repeats[j]).int()
+        idx = torch.rand(len(j)) < self.repeats[j] - repeats
+        repeats[idx | (repeats == 0)] += 1
+
+        copies = torch.repeat_interleave(j, repeats)
+        copies = copies[torch.randperm(repeats.sum())]
+        copies = copies[torch.argsort(self.sdx[copies])]
+
+        packet_ids = self._get_packet_ids(copies)
+        n_packets = packet_ids.max()
+
+        X = torch.nan * torch.zeros((9, n_packets, config.rays_per_packet))
+        counts = torch.zeros(n_packets).int()
+        max_seen = -1
+
+        for k in range(n_packets):
+            pdx = packet_ids == k
+            X[:, k, :pdx.sum()] = self.data[:, copies[pdx]]
+            counts[k] = len(torch.unique(copies[pdx & (copies > max_seen)]))
+            max_seen = max(max_seen, copies[pdx].max())
+
+        with torch.no_grad():
+            spectrum = self.model(u, X)
+
+        return spectrum, j, counts
+
+    def _get_packet_ids(self, j: torch.Tensor) -> torch.Tensor:
+        """
+        Given a tensor of slots of ray volumes that need to be launched, group
+        them into packets of size no more than `config.rays_per_packet`.
+        
+        Parameters
+        ----------
+        j
+            Tensor of slots of ray volumes to coarsen, including repeats.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor indicating, for each ray volume in `j`, which packet it
+            should belong to.
+
+        """
+
+        _, counts = torch.unique(self.sdx[j], return_counts=True)
+        fulls = torch.floor_divide(counts, config.rays_per_packet)
+        rems = torch.remainder(counts, config.rays_per_packet).int()
+        totals = fulls + (rems > 0).int()
+
+        n_packets = totals.sum()
+        packet_ids = torch.arange(n_packets)
+        sizes = config.rays_per_packet * torch.ones(n_packets).int()
+
+        lasts = (torch.cumsum(totals, 0) - 1)[rems > 0]
+        sizes[lasts] = rems[rems > 0]
+
+        return torch.repeat_interleave(packet_ids, sizes.int())
+
 class StochasticSource(Source):
     def __init__(self) -> None:
         """
@@ -85,7 +180,8 @@ class StochasticSource(Source):
 
     def launch(
         self,
-        j: torch.Tensor
+        j: torch.Tensor,
+        _
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Return `config.epsilon` times the number of rays requested, sampled such

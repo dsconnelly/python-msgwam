@@ -6,7 +6,7 @@ import torch
 sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.constants import EPOCH
-from msgwam.dispersion import cp_x
+from msgwam.dispersion import cg_r, cp_x
 from msgwam.utils import open_dataset
 
 from utils import integrate_batches
@@ -67,7 +67,6 @@ def _normalize_packets(X: torch.Tensor, total_flux=3e-3) -> torch.Tensor:
 
     """
 
-    from msgwam.dispersion import cg_r
     k, l, m, dk, dl, dm, dens = X.transpose(0, 1)[2:]
     flux = k * cg_r(k, l, m) * dens * dk * dl * dm
     

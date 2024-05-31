@@ -122,11 +122,11 @@ def _descending_jets() -> xr.Dataset:
     faces = np.linspace(*config.grid_bounds, config.n_grid)
     centers = (faces[:-1] + faces[1:]) / 2
 
-    n_days = 60
+    n_days = 30
     seconds = 86400 * np.linspace(0, n_days, 24 * n_days)
     datetimes = cftime.num2date(seconds, f'seconds since {EPOCH}')
 
-    k = 2 * np.pi / (40 * 86400)
+    k = 2 * np.pi / (10 * 86400)
     ell = 2 * np.pi / 25e3
 
     x, y = np.meshgrid(seconds, centers)

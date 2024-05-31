@@ -8,9 +8,9 @@ network_size: int
 weight_decay: float
 
 _grid = {
-    'beta' : [0.2, 1],
-    'learning_rate' : [3e-3, 1e-3, 2e-4],
-    'network_size' : [2, 5, 8],
+    'beta' : [0.2, 0.5, 1],
+    'learning_rate' : [1e-3, 2e-4],
+    'network_size' : [5, 8, 10],
     'weight_decay' : [0, 1e-4]
 }
 

@@ -1,16 +1,16 @@
 # ==============================================================================
 # global flags
 # ==============================================================================
-show_progress = false
+show_progress = true
 interactive_mean = false
-# prescribed_wind = 
+prescribed_wind = '../data/centered-gaussians/mean-state.nc'
 
 # ==============================================================================
 # time stepping
 # ==============================================================================
 dt = 120
-dt_output = 1200
-n_day = 2
+dt_output = 120
+n_day = 10
 
 # ==============================================================================
 # vertical grid
@@ -51,7 +51,7 @@ dissipation = 1
 # ==============================================================================
 # ray volumes and propagation
 # ==============================================================================
-n_ray_max = 48
+n_ray_max = 2500
 n_chromatic = -1
 epsilon = 1
 
@@ -59,11 +59,11 @@ epsilon = 1
 # source and spectrum (parameters in this section are likely to be used by more
 # than one source or spectrum type)
 # ==============================================================================
-source_type = 'constant'
+source_type = 'network'
 spectrum_type = 'gaussians'
-purge = false
+purge = true
 
-dt_launch = inf
+dt_launch = 1200
 bc_mom_flux = 3e-3
 
 r_launch = 10e3
@@ -74,6 +74,12 @@ dl_init = 1e-4
 
 wvl_hor_char = 100e3
 direction = 0
+
+# ==============================================================================
+# 'network' source
+# ==============================================================================
+model_path = '../data/coarsenet/model-30.jit'
+rays_per_packet = 9
 
 # ==============================================================================
 # 'gaussians' spectrum

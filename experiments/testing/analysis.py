@@ -18,7 +18,8 @@ COLORS = {
     'coarse-square' : 'forestgreen',
     'coarse-tall' : 'royalblue',
     'coarse-wide' : 'tab:red',
-    'stochastic' : 'darkviolet'
+    'stochastic' : 'darkviolet',
+    'network' : 'fuchsia'
 }
 
 # def plot_source() -> None:

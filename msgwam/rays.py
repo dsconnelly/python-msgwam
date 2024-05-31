@@ -174,7 +174,10 @@ class RayCollection:
         above = self.r + 0.5 * self.dr > mean.z_faces[-1]
         self.delete_rays(below | above)
 
-    def check_source(self) -> None:
+        flux = self.k * self.cg_r() * self.action
+        self.delete_rays(abs(flux) < 1e-10)
+
+    def check_source(self, mean: MeanState) -> None:
         """
         Enforce the bottom boundary condition by adding ray volumes as necessary
         to replace those that have cleared the ghost layer.
@@ -187,12 +190,12 @@ class RayCollection:
         if len(crossed) == 0:
             return
         
-        datas, slots, counts = self.source.launch(crossed)
+        datas, slots, counts = self.source.launch(crossed, mean.u)
         excess = self.count + datas.shape[1] - config.n_ray_max
-
+        
         if config.purge and excess > 0:
             idx = torch.argsort(self.action)
-            idx = idx[~torch.isin(idx, self.ghosts)]
+            idx = idx[(~torch.isin(idx, self.ghosts)) & self.valid[idx]]
 
             self.delete_rays(idx[:excess])
 

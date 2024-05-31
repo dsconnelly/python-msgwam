@@ -1,5 +1,8 @@
 import sys
 
+import torch
+torch.set_default_dtype(torch.float64)
+
 sys.path.insert(0, '.')
 from msgwam import config
 

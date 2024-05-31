@@ -8,8 +8,7 @@ from msgwam.mean import MeanState
 from architectures import CoarseNet
 from utils import integrate_batches
 
-class RegularizedMSELoss(nn.Module):
-
+class RegularizedMSELoss(nn.Module):    
     def __init__(self, z_min: float=15e3, z_max: float=50e3) -> None:
         """
         Initialize a module to compute MSE and regularization losses.

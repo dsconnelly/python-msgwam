@@ -95,7 +95,8 @@ purge: bool # Whether to purge existing rays to enforce the bottom boundary
     # condition. If False, an error will be raised if the boundary condition
     # cannot be enforced because there are two many rays.
 
-relaunch: bool # Whether to launch waves beyond the first time step.
+dt_launch: int # Time step between calls to the source. If inf, new ray volumes
+    # are not launched beyond the initial packet.
 bc_mom_flux: float # Momentum flux across lower boundary (Pa).
 
 r_launch: float # Launch height of ray volumes (m).
@@ -113,6 +114,12 @@ direction: float # Direction of horizontal propagation (deg relative to east).
 c_center: float # Phase speed with peak amplitude (m / s).
 c_width: float # Width of Gaussian in phase speed space (m / s).
 n_source: int # How many ray volumes to discretize source into. Must be even.
+
+# ==============================================================================
+# 'network' source
+# ==============================================================================
+model_path: str # Path where JIT-compiled neural network is saved.
+rays_per_packet: int # How many ray volumes the neural network accepts at once.
 
 # ==============================================================================
 # derived parameters (set by the code, not the namelist)

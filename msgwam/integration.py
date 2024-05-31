@@ -97,8 +97,8 @@ class Integrator(ABC):
 
         start = now()
         for i in get_iterator():
-            if config.relaunch:
-                rays.check_source()
+            if i * config.dt % config.dt_launch == 0:
+                rays.check_source(mean)
 
             mean, rays = self.step(mean, rays)
             rays.check_boundaries(mean)

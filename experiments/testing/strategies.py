@@ -80,3 +80,10 @@ def _stochastic() -> None:
     config.n_ray_max = 250
     config.epsilon = 0.1
     config.purge = True
+
+def _network() -> None:
+    config.source_type = 'network'
+    config.dt_launch = config.rays_per_packet * config.dt
+    config.n_ray_max = 250
+    config.purge = True
+    
