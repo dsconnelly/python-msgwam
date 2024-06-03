@@ -5,12 +5,16 @@ import torch
 beta: float
 learning_rate: float
 network_size: int
+root: int
+warmup_batches: int
 weight_decay: float
 
 _grid = {
-    'beta' : [0.2, 0.5, 1],
+    'beta' : [0.5, 1],
     'learning_rate' : [1e-3, 2e-4],
-    'network_size' : [5, 8, 10],
+    'network_size' : [8, 10],
+    'root' : [5],
+    'warmup_batches' : [2, 5],
     'weight_decay' : [0, 1e-4]
 }
 

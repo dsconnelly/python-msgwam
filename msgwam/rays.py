@@ -159,6 +159,41 @@ class RayCollection:
         self.data[8, j] = 0
         self.data[9:, j] = torch.nan
 
+    def purge(self, excess: int) -> None:
+        """
+        Delete enough rays to enforce the bottom boundary condition. The rays to
+        be purged will be selected according to `config.purge_mode`.
+
+        Parameters
+        ----------
+        excess
+            How many rays need to be deleted.
+
+        """
+
+        if config.purge_mode == 'none':
+            return
+
+        elif config.purge_mode == 'action':
+            criterion = self.action
+
+        elif config.purge_mode == 'cg_r':
+            criterion = abs(self.cg_r())
+
+        elif config.purge_mode == 'energy':
+            criterion = self.action * self.omega_hat()
+
+        elif config.purge_mode == 'pmf':
+            criterion = abs(self.k * self.cg_r() * self.action)
+
+        else:
+            message = f'Unknown purge mode: {config.purge_mode}'
+            raise ValueError(message)
+
+        idx = torch.argsort(criterion)
+        idx = idx[(~torch.isin(idx, self.ghosts)) & self.valid[idx]]
+        self.delete_rays(idx[:excess])
+
     def check_boundaries(self, mean: MeanState) -> None:
         """
         Delete rays that have propagated outside of the physical domain.
@@ -174,8 +209,8 @@ class RayCollection:
         above = self.r + 0.5 * self.dr > mean.z_faces[-1]
         self.delete_rays(below | above)
 
-        flux = self.k * self.cg_r() * self.action
-        self.delete_rays(abs(flux) < 1e-10)
+        pmf = self.k * self.cg_r() * self.action
+        self.delete_rays(abs(pmf) < config.min_pmf)
 
     def check_source(self, mean: MeanState) -> None:
         """
@@ -192,12 +227,7 @@ class RayCollection:
         
         datas, slots, counts = self.source.launch(crossed, mean.u)
         excess = self.count + datas.shape[1] - config.n_ray_max
-        
-        if config.purge and excess > 0:
-            idx = torch.argsort(self.action)
-            idx = idx[(~torch.isin(idx, self.ghosts)) & self.valid[idx]]
-
-            self.delete_rays(idx[:excess])
+        self.purge(excess)
 
         curr: int | torch.Tensor = 0
         for j, data in enumerate(datas.T):

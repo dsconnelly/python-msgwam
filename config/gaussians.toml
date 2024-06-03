@@ -52,6 +52,7 @@ dissipation = 1
 # ray volumes and propagation
 # ==============================================================================
 n_ray_max = 25000
+min_pmf = 1e-10
 n_chromatic = -1
 epsilon = 1
 
@@ -61,12 +62,12 @@ epsilon = 1
 # ==============================================================================
 source_type = 'constant'
 spectrum_type = 'gaussians'
-purge = false
+purge_mode = 'none'
 
 dt_launch = 1
 bc_mom_flux = 3e-3
 
-r_launch = 15e3
+r_launch = 10e3
 dr_init = 250
 
 dk_init = 1e-4

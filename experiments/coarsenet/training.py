@@ -4,32 +4,37 @@ from warnings import catch_warnings
 import torch
 
 from torch.utils.data import DataLoader, TensorDataset
+from torch.nn.utils import clip_grad_norm_
 
 from architectures import CoarseNet
-from hyperparameters import beta, learning_rate, task_id, weight_decay
+from hyperparameters import (
+    beta,
+    learning_rate,
+    task_id,
+    warmup_batches,
+    weight_decay
+)
 from losses import RegularizedMSELoss
 from monitors import LossMonitor
 
-MAX_BATCHES = 50
+MAX_BATCHES = 30
 MAX_EPOCHS = 100
-MAX_HOURS = 9
+MAX_HOURS = 11
 
+MAX_GRAD_NORM = 2
 MAX_SMOOTHING = 16
 MIN_SMOOTHING = 4
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
 
-    model = CoarseNet()
     loss = RegularizedMSELoss()
-    monitor = LossMonitor(6, 0.04)
+    monitor = LossMonitor(5, 0.04)
     loader_tr, loader_va = _load_data(loss.keep)
+    u_tr, X_tr, _ = loader_tr.dataset.tensors
 
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=weight_decay
-    )
+    model = CoarseNet(u_tr, X_tr)
+    optimizer = _get_optimizer(model)
 
     hours = 0
     n_epoch = 1
@@ -39,7 +44,8 @@ def train_network() -> None:
     while n_epoch <= MAX_EPOCHS and hours < MAX_HOURS:
         print(f'==== starting epoch {n_epoch} ====')
 
-        _train(model, loader_tr, optimizer, loss, smoothing)
+        n_batches = 5 if n_epoch <= warmup_batches else MAX_BATCHES
+        _train(model, loader_tr, optimizer, loss, smoothing, n_batches)
         mse_va = _validate(model, loader_va, loss, smoothing)
         
         if monitor.has_plateaued(mse_va):
@@ -48,6 +54,9 @@ def train_network() -> None:
 
             smoothing = smoothing // 2
             print(f'Reducing smoothing to {smoothing}')
+
+        if n_epoch <= warmup_batches:
+            optimizer = _get_optimizer(model)
 
         n_epoch = n_epoch + 1
         hours = (time() - start) / 3600
@@ -65,6 +74,28 @@ def train_network() -> None:
 
     torch.jit.save(traced, f'data/coarsenet/model-{task_id}.jit')
     torch.save(model.state_dict(), f'data/coarsenet/model-{task_id}.pkl')
+
+def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
+    """
+    Get a new optimizer for the model being trained.
+
+    Parameters
+    ----------
+    model
+        Model being trained
+
+    Returns
+    -------
+    torch.optim.Optimizer
+        New optimizer with correct hyperparameter settings.
+
+    """
+
+    return torch.optim.Adam(
+        model.parameters(),
+        lr=learning_rate,
+        weight_decay=weight_decay
+    )
 
 def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
     """
@@ -110,7 +141,8 @@ def _train(
     loader: DataLoader,
     optimizer: torch.optim.Adam,
     loss: RegularizedMSELoss,
-    smoothing: float
+    smoothing: float,
+    n_batches: int
 ) -> None:
     """
     Evaluate the training losses and backpropagate.
@@ -127,6 +159,8 @@ def _train(
         Module calculating regularization and MSE losses.
     smoothing
         Current smoothing value to use during integration.
+    n_batches
+        How many batches to train for this epoch. 
 
     """
     
@@ -134,9 +168,10 @@ def _train(
     for i, (u, X, Z) in enumerate(loader):
         start = time()
         optimizer.zero_grad()
-
         reg, mse = loss(u, X, Z, model, smoothing)
+
         (beta * reg + mse).backward()
+        clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
         optimizer.step()
 
         runtime = time() - start
@@ -145,7 +180,7 @@ def _train(
         print(message)
 
         del reg, mse
-        if i + 1 == MAX_BATCHES:
+        if i + 1 == n_batches:
             return
 
 def _validate(

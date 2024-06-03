@@ -73,6 +73,8 @@ dissipation: float # Ratio of the viscosity used in wave dissipation to that
 # ray volumes and propagation
 # ==============================================================================
 n_ray_max: int # Maximum number of ray volumes that can exist at once.
+min_pmf: float # Absolute momentum flux below which rays will be considered too
+    # weak and removed from the system.
 n_chromatic: int # Number of waves considered at once when determining which ray
     # volumes should break. If 1, breaking is monochromatic, and if -1, breaking
     # is polychromatic over the whole collection of rays. If 0, no ray volume
@@ -91,9 +93,10 @@ spectrum_type: str # Parameterization of the source spectrum to use. Must be the
     # name of a function defined in spectra.py. For dynamically created spectra,
     # a function that returns the desired ray volume data should be monkey
     # patched into that module.
-purge: bool # Whether to purge existing rays to enforce the bottom boundary
-    # condition. If False, an error will be raised if the boundary condition
-    # cannot be enforced because there are two many rays.
+purge_mode: str # Criterion to use when purging rays to enforce the bottom
+    # boundary condition. Must be one of 'action', 'cg_r', 'energy', or 'pmf'.
+    # If 'none', rays will not be purged when checking the source, but an error
+    # will be raised if the boundary condition cannot be enforced.
 
 dt_launch: int # Time step between calls to the source. If inf, new ray volumes
     # are not launched beyond the initial packet.

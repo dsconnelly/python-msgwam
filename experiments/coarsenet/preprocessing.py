@@ -6,14 +6,14 @@ import torch
 sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.constants import EPOCH
-from msgwam.dispersion import cg_r, cp_x
+from msgwam.dispersion import cp_x
+from msgwam.sources import NetworkSource
 from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
 N_BATCHES = 200
 PACKETS_PER_BATCH = 128
-RAYS_PER_PACKET = 9
 
 def save_training_data():
     """
@@ -24,7 +24,7 @@ def save_training_data():
     generation functions for more details.
     """
     
-    X = _sample_square_packets()
+    X = _sample_packets()
     wind = _sample_wind_profiles()
     Z = _generate_targets(X, wind)
 
@@ -48,32 +48,80 @@ def _randomize_spectrum() -> None:
 
     config.refresh()
 
-def _normalize_packets(X: torch.Tensor, total_flux=3e-3) -> torch.Tensor:
+def _sample_packets() -> torch.Tensor:
     """
-    Scale sampled wave packets to all contain the same momentum flux.
+    Sample wave packets. Packets are sampled by first randomizing the spectrum,
+    then stacking several copies on top of each other and grouping nearby rays.
+    Finally, randomly selected ray volumes are dropped.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor whose first dimension ranges over batches, whose second dimension
+        ranges over ray properties, whose third dimension ranges over packets in
+        a given batch, and whose fourth dimension ranges over ray volumes within
+        each packet.
+
+    """
+
+    shape = (N_BATCHES, 9, PACKETS_PER_BATCH, config.rays_per_packet)
+    X = torch.zeros(shape)
+
+    slots = torch.arange(config.n_source)
+    root = int(config.rays_per_packet ** 0.5)
+
+    j = torch.repeat_interleave(slots, root)
+    packet_ids = NetworkSource._get_packet_ids(j, root)
+    n_packets = packet_ids.max()
+
+    for i in range(N_BATCHES):    
+        _randomize_spectrum()
+        spectrum = spectra.get_spectrum()
+        spectrum = spectrum[:, torch.argsort(cp_x(*spectrum[2:5]))]
+        spectrum = NetworkSource._stack(spectrum, root)
+
+        samples = torch.randint(n_packets, size=(PACKETS_PER_BATCH,))
+        for k, sample in enumerate(samples):
+            pdx = packet_ids == sample
+            X[i, :, k] = spectrum[:, pdx]
+
+    X = _mask_packets(X, 0.65, 2)
+    X = _permute_packets(X)
+
+    return X
+
+def _mask_packets(
+    X: torch.Tensor,
+    threshold: float,
+    min_per_packet: int
+) -> torch.Tensor:
+    """
+    Randomly mask some waves in each packet, while making sure that no packet
+    has too few of its constituents masked.
 
     Parameters
     ----------
     X
         Batches of sampled wave packets, of the form produced by one of the
         sampling functions in this module.
-    total_flux
-        Momentum flux each packet should contain, in Pa.
+    threshold
+        What percentage of each packet should, on average, remain unmasked.
+    min_per_packet
+        Minimum number of ray volumes each packet must retain.
 
     Returns
     -------
     torch.Tensor
-        Rescaled packets, in the same shape as `X`.
+        Same wave packets, but with some individual ray volumes masked.
 
     """
 
-    k, l, m, dk, dl, dm, dens = X.transpose(0, 1)[2:]
-    flux = k * cg_r(k, l, m) * dens * dk * dl * dm
-    
-    factor = total_flux / abs(torch.nan_to_num(flux).sum(dim=-1))
-    X[:, -1] = X[:, -1] * factor[..., None]
+    X = X.transpose(0, 1)
+    keep = torch.rand(*X.shape[1:]) < threshold
+    keep, _ = torch.sort(keep, dim=-1)
+    keep[..., -min_per_packet:] = True
 
-    return X
+    return X.transpose(0, 1)
 
 def _permute_packets(X: torch.Tensor) -> torch.Tensor:
     """
@@ -93,123 +141,20 @@ def _permute_packets(X: torch.Tensor) -> torch.Tensor:
 
     """
 
+    X = X.transpose(0, 1)
+    perms = torch.argsort(torch.rand(*X.shape))
+    X = torch.take_along_dim(X, perms, dim=-1)
+
     n_packets = N_BATCHES * PACKETS_PER_BATCH
-    X = X.transpose(0, 1).flatten(1, 2)[:, torch.randperm(n_packets)]
-    X = X.reshape(9, N_BATCHES, PACKETS_PER_BATCH, RAYS_PER_PACKET)
+    X = X.flatten(1, 2)[:, torch.randperm(n_packets)]
+    X = X.reshape(9, N_BATCHES, PACKETS_PER_BATCH, config.rays_per_packet)
 
     return X.transpose(0, 1)
-
-def _sample_random_packets() -> torch.Tensor:
-    """
-    Sample wave packets containing at most `RAYS_PER_PACKET` ray volumes from
-    the spectrum defined in the config file, making sure to only sample packets
-    with ray volumes all having the same sign horizontal wavenumber.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape `(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)`
-        whose first dimension ranges over batches, whose second dimension ranges
-        over ray volume properties, whose third dimension ranges over wave
-        packets within a batch, and whose fourth dimension ranges over
-        individual rays in a particular packet.
-
-    """
-
-    shape = (N_BATCHES, 9, 2, PACKETS_PER_BATCH // 2, RAYS_PER_PACKET)
-    X = torch.zeros(shape)
-    
-    for i in range(N_BATCHES):
-        _randomize_spectrum()
-        spectrum = spectra.get_spectrum()
-        spectrum_pos = spectrum[:, spectrum[2] > 0]
-        spectrum_neg = spectrum[:, spectrum[2] < 0]
-
-        for j, half in enumerate((spectrum_pos, spectrum_neg)):
-            rands = torch.rand(PACKETS_PER_BATCH // 2, half.shape[1])
-            idx = torch.argsort(rands, dim=1)[:, :RAYS_PER_PACKET]
-            drop = torch.rand(*idx.shape) > 0.8
-
-            data = half[:, idx]
-            data[:, drop] = torch.nan
-            X[i, :, j] = data
-
-    return _permute_packets(X.flatten(2, 3))
-
-def _sample_square_packets() -> torch.Tensor:
-    """
-    Sample wave packets containing at most `RAYS_PER_PACKET` ray volumes from
-    the spectrum defined in the config file. Packets will contain only rays from
-    a common square bounding box.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape `(N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET)`
-        whose first dimension ranges over batches, whose second dimension ranges
-        over ray volume properties, whose third dimension ranges over wave
-        packets within a batch, and whose fourth dimension ranges over
-        individual rays in a particular packet.
-
-    """
-
-    X = torch.zeros((N_BATCHES, 9, PACKETS_PER_BATCH, RAYS_PER_PACKET))
-
-    for i in range(N_BATCHES):
-        _randomize_spectrum()
-        squares = _squarify(spectra.get_spectrum())
-        sdx = torch.randint(squares.shape[0], size=(PACKETS_PER_BATCH,))
-
-        data = squares[sdx].transpose(0, 1)
-        drop = torch.rand(*data.shape[1:]) > 0.8
-        data[:, drop] = torch.nan
-        X[i] = data
-
-    return _normalize_packets(_permute_packets(X))
-
-def _squarify(spectrum: torch.Tensor) -> torch.Tensor:
-    """
-    Group the ray volumes in a given source spectrum into squares according to
-    the square root of `RAYS_PER_PACKET`.
-
-    Parameters
-    ----------
-    spectrum
-        Source spectrum as returned by `spectra.get_spectrum`.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of shape `(n_squares, 9, RAYS_PER_PACKET)` whose first dimension
-        ranges over square bounding boxes, whose second dimension ranges over
-        ray volume properties, and whose third dimension ranges over individual
-        rays within a particular square.
-
-    """
-
-    idx = torch.argsort(cp_x(*spectrum[2:5]))
-    spectrum = spectrum[:, idx]
-
-    root = int(RAYS_PER_PACKET ** 0.5)
-    cols = torch.arange(config.n_source)
-    jdx = torch.floor_divide(cols, root)
-    
-    n_squares = jdx.max() + 1
-    out = torch.zeros((n_squares, 9, RAYS_PER_PACKET))
-
-    for j in range(n_squares):
-        packet = spectrum[:, jdx == j].repeat(1, root)
-        offsets = torch.arange(root).repeat_interleave(root)
-        packet[0] = packet[0] - packet[1, 0] * offsets
-
-        out[j] = packet
-
-    return out
 
 def _sample_wind_profiles() -> torch.Tensor:
     """
     Sample mean wind profiles from a reference run performed with a config file
-    of the same name, except for the `'-coarsenet'` suffix. Each wind profile
+    of the same name, except for the `'-training'` suffix. Each wind profile
     will correspond to a different batch.
 
     Returns
@@ -222,12 +167,12 @@ def _sample_wind_profiles() -> torch.Tensor:
 
     """
 
-    name = config.name.replace('-coarsenet', '')
+    name = config.name.replace('-training', '')
     path = f'data/{name}/mean-state.nc'
 
     with open_dataset(path) as ds:
         days = cftime.date2num(ds['time'], f'days since {EPOCH}')
-        ds = ds.isel(time=((10 <= days) & (days <= 50)))
+        ds = ds.isel(time=((5 <= days) & (days <= 25)))
 
         idx = torch.randperm(len(ds['time']))[:N_BATCHES]
         u = torch.as_tensor(ds['u'].values)[idx]
@@ -267,7 +212,7 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
 
     for i in range(N_BATCHES):
         spectrum = X[i].reshape(9, -1)
-        Z[i] = integrate_batches(wind[i], spectrum, RAYS_PER_PACKET, 4)        
+        Z[i] = integrate_batches(wind[i], spectrum, config.rays_per_packet, 4)        
         print(f'finished integrating batch {i + 1}')
 
     return Z

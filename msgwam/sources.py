@@ -76,22 +76,16 @@ class ConstantSource(Source):
 class NetworkSource(Source):
     def __init__(self) -> None:
         """
-        At initialization, the neural network source divides the source up into
-        packets that will be replaced later.
+        At initialization, the neural network source calculates how many times
+        each source ray volume would clear the bottom boundary between launches.
         """
 
         super().__init__()
-        idx = torch.argsort(cp_x(*self.data[2:5]))
-        self.data = self.data[:, idx]
 
-        speedup = config.rays_per_packet
-        self.dt_launch = speedup * config.dt
-        self.repeats = self.dt_launch * cg_r(*self.data[2:5]) / self.data[1]
+        self.width = int(config.rays_per_packet ** 0.5)
+        distances = config.dt_launch * cg_r(*self.data[2:5])
+        self.n_repeats = distances / self.data[1]
 
-        root = int(speedup ** 0.5)
-        columns = torch.arange(self.n_slots)
-        self.sdx = torch.floor_divide(columns, root)
-        
         self.model = torch.jit.load(config.model_path)
 
     def launch(
@@ -106,15 +100,14 @@ class NetworkSource(Source):
         the loaded neural network. 
         """
 
-        repeats = torch.floor(self.repeats[j]).int()
-        idx = torch.rand(len(j)) < self.repeats[j] - repeats
-        repeats[idx | (repeats == 0)] += 1
+        j, _ = torch.sort(j)
+        n_repeats = torch.floor(self.n_repeats[j]).int()
+        idx = torch.rand(len(j)) < self.n_repeats[j] - n_repeats
+        n_repeats[idx | (n_repeats == 0)] += 1
 
-        copies = torch.repeat_interleave(j, repeats)
-        copies = copies[torch.randperm(repeats.sum())]
-        copies = copies[torch.argsort(self.sdx[copies])]
-
-        packet_ids = self._get_packet_ids(copies)
+        copies = torch.repeat_interleave(j, n_repeats)
+        data = self._stack(self.data[:, j], n_repeats)
+        packet_ids = self._get_packet_ids(copies, self.width)
         n_packets = packet_ids.max()
 
         X = torch.nan * torch.zeros((9, n_packets, config.rays_per_packet))
@@ -123,46 +116,93 @@ class NetworkSource(Source):
 
         for k in range(n_packets):
             pdx = packet_ids == k
-            X[:, k, :pdx.sum()] = self.data[:, copies[pdx]]
-            counts[k] = len(torch.unique(copies[pdx & (copies > max_seen)]))
-            max_seen = max(max_seen, copies[pdx].max())
+            X[:, k, :pdx.sum()] = data[:, pdx]
+            j_new = copies[pdx & (copies > max_seen)]
+            counts[k] = len(torch.unique(j_new))
+
+            if len(j_new) > 0:
+                max_seen = max(max_seen, j_new.max())
 
         with torch.no_grad():
             spectrum = self.model(u, X)
 
         return spectrum, j, counts
 
-    def _get_packet_ids(self, j: torch.Tensor) -> torch.Tensor:
+    @staticmethod
+    def _get_packet_ids(j: torch.Tensor, width: int) -> torch.Tensor:
         """
-        Given a tensor of slots of ray volumes that need to be launched, group
-        them into packets of size no more than `config.rays_per_packet`.
-        
+        Given a tensor of slots in the source spectrum that need to be launched
+        (possibly including repeats), group them into packets, each of which
+        only includes ray volumes within `self.width` of each other and has no
+        more than `config.rays_per_packet` members.
+
         Parameters
         ----------
         j
-            Tensor of slots of ray volumes to coarsen, including repeats.
+            Tensor of slots of ray volumes to group.
+        width
+            How many slots in the source spectrum each packet may span.
 
         Returns
         -------
         torch.Tensor
-            Tensor indicating, for each ray volume in `j`, which packet it
-            should belong to.
+            Tensor indicating which packet each ray volume in `j` belongs to.
 
         """
 
-        _, counts = torch.unique(self.sdx[j], return_counts=True)
+        idx = torch.argsort(j)
+        rdx = torch.argsort(idx)
+        j = j[idx]
+
+        channels = torch.floor_divide(j, width)
+        _, counts = torch.unique(channels, return_counts=True)
+
         fulls = torch.floor_divide(counts, config.rays_per_packet)
-        rems = torch.remainder(counts, config.rays_per_packet).int()
-        totals = fulls + (rems > 0).int()
-
+        rems = torch.remainder(counts, config.rays_per_packet)
+        totals = fulls + (rems > 0)
         n_packets = totals.sum()
-        packet_ids = torch.arange(n_packets)
-        sizes = config.rays_per_packet * torch.ones(n_packets).int()
 
+        packet_ids = torch.arange(n_packets)
+        sizes = config.rays_per_packet * torch.ones_like(packet_ids)
         lasts = (torch.cumsum(totals, 0) - 1)[rems > 0]
         sizes[lasts] = rems[rems > 0]
 
-        return torch.repeat_interleave(packet_ids, sizes.int())
+        return torch.repeat_interleave(packet_ids, sizes)[rdx]
+
+    @staticmethod
+    def _stack(spectrum: torch.Tensor, n: int | torch.Tensor) -> torch.Tensor:
+        """
+        Given a tensor of source ray volumes, return a spectrum with multiple
+        copies of the spectrum stacked in the vertical dimension.
+
+        Parameters
+        ----------
+        spectrum
+            Tensor containing source ray volumes.
+        n
+            How many times to stack the spectrum. Can be a tensor specifying a
+            repeat count for each column, or a single integer to be used for all
+            columns in the spectrum.
+
+        Returns
+        -------
+        torch.Tensor
+            Stacked spectrum.
+
+        """
+
+        if isinstance(n, int):
+            n = n * torch.ones(spectrum.shape[1]).int()
+
+        mods = torch.repeat_interleave(n, n)
+        spectrum = torch.repeat_interleave(spectrum, n, dim=1)        
+        cols = torch.arange(spectrum.shape[1])
+
+        for i in range(n.max()):
+            jdx = torch.remainder(cols, mods) == i
+            spectrum[0, jdx] = spectrum[0, jdx] - i * spectrum[1, jdx]
+
+        return spectrum
 
 class StochasticSource(Source):
     def __init__(self) -> None:

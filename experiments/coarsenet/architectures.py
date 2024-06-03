@@ -7,9 +7,13 @@ from msgwam import config
 from msgwam.rays import RayCollection
 from msgwam.utils import put
 
-from hyperparameters import network_size
-from preprocessing import RAYS_PER_PACKET
-from utils import get_batch_pmf, get_base_replacement, xavier_init
+from hyperparameters import network_size, root
+from utils import (
+    get_batch_pmf,
+    get_base_replacement,
+    root_transform, 
+    xavier_init
+)
 
 class CoarseNet(nn.Module):
     """
@@ -27,19 +31,31 @@ class CoarseNet(nn.Module):
     idx_in = [RayCollection.indices[prop] for prop in props_in]
     idx_out = [RayCollection.indices[prop] for prop in props_out]
 
-    def __init__(self) -> None:
-        """Initialize a CoarseNet."""
+    def __init__(self, u_tr: torch.Tensor, X_tr: torch.Tensor) -> None:
+        """
+        Initialize a CoarseNet, calculating input means and standard deviations
+        to be used for standardization later.
+        
+        Parameters
+        ----------
+        u_tr
+            Zonal wind profiles in the training set.
+        X_tr
+            Wave packets in the training set.
+        
+        """
 
         super().__init__()
+        self._init_stats(u_tr, X_tr)
 
         n_z = config.n_grid - 1
-        n_in = n_z + len(self.props_in) * RAYS_PER_PACKET
+        n_in = n_z + len(self.props_in) * config.rays_per_packet
         n_out = len(self.props_out)
 
         sizes = [n_in] + [512] * network_size
         sizes = sizes + [256, 128, 64, 32, n_out]
-        args = [nn.BatchNorm1d(n_in, track_running_stats=False)]
-
+        
+        args = []
         for a, b in zip(sizes[:-1], sizes[1:]):
             args.append(nn.Linear(a, b))
             args.append(nn.ReLU())
@@ -76,14 +92,72 @@ class CoarseNet(nn.Module):
 
         """
 
-        shape = (-1, len(self.props_in) * RAYS_PER_PACKET)
+        X = root_transform(X, root)
+        shape = (-1, len(self.props_in) * config.rays_per_packet)
         packets = X[self.idx_in].transpose(0, 1).reshape(shape)
 
         u = u[None].expand(X.shape[1], -1)
-        stacked = torch.hstack((u, packets))
-        output = self.layers(torch.nan_to_num(stacked))
+        stacked = torch.nan_to_num(torch.hstack((u, packets)))
+        output = self.layers(self._normalize(stacked))
 
         return output.T
+    
+    def _init_stats(self, u: torch.Tensor, X: torch.Tensor) -> None:
+        """
+        Calculate the means and standard deviations to be used to normalize the
+        inputs to `forward`.
+
+        Parameters
+        ----------
+        u
+            Batches of zonal wind profiles.
+        X
+            Batches of wave packets.
+
+        """    
+        
+        u_means = u.mean(dim=0)
+        u_stds = u.std(dim=0)
+
+        X = root_transform(X[:, self.idx_in], root)
+        prop_means = torch.nanmean(X, dim=(0, 2, 3))
+
+        errors = (X - prop_means[..., None, None]) ** 2
+        prop_vars = torch.nanmean(errors, dim=(0, 2, 3))
+        prop_stds = torch.sqrt(prop_vars)
+
+        X_means = torch.repeat_interleave(prop_means, config.rays_per_packet)
+        X_stds = torch.repeat_interleave(prop_stds, config.rays_per_packet)
+
+        self.means = torch.cat([u_means, X_means])
+        self.stds = torch.cat([u_stds, X_stds])
+        self.sdx = self.stds != 0
+
+    def _normalize(self, stacked: torch.Tensor) -> torch.Tensor:
+        """
+        Normalize neural network inputs using the means and standard deviations
+        calculated at initialization.
+
+        Parameters
+        ----------
+        stacked
+            Tensor of inputs to the neural network, consisting of zonal wind and
+            wave packet information side by side.
+
+        Returns
+        -------
+        torch.Tensor
+            Normalized data.
+
+        """
+
+        out = torch.zeros_like(stacked)
+        out[:, self.sdx] = (
+            (stacked - self.means)[:, self.sdx] /
+            self.stds[self.sdx]
+        )
+
+        return out
         
     @classmethod
     def build_spectrum(

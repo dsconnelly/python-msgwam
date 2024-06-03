@@ -74,7 +74,10 @@ class RegularizedMSELoss(nn.Module):
         ).mean(dim=1)[..., self.keep]
 
         scales, _ = abs(Z).max(dim=-1)
-        errors = (Z_hat - Z) / scales[:, None]
+        errors = torch.zeros_like(Z_hat)
+        idx = scales > 0
+        
+        errors[idx] = (Z_hat - Z)[idx] / scales[idx, None]
         mse = (errors ** 2).mean()
 
         return reg, mse

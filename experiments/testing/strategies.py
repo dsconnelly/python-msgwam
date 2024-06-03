@@ -60,12 +60,12 @@ def _coarse_square() -> None:
     config.n_ray_max = 250
     config.n_source = n_source
     config.dr_init *= np.sqrt(10)
-    config.purge = True
+    config.purge_mode = 'pmf'
 
 def _coarse_tall() -> None:
     config.n_ray_max = 250
     config.dr_init *= 10
-    config.purge = True
+    config.purge_mode = 'pmf'
 
 def _coarse_wide() -> None:
     n_source = int(config.n_source / 10)
@@ -73,17 +73,17 @@ def _coarse_wide() -> None:
 
     config.n_ray_max = 250
     config.n_source = n_source
-    config.purge = True
+    config.purge_mode = 'pmf'
 
 def _stochastic() -> None:
     config.source_type = 'stochastic'
     config.n_ray_max = 250
     config.epsilon = 0.1
-    config.purge = True
+    config.purge_mode = 'pmf'
 
 def _network() -> None:
     config.source_type = 'network'
     config.dt_launch = config.rays_per_packet * config.dt
     config.n_ray_max = 250
-    config.purge = True
+    config.purge_mode = 'pmf'
     

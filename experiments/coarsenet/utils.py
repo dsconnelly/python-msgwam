@@ -170,6 +170,26 @@ def nanmin(a: torch.Tensor, dim: int) -> torch.Tensor:
 
     return torch.nan_to_num(a, torch.inf).min(dim=dim)[0]
 
+def root_transform(a: torch.Tensor, root: int) -> torch.Tensor:
+    """
+    Transform data by taking a sign-aware root.
+
+    Parameters
+    ----------
+    a
+        Data to be transformed.
+    root
+        Order of the root to take. For example, `root=3` takes a cube root.
+
+    Returns
+    -------
+    torch.Tensor
+        Transformed data.
+
+    """
+
+    return torch.sign(a) * (abs(a) ** (1 / root))
+
 def xavier_init(layer: nn.Module):
     """
     Apply Xavier initialization to a layer if it is an `nn.Linear`.
