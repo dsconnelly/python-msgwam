@@ -31,13 +31,14 @@ def plot_fluxes() -> None:
     n_plots = len(COLORS) + 1
     n_cols = int(n_plots // 2)
     n_cols = n_cols + n_plots % 2
+    n_rows = 2
 
     widths = [4.5] * n_cols + [0.3]
     fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(sum(widths), 6)
+    fig.set_size_inches(sum(widths), 3 * n_rows)
 
     grid = gs.GridSpec(
-        nrows=2, ncols=(n_cols + 1),
+        nrows=n_rows, ncols=(n_cols + 1),
         width_ratios=widths,
         figure=fig
     )
@@ -48,7 +49,7 @@ def plot_fluxes() -> None:
     strategies = ['reference'] + list(COLORS.keys())
     for i, (strategy, ax) in enumerate(zip(strategies, axes)):
         with open_dataset(f'data/{config.name}/{strategy}.nc') as ds:
-            img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=1, axes=[ax])
+            img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
             ax.set_title(_format(strategy))
 
         if i < 4:
@@ -58,10 +59,10 @@ def plot_fluxes() -> None:
             ax.set_ylabel('')
 
     cbar = plt.colorbar(img, cax=cax)
-    cbar.set_ticks(np.linspace(-1, 1, 9))
+    cbar.set_ticks(np.linspace(-2, 2, 9))
     cbar.set_label('momentum flux (mPa)')
 
-    plt.savefig(f'plots/{config.name}/fluxes.png')
+    plt.savefig(f'plots/{config.name}/fluxes.png', dpi=400)
 
 def plot_scores() -> None:
     """Plot the error with respect to the reference for each strategy."""
@@ -75,23 +76,22 @@ def plot_scores() -> None:
 
     for strategy, color in COLORS.items():
         with _open_and_transform(f'data/{config.name}/{strategy}.nc') as ds:
-            if strategy == 'ICON':
-                runtime = ds.runtime
-
             pmf = ds['pmf_u']
             error = np.sqrt(((ref - pmf) ** 2).mean('time'))
-            percent = ds.runtime / runtime * 100
 
-            label = _format(strategy) + f' ({percent:.2f}%)'
+            label = _format(strategy)
             ax.plot(error * 1000, z, color=color, label=label)
 
     label = 'average absolute PMF'
     scale = abs(ref).mean('time') * 1000
     ax.plot(scale, z, color='gray', ls='dashed', label=label)
 
-    ax.set_xlim(0, 0.8)
+    ax.set_xlim(0, 1.5)
     ax.set_ylim(z.min(), z.max())
     ax.grid(color='lightgray')
+
+    xticks = np.linspace(0, 1.5, 4)
+    ax.set_xticks(xticks)
 
     yticks = np.linspace(z.min(), z.max(), 7)
     ylabels = (10 * np.round((yticks / 10))).astype(int)
@@ -100,13 +100,15 @@ def plot_scores() -> None:
     ax.set_xlabel('RMSE (mPa)')
     ax.set_ylabel('height (km)')
     ax.legend(loc='lower right')
-    ax.set_title(config.name)
 
     plt.tight_layout()
-    plt.savefig(f'plots/{config.name}/scores.png')
+    plt.savefig(f'plots/{config.name}/scores.png', dpi=400)
 
 def _format(strategy: str) -> str:
     """Format the name of a strategy to appear in plots."""
+
+    if strategy == 'reference':
+        return 'no-purge'
 
     return strategy.replace('e-', 'e, ')
 

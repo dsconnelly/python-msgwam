@@ -6,6 +6,9 @@ sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.integration import SBDF2Integrator
 
+N_MAX = 2500
+SPEEDUP = 10
+
 def integrate(strategy: str) -> None:
     """
     Integrate the model with the loaded configuration file. For the stochastic
@@ -23,7 +26,7 @@ def integrate(strategy: str) -> None:
     globals()[func_name]()
     config.refresh()
 
-    n_trials = 10 if strategy == 'stochastic' else 1
+    n_trials = SPEEDUP if strategy == 'stochastic' else 1
     u, v, pmf_u, pmf_v = 0, 0, 0, 0
 
     for _ in range(n_trials):
@@ -43,47 +46,47 @@ def integrate(strategy: str) -> None:
     config.reset()
 
 def _reference() -> None:
-    pass
+    config.min_pmf = 1e-10
 
 def _ICON() -> None:
-    config.n_ray_max = 2500
-    config.purge = True
+    config.n_ray_max = N_MAX
+    config.purge_mode = 'energy'
 
 def _do_nothing() -> None:
-    config.n_ray_max = 250
-    config.purge = True
+    config.n_ray_max = N_MAX // SPEEDUP
+    config.purge_mode = 'energy'
 
 def _coarse_square() -> None:
-    n_source = int(config.n_source / np.sqrt(10))
+    n_source = int(config.n_source / np.sqrt(SPEEDUP))
     n_source = n_source + (n_source % 2)
 
-    config.n_ray_max = 250
+    config.n_ray_max = N_MAX // SPEEDUP
+    config.dr_init *= np.sqrt(SPEEDUP)
     config.n_source = n_source
-    config.dr_init *= np.sqrt(10)
-    config.purge_mode = 'pmf'
+    config.purge_mode = 'energy'
 
 def _coarse_tall() -> None:
-    config.n_ray_max = 250
-    config.dr_init *= 10
-    config.purge_mode = 'pmf'
+    config.n_ray_max = N_MAX // SPEEDUP
+    config.dr_init *= SPEEDUP
+    config.purge_mode = 'energy'
 
 def _coarse_wide() -> None:
-    n_source = int(config.n_source / 10)
+    n_source = int(config.n_source / SPEEDUP)
     n_source = n_source + (n_source % 2)
 
-    config.n_ray_max = 250
+    config.n_ray_max = N_MAX // SPEEDUP
     config.n_source = n_source
-    config.purge_mode = 'pmf'
+    config.purge_mode = 'energy'
 
 def _stochastic() -> None:
     config.source_type = 'stochastic'
-    config.n_ray_max = 250
-    config.epsilon = 0.1
-    config.purge_mode = 'pmf'
+    config.n_ray_max = N_MAX // SPEEDUP
+    config.epsilon = 1 / SPEEDUP
+    config.purge_mode = 'energy'
 
 def _network() -> None:
     config.source_type = 'network'
     config.dt_launch = config.rays_per_packet * config.dt
-    config.n_ray_max = 250
-    config.purge_mode = 'pmf'
+    config.n_ray_max = N_MAX // SPEEDUP
+    config.purge_mode = 'energy'
     
