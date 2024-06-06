@@ -60,7 +60,7 @@ epsilon = 1
 # source and spectrum (parameters in this section are likely to be used by more
 # than one source or spectrum type)
 # ==============================================================================
-source_type = 'constant'
+source_type = 'deterministic'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
 
@@ -77,9 +77,10 @@ wvl_hor_char = 100e3
 direction = 0
 
 # ==============================================================================
-# 'network' source
+# 'coarse' source
 # ==============================================================================
-rays_per_packet = 9
+coarse_height = 3
+coarse_width = 3
 
 # ==============================================================================
 # 'gaussians' spectrum

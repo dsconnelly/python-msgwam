@@ -7,7 +7,7 @@ sys.path.insert(0, '.')
 from msgwam import config, spectra
 from msgwam.constants import EPOCH
 from msgwam.dispersion import cp_x
-from msgwam.sources import NetworkSource
+from msgwam.sources import CoarseSource
 from msgwam.utils import open_dataset
 
 from utils import integrate_batches
@@ -32,27 +32,11 @@ def save_training_data():
     torch.save(X, 'data/coarsenet/packets.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
 
-def _randomize_spectrum() -> None:
-    """Randomizes a Gaussian spectrum, within reasonable parameters."""
-
-    bounds = {
-        'bc_mom_flux' : [1e-3, 5e-3],
-        'wvl_hor_char' : [20e3, 200e3],
-        'c_center' : [0, 15],
-        'c_width' : [8, 16]
-    }
-
-    for name, (lo, hi) in bounds.items():
-        sample = (hi - lo) * torch.rand(1) + lo
-        setattr(config, name, sample.item())
-
-    config.refresh()
-
 def _sample_packets() -> torch.Tensor:
     """
     Sample wave packets. Packets are sampled by first randomizing the spectrum,
-    then stacking several copies on top of each other and grouping nearby rays.
-    Finally, randomly selected ray volumes are dropped.
+    then stacking several copies on top of each other and grouping nearby rays
+    according to the configuration state.
 
     Returns
     -------
@@ -67,61 +51,67 @@ def _sample_packets() -> torch.Tensor:
     shape = (N_BATCHES, 9, PACKETS_PER_BATCH, config.rays_per_packet)
     X = torch.zeros(shape)
 
-    slots = torch.arange(config.n_source)
-    root = int(config.rays_per_packet ** 0.5)
+    for i in range(N_BATCHES):
+        spectrum = _get_random_spectrum()
+        spectrum = _stack(spectrum, config.coarse_height)
+        spectrum = spectrum.reshape(9, -1, config.rays_per_packet)
 
-    j = torch.repeat_interleave(slots, root)
-    packet_ids = NetworkSource._get_packet_ids(j, root)
-    n_packets = packet_ids.max()
-
-    for i in range(N_BATCHES):    
-        _randomize_spectrum()
-        spectrum = spectra.get_spectrum()
-        spectrum = spectrum[:, torch.argsort(cp_x(*spectrum[2:5]))]
-        spectrum = NetworkSource._stack(spectrum, root)
-
-        samples = torch.randint(n_packets, size=(PACKETS_PER_BATCH,))
+        samples = torch.randint(spectrum.shape[1], size=(PACKETS_PER_BATCH,))
         for k, sample in enumerate(samples):
-            pdx = packet_ids == sample
-            X[i, :, k] = spectrum[:, pdx]
+            X[i, :, k] = spectrum[:, sample]
 
-    X = _mask_packets(X, 0.65, 2)
-    X = _permute_packets(X)
+    return _permute_packets(X)
 
-    return X
-
-def _mask_packets(
-    X: torch.Tensor,
-    threshold: float,
-    min_per_packet: int
-) -> torch.Tensor:
+def _get_random_spectrum() -> None:
     """
-    Randomly mask some waves in each packet, while making sure that no packet
-    has too few of its constituents masked.
+    Randomizes the properties of the Gaussian spectrum, within reasonable
+    parameters. Then returns the source ray volumes, sorted by phase speed.
+    """
+
+    bounds = {
+        'bc_mom_flux' : [1e-3, 5e-3],
+        'wvl_hor_char' : [20e3, 200e3],
+        'c_center' : [0, 15],
+        'c_width' : [8, 16]
+    }
+
+    for name, (lo, hi) in bounds.items():
+        sample = (hi - lo) * torch.rand(1) + lo
+        setattr(config, name, sample.item())
+
+    config.refresh()
+    spectrum = spectra.get_spectrum()
+    jdx = torch.argsort(cp_x(*spectrum[2:5]))
+
+    return spectrum[:, jdx]
+
+def _stack(spectrum: torch.Tensor, n: int) -> torch.Tensor:
+    """
+    Stack several copies of a source spectrum in physical space, and adjust the
+    vertical coordinates of the ray volumes accordingly.
 
     Parameters
     ----------
-    X
-        Batches of sampled wave packets, of the form produced by one of the
-        sampling functions in this module.
-    threshold
-        What percentage of each packet should, on average, remain unmasked.
-    min_per_packet
-        Minimum number of ray volumes each packet must retain.
+    spectrum
+        Tensor of source ray volume properties.
+    n
+        Number of copies of the spectrum to stack.
 
     Returns
     -------
     torch.Tensor
-        Same wave packets, but with some individual ray volumes masked.
+        Tensor of stacked ray volume properties.
 
     """
 
-    X = X.transpose(0, 1)
-    keep = torch.rand(*X.shape[1:]) < threshold
-    keep, _ = torch.sort(keep, dim=-1)
-    keep[..., -min_per_packet:] = True
+    spectrum = torch.repeat_interleave(spectrum, n, dim=1)
+    cols = torch.arange(spectrum.shape[1])
 
-    return X.transpose(0, 1)
+    for i in range(n):
+        jdx = torch.remainder(cols, n) == i
+        spectrum[0, jdx] = spectrum[0, jdx] - i * spectrum[1, jdx]
+
+    return spectrum        
 
 def _permute_packets(X: torch.Tensor) -> torch.Tensor:
     """
@@ -142,9 +132,6 @@ def _permute_packets(X: torch.Tensor) -> torch.Tensor:
     """
 
     X = X.transpose(0, 1)
-    perms = torch.argsort(torch.rand(*X.shape))
-    X = torch.take_along_dim(X, perms, dim=-1)
-
     n_packets = N_BATCHES * PACKETS_PER_BATCH
     X = X.flatten(1, 2)[:, torch.randperm(n_packets)]
     X = X.reshape(9, N_BATCHES, PACKETS_PER_BATCH, config.rays_per_packet)

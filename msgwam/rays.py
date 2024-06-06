@@ -225,15 +225,12 @@ class RayCollection:
         if len(crossed) == 0:
             return
         
-        datas, slots, counts = self.source.launch(crossed, mean.u)
+        datas, replaced = self.source.launch(crossed, mean.u)
         excess = self.count + datas.shape[1] - config.n_ray_max
         self.purge(excess)
 
-        curr: int | torch.Tensor = 0
         for j, data in enumerate(datas.T):
-            replaced = slots[curr:(curr + counts[j])]
-            self.ghosts[replaced] = self.add_ray(data)
-            curr = curr + counts[j]
+            self.ghosts[replaced[j]] = self.add_ray(data)
 
     def cg_r(self) -> torch.Tensor:
         """

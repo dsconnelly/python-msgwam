@@ -9,8 +9,8 @@ prescribed_wind = 'data/gaussians/mean-state.nc'
 # time stepping
 # ==============================================================================
 dt = 120
-dt_output = 960
-n_day = 20
+dt_output = 120
+n_day = 3
 
 # ==============================================================================
 # vertical grid
@@ -60,7 +60,7 @@ epsilon = 1
 # source and spectrum (parameters in this section are likely to be used by more
 # than one source or spectrum type)
 # ==============================================================================
-source_type = 'constant'
+source_type = 'deterministic'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
 
@@ -77,14 +77,19 @@ wvl_hor_char = 100e3
 direction = 0
 
 # ==============================================================================
+# 'coarse' source
+# ==============================================================================
+coarse_height = 0
+coarse_width = 0
+
+# ==============================================================================
 # 'network' source
 # ==============================================================================
 model_path = 'data/coarsenet/model-12.jit'
-rays_per_packet = 9
 
 # ==============================================================================
 # 'gaussians' spectrum
 # ==============================================================================
 c_center = 0
 c_width = 15
-n_source = 48
+n_source = 54

@@ -119,10 +119,16 @@ c_width: float # Width of Gaussian in phase speed space (m / s).
 n_source: int # How many ray volumes to discretize source into. Must be even.
 
 # ==============================================================================
+# 'coarse' source
+# ==============================================================================
+coarse_height: int # Factor by which ray volume heights should be multiplied.
+coarse_width: int # Factor by which ray volume widths in phase speed space
+    # should be multiplied.
+
+# ==============================================================================
 # 'network' source
 # ==============================================================================
 model_path: str # Path where JIT-compiled neural network is saved.
-rays_per_packet: int # How many ray volumes the neural network accepts at once.
 
 # ==============================================================================
 # derived parameters (set by the code, not the namelist)
@@ -132,3 +138,5 @@ n_t_max: int # Number of time steps to take.
 n_skip: int # Number of time steps to skip between outputs.
 f0: float # Coriolis parameter (1 / s).
 r_ghost: float # Vertical extent of the ghost layer (m).
+rays_per_packet: int # How many ray volumes the neural network accepts at once.
+    # Calculated as the product of coarse_height and coarse_width.

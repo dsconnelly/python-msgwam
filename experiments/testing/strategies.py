@@ -1,13 +1,11 @@
 import sys
 
-import numpy as np
-
 sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.integration import SBDF2Integrator
 
-N_MAX = 2500
-SPEEDUP = 10
+N_MAX = 2502
+SPEEDUP = 9
 
 def integrate(strategy: str) -> None:
     """
@@ -57,26 +55,29 @@ def _do_nothing() -> None:
     config.purge_mode = 'energy'
 
 def _coarse_square() -> None:
-    n_source = int(config.n_source / np.sqrt(SPEEDUP))
-    n_source = n_source + (n_source % 2)
-
+    config.source_type = 'coarse'
     config.n_ray_max = N_MAX // SPEEDUP
-    config.dr_init *= np.sqrt(SPEEDUP)
-    config.n_source = n_source
     config.purge_mode = 'energy'
+
+    root = int(SPEEDUP ** 0.5)
+    config.coarse_height = root
+    config.coarse_width = root
 
 def _coarse_tall() -> None:
+    config.source_type = 'coarse'
     config.n_ray_max = N_MAX // SPEEDUP
-    config.dr_init *= SPEEDUP
     config.purge_mode = 'energy'
+
+    config.coarse_height = SPEEDUP
+    config.coarse_width = 1
 
 def _coarse_wide() -> None:
-    n_source = int(config.n_source / SPEEDUP)
-    n_source = n_source + (n_source % 2)
-
+    config.source_type = 'coarse'
     config.n_ray_max = N_MAX // SPEEDUP
-    config.n_source = n_source
     config.purge_mode = 'energy'
+
+    config.coarse_height = 1
+    config.coarse_width = SPEEDUP
 
 def _stochastic() -> None:
     config.source_type = 'stochastic'
