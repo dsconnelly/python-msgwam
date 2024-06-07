@@ -27,9 +27,11 @@ def save_training_data():
     X = _sample_packets()
     wind = _sample_wind_profiles()
     Z = _generate_targets(X, wind)
+    Y = _coarsen(X)
 
     torch.save(wind, 'data/coarsenet/wind.pkl')
     torch.save(X, 'data/coarsenet/packets.pkl')
+    torch.save(Y, 'data/coarsenet/squares.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
 
 def _sample_packets() -> torch.Tensor:
@@ -137,6 +139,31 @@ def _permute_packets(X: torch.Tensor) -> torch.Tensor:
     X = X.reshape(9, N_BATCHES, PACKETS_PER_BATCH, config.rays_per_packet)
 
     return X.transpose(0, 1)
+
+def _coarsen(X: torch.Tensor) -> torch.Tensor:
+    """
+    Recover the coarse ray volumes that the sampled wave packets constitute, so
+    that they can be used as neural network input.
+
+    Parameters
+    ----------
+    X
+        Batches of sampled wave packets, of the form produced by one of the
+        sampling functions in this module.
+
+    Returns
+    -------
+    torch.Tensor
+        Batches of corresponding coarse ray volumes.
+
+    """
+
+    out = torch.zeros(X.shape[:-1])
+    for i in range(N_BATCHES):
+        rows = X[i, ..., ::3].flatten(1, 2)
+        out[i] = CoarseSource.coarsen(rows)
+
+    return out
 
 def _sample_wind_profiles() -> torch.Tensor:
     """

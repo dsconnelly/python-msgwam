@@ -13,8 +13,8 @@ _grid = {
     'beta' : [0.5, 1],
     'learning_rate' : [1e-3, 2e-4],
     'network_size' : [8, 10],
-    'root' : [5],
-    'warmup_batches' : [2, 5],
+    'root' : [3, 5],
+    'warmup_batches' : [2],
     'weight_decay' : [0, 1e-4]
 }
 

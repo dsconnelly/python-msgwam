@@ -28,7 +28,7 @@ class RegularizedMSELoss(nn.Module):
     def forward(
         self,
         u: torch.Tensor,
-        X: torch.Tensor,
+        Y: torch.Tensor,
         Z: torch.Tensor,
         model: CoarseNet,
         smoothing: float
@@ -40,8 +40,8 @@ class RegularizedMSELoss(nn.Module):
         ----------
         u
             Zonal wind profile for the given batch.
-        X
-            Wave packets for the given batch.
+        Y
+            Coarse ray volumes for the given batch.
         Z
             Time-averaged momentum flux profiles for the given batch.
         model
@@ -62,9 +62,9 @@ class RegularizedMSELoss(nn.Module):
 
         """
 
-        output = model(u, X)
+        output = model(u, Y)
         reg = ((output - 1) ** 2).mean()
-        spectrum = model.build_spectrum(X, output)
+        spectrum = model.build_spectrum(Y, output)
         wind = torch.vstack((u, torch.zeros_like(u)))
 
         Z_hat = integrate_batches(

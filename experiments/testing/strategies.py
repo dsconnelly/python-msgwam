@@ -44,7 +44,7 @@ def integrate(strategy: str) -> None:
     config.reset()
 
 def _reference() -> None:
-    config.min_pmf = 1e-10
+    config.min_pmf = 1e-9
 
 def _ICON() -> None:
     config.n_ray_max = N_MAX
@@ -87,7 +87,9 @@ def _stochastic() -> None:
 
 def _network() -> None:
     config.source_type = 'network'
-    config.dt_launch = config.rays_per_packet * config.dt
     config.n_ray_max = N_MAX // SPEEDUP
     config.purge_mode = 'energy'
-    
+
+    root = int(SPEEDUP ** 0.5)
+    config.coarse_height = root
+    config.coarse_width = root

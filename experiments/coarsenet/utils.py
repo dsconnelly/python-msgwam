@@ -6,67 +6,8 @@ from typing import Optional
 import torch, torch.nn as nn
 
 from msgwam import config, spectra
-from msgwam.dispersion import cg_r
 from msgwam.integration import SBDF2Integrator
 from msgwam.utils import shapiro_filter
-
-def get_base_replacement(X: torch.Tensor) -> torch.Tensor:
-    """
-    Get the base replacement ray volume for each packet. The base replacement
-    has the mean properties of all ray volumes in the packet, except for `dr`
-    and `dm`, which have the bounding box properties instead.
-
-    Parameters
-    ----------
-    X
-        Tensor containing ray volume properties for each packet, structured
-        like a batch in the output of `_sample_wave_packets`.
-
-    Returns
-    -------
-        Tensor of base replacement ray volumes.
-
-    """
-
-    r_lo = nanmin(X[0] - 0.5 * X[1], dim=-1)
-    r_hi = nanmax(X[0] + 0.5 * X[1], dim=-1)
-
-    m_lo = nanmin(X[4] - 0.5 * X[7], dim=-1)
-    m_hi = nanmax(X[4] + 0.5 * X[7], dim=-1)
-
-    base = torch.nanmean(X, dim=-1)
-    base[1] = r_hi - r_lo
-    base[7] = m_hi - m_lo
-
-    return base
-
-def get_batch_pmf(X: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the pseudomomentum flux of each wave packet in a source spectrum.
-
-    Parameters
-    ----------
-    X
-        Tensor whose first dimension ranges over ray properties, whose second
-        dimension ranges over wave packets, and whose third dimension ranges
-        over individual ray volumes in each packet. If `X.ndim == 2`, it will be
-        assumed that each ray volume constitutes its own wave packet.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor containing the total absolute pseudomomentum flux in each packet.
-    
-    """
-
-    if X.ndim == 2:
-        X = X[..., None]
-
-    cg = cg_r(*X[2:5])
-    volume = X[5:8].prod(dim=0)
-    flux = cg * X[-1] * volume * abs(X[2])
-
-    return torch.nansum(flux, dim=1)
 
 def integrate_batches(
     wind: torch.Tensor,
@@ -129,46 +70,6 @@ def integrate_batches(
         Z[:, j] = profiles.transpose(0, 1)
 
     return Z
-
-def nanmax(a: torch.Tensor, dim: int) -> torch.Tensor:
-    """
-    Take the maximum over a dimension, ignoring any `torch.nan` values.
-
-    Parameters
-    ----------
-    a
-        Tensor to maximize over.
-    dim
-        Dimension to maximize over.
-
-    Returns
-    -------
-    torch.Tensor
-        Maximum value in the appropriate dimension, ignoring NaN values.
-
-    """
-
-    return torch.nan_to_num(a, -torch.inf).max(dim=dim)[0]
-
-def nanmin(a: torch.Tensor, dim: int) -> torch.Tensor:
-    """
-    Take the minimum over a dimension, ignoring any `torch.nan` values.
-
-    Parameters
-    ----------
-    a
-        Tensor to minimize over.
-    dim
-        Dimension to minimize over.
-
-    Returns
-    -------
-    torch.Tensor
-        Minimum value in the appropriate dimension, ignoring NaN values.
-
-    """
-
-    return torch.nan_to_num(a, torch.inf).min(dim=dim)[0]
 
 def root_transform(a: torch.Tensor, root: int) -> torch.Tensor:
     """

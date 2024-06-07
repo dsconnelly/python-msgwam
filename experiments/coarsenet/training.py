@@ -17,7 +17,9 @@ from hyperparameters import (
 from losses import RegularizedMSELoss
 from monitors import LossMonitor
 
-MAX_BATCHES = 30
+DATA_DIR = 'data/coarsenet'
+
+MAX_BATCHES = 35
 MAX_EPOCHS = 100
 MAX_HOURS = 11
 
@@ -31,9 +33,9 @@ def train_network() -> None:
     loss = RegularizedMSELoss()
     monitor = LossMonitor(5, 0.04)
     loader_tr, loader_va = _load_data(loss.keep)
-    u_tr, X_tr, _ = loader_tr.dataset.tensors
+    u_tr, Y_tr, _ = loader_tr.dataset.tensors
 
-    model = CoarseNet(u_tr, X_tr)
+    model = CoarseNet(u_tr, Y_tr)
     optimizer = _get_optimizer(model)
 
     hours = 0
@@ -44,7 +46,10 @@ def train_network() -> None:
     while n_epoch <= MAX_EPOCHS and hours < MAX_HOURS:
         print(f'==== starting epoch {n_epoch} ====')
 
-        n_batches = 5 if n_epoch <= warmup_batches else MAX_BATCHES
+        n_batches = MAX_BATCHES
+        if n_epoch <= warmup_batches:
+            n_batches = min(5, MAX_BATCHES)
+
         _train(model, loader_tr, optimizer, loss, smoothing, n_batches)
         mse_va = _validate(model, loader_va, loss, smoothing)
         
@@ -72,8 +77,8 @@ def train_network() -> None:
             *example_inputs, _ = next(iter(loader_tr))
             traced = torch.jit.trace(_evaluate, example_inputs)
 
-    torch.jit.save(traced, f'data/coarsenet/model-{task_id}.jit')
-    torch.save(model.state_dict(), f'data/coarsenet/model-{task_id}.pkl')
+    torch.jit.save(traced, f'{DATA_DIR}/model-{task_id}.jit')
+    torch.save(model.state_dict(), f'{DATA_DIR}/model-{task_id}.pkl')
 
 def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
     """
@@ -116,21 +121,21 @@ def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
 
     """
 
-    u = torch.load('data/coarsenet/wind.pkl')[:, 0]
-    X = torch.load('data/coarsenet/packets.pkl')
-    Z = torch.load('data/coarsenet/targets.pkl')
+    u = torch.load(f'{DATA_DIR}/wind.pkl')[:, 0]
+    Y = torch.load(f'{DATA_DIR}/squares.pkl')
+    Z = torch.load(f'{DATA_DIR}/targets.pkl')
     Z = Z.mean(dim=2)[..., keep]
 
-    m = int(0.8 * X.shape[2])
-    idx = torch.randperm(X.shape[2])
+    m = int(0.8 * Y.shape[2])
+    idx = torch.randperm(Y.shape[2])
     idx_tr, idx_va = idx[:m], idx[m:]
 
     print('==== separating training and validation data')
     print(f'idx_tr: {idx_tr.tolist()}')
     print(f'idx_va: {idx_va.tolist()}\n')
 
-    data_tr = TensorDataset(u, X[:, :, idx_tr], Z[:, idx_tr])
-    data_va = TensorDataset(u, X[:, :, idx_va], Z[:, idx_va])
+    data_tr = TensorDataset(u, Y[:, :, idx_tr], Z[:, idx_tr])
+    data_va = TensorDataset(u, Y[:, :, idx_va], Z[:, idx_va])
     loader_tr = DataLoader(data_tr, batch_size=None, shuffle=True)
     loader_va = DataLoader(data_va, batch_size=None, shuffle=True)
 
@@ -165,10 +170,10 @@ def _train(
     """
     
     model.train()
-    for i, (u, X, Z) in enumerate(loader):
+    for i, (u, Y, Z) in enumerate(loader):
         start = time()
         optimizer.zero_grad()
-        reg, mse = loss(u, X, Z, model, smoothing)
+        reg, mse = loss(u, Y, Z, model, smoothing)
 
         (beta * reg + mse).backward()
         clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
@@ -215,13 +220,16 @@ def _validate(
         reg_va = 0
         mse_va = 0
 
-        for u, X, Z in loader:
-            reg, mse = loss(u, X, Z, model, smoothing)
+        for k, (u, Y, Z) in enumerate(loader):
+            reg, mse = loss(u, Y, Z, model, smoothing)
             reg_va = reg_va + reg.item()
             mse_va = mse_va + mse.item()
 
-    reg_va = reg_va / len(loader)
-    mse_va = mse_va / len(loader)
+            if k + 1 == MAX_BATCHES:
+                break
+
+    reg_va = reg_va / (k + 1)
+    mse_va = mse_va / (k + 1)
 
     print(f'\nvalidation reg error = {reg_va:.4f}')
     print(f'validation MSE error = {mse_va:.4f}\n')

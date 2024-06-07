@@ -156,6 +156,28 @@ class CoarseSource(DeterministicSource):
 
         k, l, m, dk, dl, dm, dens = spectrum[2:]
         return k * cg_r(k, l, m) * dens * dk * dl * dm
+    
+class NetworkSource(CoarseSource):
+    def __init__(self) -> None:
+        """
+        At initialization, a `CoarseSource` loads the jitted model saved at the
+        location indicated by the config file.
+        """
+
+        super().__init__()
+        self.model = torch.jit.load(config.model_path)
+
+    def launch(
+        self,
+        jdx: torch.Tensor,
+        u: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        A `NetworkSource` lets its loaded network modify the coarsened ray
+        volumes before sending them back to the integrator.
+        """
+
+        return self.model(u, self.data[:, jdx]), jdx
 
 class StochasticSource(Source):
     def __init__(self) -> None:

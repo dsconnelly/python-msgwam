@@ -5,57 +5,53 @@ import torch, torch.nn as nn
 
 from msgwam import config
 from msgwam.rays import RayCollection
+from msgwam.sources import CoarseSource
 from msgwam.utils import put
 
 from hyperparameters import network_size, root
 from utils import (
-    get_batch_pmf,
-    get_base_replacement,
     root_transform, 
     xavier_init
 )
 
 class CoarseNet(nn.Module):
     """
-    CoarseNet currently takes in a zonal wind profile and `config.n_source`
-    values for each ray volume property, and predicts the properties of one ray
-    volume that is intended to replace it. At present, the neural network only
-    operates on the zonal wind and the (dr, m, dm) values and returns those,
-    with the remaining properties taken from the input or calculated to
-    conserve momentum flux.
+    CoarseNet accepts a zonal wind profile along with a (coarsened) ray volume,
+    and predicts scaling factors for that ray volume's properties intended to
+    make its online behavior more like that of its constituent rays.
     """
 
-    props_in = ['r', 'k', 'm', 'dm', 'dens']
-    props_out = ['dr', 'k', 'm', 'dm', 'dens']
+    props_in = ['k', 'm', 'dm', 'dens']
+    props_out = ['dr', 'k', 'm', 'dm']
 
     idx_in = [RayCollection.indices[prop] for prop in props_in]
     idx_out = [RayCollection.indices[prop] for prop in props_out]
 
-    def __init__(self, u_tr: torch.Tensor, X_tr: torch.Tensor) -> None:
+    def __init__(self, u_tr: torch.Tensor, Y_tr: torch.Tensor) -> None:
         """
-        Initialize a CoarseNet, calculating input means and standard deviations
-        to be used for standardization later.
-        
+        Initialize a `CoarseNet`, calculating input statistics to be used for
+        standardization at prediction time.
+
         Parameters
         ----------
         u_tr
             Zonal wind profiles in the training set.
-        X_tr
-            Wave packets in the training set.
-        
+        Y_tr
+            Coarse ray volumes in the training set.
+
         """
 
         super().__init__()
-        self._init_stats(u_tr, X_tr)
+        self._init_stats(u_tr, Y_tr)
 
         n_z = config.n_grid - 1
-        n_in = n_z + len(self.props_in) * config.rays_per_packet
+        n_in = n_z + len(self.props_in)
         n_out = len(self.props_out)
 
         sizes = [n_in] + [512] * network_size
         sizes = sizes + [256, 128, 64, 32, n_out]
-        
         args = []
+
         for a, b in zip(sizes[:-1], sizes[1:]):
             args.append(nn.Linear(a, b))
             args.append(nn.ReLU())
@@ -65,89 +61,72 @@ class CoarseNet(nn.Module):
         self.layers.apply(xavier_init)
         self.to(torch.double)
 
-    def forward(
-        self,
-        u: torch.Tensor,
-        X: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, u: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
         """
-        Apply the CoarseNet, including unpacking the ray volume data, applying
-        the neural network, and repacking the calculated wave properties as
-        a spectrum tensor.
+        Apply the `CoarseNet`, including unpacking the ray volume data, stacking
+        it with the zonal wind data, and passing it through the neural network.
 
         Parameters
         ----------
         u
             Tensor containing a single zonal wind profile.
-        X
-            Tensor containing ray volume properties, structured like a batch in
-            the output of `_sample_wave_packets`.
+        Y
+            Tensor containing a batch of coarse ray volume properties.
 
         Returns
         -------
         torch.Tensor
-            Tensor containing positive scale factors whose first dimension
-            ranges over the properties in `props_out` and whose second dimension
-            ranges over the packets being replaced.
+            Tensor of positive scale factors whose first dimension ranges over
+            the properties in `props_out` and whose second dimension ranges over
+            the ray volumes being replaced.
 
         """
 
-        X = root_transform(X, root)
-        shape = (-1, len(self.props_in) * config.rays_per_packet)
-        packets = X[self.idx_in].transpose(0, 1).reshape(shape)
+        Y = root_transform(Y, root)[self.idx_in]
+        u = u[:, None].expand(-1, Y.shape[1])
+        stacked = torch.hstack((u.T, Y.T))
 
-        u = u[None].expand(X.shape[1], -1)
-        stacked = torch.nan_to_num(torch.hstack((u, packets)))
-        output = self.layers(self._normalize(stacked))
+        return self.layers(self._standardize(stacked)).T
 
-        return output.T
-    
-    def _init_stats(self, u: torch.Tensor, X: torch.Tensor) -> None:
+    def _init_stats(self, u: torch.Tensor, Y: torch.Tensor) -> None:
         """
-        Calculate the means and standard deviations to be used to normalize the
-        inputs to `forward`.
+        Calculate the means and standard deviations to be used to standardize
+        the inputs to `forward`.
 
         Parameters
         ----------
         u
             Batches of zonal wind profiles.
-        X
-            Batches of wave packets.
+        Y
+            Batches of coarse ray volumes.
 
-        """    
+        """
+
+        Y = root_transform(Y, root)
+        shape = (-1, -1, Y.shape[-1])
+        u = u[..., None].expand(*shape).transpose(1, 2).flatten(0, 1)
+        Y = Y[:, self.idx_in].transpose(1, 2).flatten(0, 1)
         
-        u_means = u.mean(dim=0)
-        u_stds = u.std(dim=0)
-
-        X = root_transform(X[:, self.idx_in], root)
-        prop_means = torch.nanmean(X, dim=(0, 2, 3))
-
-        errors = (X - prop_means[..., None, None]) ** 2
-        prop_vars = torch.nanmean(errors, dim=(0, 2, 3))
-        prop_stds = torch.sqrt(prop_vars)
-
-        X_means = torch.repeat_interleave(prop_means, config.rays_per_packet)
-        X_stds = torch.repeat_interleave(prop_stds, config.rays_per_packet)
-
-        self.means = torch.cat([u_means, X_means])
-        self.stds = torch.cat([u_stds, X_stds])
+        stacked = torch.hstack((u, Y))
+        self.means = torch.mean(stacked, dim=0)
+        self.stds = torch.std(stacked, dim=0)
         self.sdx = self.stds != 0
 
-    def _normalize(self, stacked: torch.Tensor) -> torch.Tensor:
+    def _standardize(self, stacked: torch.Tensor) -> torch.Tensor:
         """
-        Normalize neural network inputs using the means and standard deviations
+        Standardize neural network inputs using means and standard deviations
         calculated at initialization.
 
         Parameters
         ----------
         stacked
             Tensor of inputs to the neural network, consisting of zonal wind and
-            wave packet information side by side.
+            coarse wave packet information side by side.
 
         Returns
         -------
         torch.Tensor
-            Normalized data.
+            Standardized data.
 
         """
 
@@ -158,39 +137,31 @@ class CoarseNet(nn.Module):
         )
 
         return out
-        
+    
     @classmethod
     def build_spectrum(
         cls,
-        X: torch.Tensor,
+        Y: torch.Tensor,
         output: torch.Tensor
     ) -> torch.Tensor:
         """
-        Assemble a complete source spectrum, using the output of this model for
-        ray volume properties in `self.props` and the average of the original
-        packet values for the others. 
+        Create a complete source spectrum, using the outputs of this model to
+        scale the appropriate ray volume properties and ensuring that the result
+        has the same momentum flux as the original.
 
         Parameters
         ----------
-        X
-            Tensor containing ray volume properties for each packet, structured
-            like a batch in the output of `_sample_wave_packets`.
+        Y
+            Batch of coarse ray volumes to be replaced.
         output
-            Tensor containing the properties of the replacement ray volumes, as
-            in the output of `self.forward`.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor containing source ray volume properties of the proper shape
-            to be passed to the integrator. Will be detached from the provided
-            `output` tensor.
+            Tensor of scale factors for the properties in `props_out`, obtained
+            by calling this model on `Y` and a zonal wind profile.
 
         """
 
-        Y = get_base_replacement(X)
+        fluxes = CoarseSource._get_fluxes(Y)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
-        factor = get_batch_pmf(X) / get_batch_pmf(Y)
+        factor = fluxes / CoarseSource._get_fluxes(Y)
         Y = put(Y, 8, Y[8] * factor)
 
         return Y
