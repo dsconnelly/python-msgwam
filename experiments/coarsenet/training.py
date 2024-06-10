@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from torch.nn.utils import clip_grad_norm_
 
+from analysis import plot_scores
 from architectures import CoarseNet
 from hyperparameters import (
     beta,
@@ -17,7 +18,11 @@ from hyperparameters import (
 from losses import RegularizedMSELoss
 from monitors import LossMonitor
 
-DATA_DIR = 'data/coarsenet'
+DATA_DIR = '../data/coarsenet'
+RESUME = False
+
+if RESUME:
+    warmup_batches = 0
 
 MAX_BATCHES = 35
 MAX_EPOCHS = 100
@@ -25,7 +30,7 @@ MAX_HOURS = 11
 
 MAX_GRAD_NORM = 2
 MAX_SMOOTHING = 16
-MIN_SMOOTHING = 4
+MIN_SMOOTHING = 2
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
@@ -37,6 +42,11 @@ def train_network() -> None:
 
     model = CoarseNet(u_tr, Y_tr)
     optimizer = _get_optimizer(model)
+
+    if RESUME:
+        state = torch.load(f'{DATA_DIR}/state-{task_id}.pkl')
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
 
     hours = 0
     n_epoch = 1
@@ -51,20 +61,20 @@ def train_network() -> None:
             n_batches = min(5, MAX_BATCHES)
 
         _train(model, loader_tr, optimizer, loss, smoothing, n_batches)
-        mse_va = _validate(model, loader_va, loss, smoothing)
+        mse_va = _validate(model, loader_va, loss)
         
         if monitor.has_plateaued(mse_va):
             if smoothing is None:
-                print('Ending training based on validation loss')
+                print('Ending training based on validation loss\n')
                 break
 
             if smoothing <= MIN_SMOOTHING:
-                print('Turning off smoothing')
+                print('Turning off smoothing\n')
                 smoothing = None
 
             else:
                 smoothing = smoothing // 2
-                print(f'Reducing smoothing to {smoothing}')
+                print(f'Reducing smoothing to {smoothing}\n')
 
         if n_epoch <= warmup_batches:
             optimizer = _get_optimizer(model)
@@ -83,8 +93,14 @@ def train_network() -> None:
             *example_inputs, _ = next(iter(loader_tr))
             traced = torch.jit.trace(_evaluate, example_inputs)
 
+    state = {
+        'model' : model.state_dict(),
+        'optimizer' : optimizer.state_dict()
+    }
+
     torch.jit.save(traced, f'{DATA_DIR}/model-{task_id}.jit')
-    torch.save(model.state_dict(), f'{DATA_DIR}/model-{task_id}.pkl')
+    torch.save(state, f'{DATA_DIR}/state-{task_id}.pkl')
+    plot_scores()
 
 def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
     """
@@ -136,13 +152,12 @@ def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
     idx = torch.randperm(Y.shape[2])
     idx_tr, idx_va = idx[:m], idx[m:]
 
-    print('==== separating training and validation data')
-    print(f'idx_tr: {idx_tr.tolist()}')
-    print(f'idx_va: {idx_va.tolist()}\n')
+    torch.save(idx_tr, f'{DATA_DIR}/idx-tr-{task_id}.pkl')
+    torch.save(idx_va, f'{DATA_DIR}/idx-va-{task_id}.pkl')
 
     data_tr = TensorDataset(u, Y[:, :, idx_tr], Z[:, idx_tr])
     data_va = TensorDataset(u, Y[:, :, idx_va], Z[:, idx_va])
-    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=True)
+    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=False)
     loader_va = DataLoader(data_va, batch_size=None, shuffle=True)
 
     return loader_tr, loader_va
@@ -198,7 +213,6 @@ def _validate(
     model: CoarseNet,
     loader: DataLoader,
     loss: RegularizedMSELoss,
-    smoothing: float
 ) -> float:
     """
     Evaluate the model on the validation data and return the MSE loss.
@@ -211,8 +225,6 @@ def _validate(
         `DataLoader` containing training data.
     loss
         Module calculating regularization and MSE losses.
-    smoothing
-        Current smoothing value to use during integration.
 
     Returns
     -------
