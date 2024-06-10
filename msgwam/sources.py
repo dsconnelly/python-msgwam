@@ -112,11 +112,9 @@ class CoarseSource(DeterministicSource):
 
         cs = cp_x(*spectrum[2:5])
         cs = cs.reshape(-1, config.coarse_width)
+        
         c_lo, _ = cs.min(dim=-1)
         c_hi, _ = cs.max(dim=-1)
-
-        scale = 1 - 1 / config.coarse_width
-        dc = (c_hi - c_lo) / scale
         cs = (c_lo + c_hi) / 2
 
         spectrum = spectrum.reshape(9, -1, config.coarse_width)
@@ -129,7 +127,11 @@ class CoarseSource(DeterministicSource):
 
         k, l = spectrum[2:4]
         spectrum[4] = m_from(k, l, cs)
-        spectrum[7] = abs(k * dc / cg_r(k, l, spectrum[4]))
+
+        if config.coarse_width > 1:
+            dc = (c_hi - c_lo) / (1 - 1 / config.coarse_width)
+            spectrum[7] = abs(k * dc / cg_r(k, l, spectrum[4]))
+
         spectrum[8] *= fluxes / cls._get_fluxes(spectrum)
 
         return spectrum

@@ -54,11 +54,17 @@ def train_network() -> None:
         mse_va = _validate(model, loader_va, loss, smoothing)
         
         if monitor.has_plateaued(mse_va):
-            if smoothing <= MIN_SMOOTHING:
+            if smoothing is None:
+                print('Ending training based on validation loss')
                 break
 
-            smoothing = smoothing // 2
-            print(f'Reducing smoothing to {smoothing}')
+            if smoothing <= MIN_SMOOTHING:
+                print('Turning off smoothing')
+                smoothing = None
+
+            else:
+                smoothing = smoothing // 2
+                print(f'Reducing smoothing to {smoothing}')
 
         if n_epoch <= warmup_batches:
             optimizer = _get_optimizer(model)
@@ -221,7 +227,7 @@ def _validate(
         mse_va = 0
 
         for k, (u, Y, Z) in enumerate(loader):
-            reg, mse = loss(u, Y, Z, model, smoothing)
+            reg, mse = loss(u, Y, Z, model, None)
             reg_va = reg_va + reg.item()
             mse_va = mse_va + mse.item()
 

@@ -9,8 +9,10 @@ import xarray as xr
 sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.constants import EPOCH
-from msgwam.plotting import plot_time_series
+from msgwam.plotting import plot_source, plot_time_series
 from msgwam.utils import open_dataset
+
+import strategies
 
 COLORS = {
     'ICON' : 'k',
@@ -22,8 +24,40 @@ COLORS = {
     'network' : 'fuchsia'
 }
 
-# def plot_source() -> None:
-#     _plot_source(f'plots/{config.name}/source.png')
+def plot_sources() -> None:
+    """Plot the source spectrum for each strategy."""
+
+    n_plots = len(COLORS) + 1
+    n_cols = int(n_plots // 2)
+    n_cols = n_cols + n_plots % 2
+    n_rows = 2
+
+    widths = [4.5] * n_cols + [0.2]
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(sum(widths), 3 * n_rows)
+
+    grid = gs.GridSpec(
+        nrows=n_rows, ncols=(n_cols + 1),
+        width_ratios=widths,
+        figure=fig
+    )
+
+    axes = [fig.add_subplot(grid[i // 4, i % 4]) for i in range(n_plots)]
+    cax = fig.add_subplot(grid[:, -1])
+    amax = 0.4
+
+    setups = ['reference'] + list(COLORS.keys())
+    for setup, ax in zip(setups, axes):
+        getattr(strategies, '_' + setup.replace('-', '_'))()
+        img = plot_source(amax, [ax])
+        config.reset()
+
+        ax.set_title(_format(setup))
+
+    cbar = plt.colorbar(img, cax=cax)
+    cbar.set_label('momentum flux (mPa)')
+
+    plt.savefig(f'plots/{config.name}/sources.png', dpi=400)
 
 def plot_fluxes() -> None:
     """Plot the pseudomomentum flux time series for each strategy."""

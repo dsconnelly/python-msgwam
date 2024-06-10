@@ -6,7 +6,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from matplotlib.cm import RdBu_r, ScalarMappable
+from matplotlib.patches import Rectangle
+
+from . import config, sources
 from .constants import EPOCH
+from .dispersion import cg_r, cp_x
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -40,6 +45,70 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
     plt.tight_layout()
     plt.savefig(output_path)
+
+def plot_source(amax: float, axes: Optional[list[Axes]]=None) -> ScalarMappable:
+    """
+    Plot the source spectrum specified by the current config settings.
+
+    Parameters
+    ----------
+    amax
+        Maximum absolute value to use in the symmetric norm.
+    axes
+        List containing the `Axes` object that should contain the color plot
+        and, if a colorbar is to be added, the `Axes` that will contain the
+        colorbar. If `len(axes) == 1`, no colorbar will be created. If `axes` is
+        `None`, then a new figure will be created with two axes.
+
+    Returns
+    -------
+    ScalarMappable
+        Mappable object encoding the norm and colormap used.
+
+    """
+
+    if axes is None:
+        widths = [4.5, 0.2]
+        fig, axes = plt.subplots(ncols=2, width_ratios=widths)
+        fig.set_size_inches(sum(widths), 3)
+
+    cls_name = config.source_type.capitalize() + 'Source'
+    source: sources.Source = getattr(sources, cls_name)()
+    r, dr, k, l, m, dk, dl, dm, dens = source.data
+    
+    cp = cp_x(k, l, m)
+    cg = cg_r(k, l, m)
+    dc = abs(dm * cg / k)
+
+    norm = plt.Normalize(vmin=-amax, vmax=amax)
+    flux = k * cg * dens * abs(dk * dl * dm)
+    colors = RdBu_r(norm(1000 * flux))
+
+    for j, color in enumerate(colors):
+        x = cp[j] - 0.5 * dc[j]
+        y = r[j] - 0.5 * dr[j]
+
+        axes[0].add_patch(Rectangle(
+            (x, y), dc[j], dr[j],
+            fc=color,
+            ec='k'
+        ))
+
+    axes[0].set_xlim(-32, 32)
+    axes[0].set_xticks(np.linspace(-32, 32, 9))
+    axes[0].set_xlabel('phase speed (m / s)')
+
+    axes[0].set_ylim(7.3e3, 9.8e3)
+    ticks = np.linspace(7.3e3, 9.8e3, 6)
+    axes[0].set_yticks(ticks, labels=(ticks / 1000))    
+    axes[0].set_ylabel('height (km)')
+
+    img = ScalarMappable(norm=norm, cmap=RdBu_r)
+
+    if len(axes) > 1:
+        plt.colorbar(img, cax=axes[1])
+
+    return img
 
 def plot_time_series(
     data: xr.DataArray,
