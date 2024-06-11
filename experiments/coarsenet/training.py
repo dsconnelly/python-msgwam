@@ -6,7 +6,6 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 from torch.nn.utils import clip_grad_norm_
 
-from analysis import plot_scores
 from architectures import CoarseNet
 from hyperparameters import (
     beta,
@@ -18,7 +17,7 @@ from hyperparameters import (
 from losses import RegularizedMSELoss
 from monitors import LossMonitor
 
-DATA_DIR = '../data/coarsenet'
+DATA_DIR = 'data/coarsenet'
 RESUME = False
 
 if RESUME:
@@ -100,7 +99,6 @@ def train_network() -> None:
 
     torch.jit.save(traced, f'{DATA_DIR}/model-{task_id}.jit')
     torch.save(state, f'{DATA_DIR}/state-{task_id}.pkl')
-    plot_scores()
 
 def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
     """
@@ -148,16 +146,21 @@ def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
     Z = torch.load(f'{DATA_DIR}/targets.pkl')
     Z = Z.mean(dim=2)[..., keep]
 
-    m = int(0.8 * Y.shape[2])
-    idx = torch.randperm(Y.shape[2])
-    idx_tr, idx_va = idx[:m], idx[m:]
+    if RESUME:
+        idx_tr = torch.load(f'{DATA_DIR}/idx-tr-{task_id}.pkl')
+        idx_va = torch.load(f'{DATA_DIR}/idx-va-{task_id}.pkl')
 
-    torch.save(idx_tr, f'{DATA_DIR}/idx-tr-{task_id}.pkl')
-    torch.save(idx_va, f'{DATA_DIR}/idx-va-{task_id}.pkl')
+    else:
+        m = int(0.8 * Y.shape[2])
+        idx = torch.randperm(Y.shape[2])
+        idx_tr, idx_va = idx[:m], idx[m:]
+
+        torch.save(idx_tr, f'{DATA_DIR}/idx-tr-{task_id}.pkl')
+        torch.save(idx_va, f'{DATA_DIR}/idx-va-{task_id}.pkl')
 
     data_tr = TensorDataset(u, Y[:, :, idx_tr], Z[:, idx_tr])
     data_va = TensorDataset(u, Y[:, :, idx_va], Z[:, idx_va])
-    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=False)
+    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=True)
     loader_va = DataLoader(data_va, batch_size=None, shuffle=True)
 
     return loader_tr, loader_va

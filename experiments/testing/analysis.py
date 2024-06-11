@@ -14,6 +14,8 @@ from msgwam.utils import open_dataset
 
 import strategies
 
+PLOT_DIR = 'plots'
+
 COLORS = {
     'ICON' : 'k',
     'do-nothing' : 'gold',
@@ -57,7 +59,7 @@ def plot_sources() -> None:
     cbar = plt.colorbar(img, cax=cax)
     cbar.set_label('momentum flux (mPa)')
 
-    plt.savefig(f'plots/{config.name}/sources.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/sources.png', dpi=400)
 
 def plot_fluxes() -> None:
     """Plot the pseudomomentum flux time series for each strategy."""
@@ -96,7 +98,65 @@ def plot_fluxes() -> None:
     cbar.set_ticks(np.linspace(-2, 2, 9))
     cbar.set_label('momentum flux (mPa)')
 
-    plt.savefig(f'plots/{config.name}/fluxes.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/fluxes.png', dpi=400)
+
+def plot_life_cycles() -> None:
+    """Plot launch rate and lifetime statistics for each strategy."""
+
+    fig, axes = plt.subplots(ncols=2, sharey=True)
+    fig.set_size_inches(6, 4.5)
+
+    names = ['reference'] + list(COLORS.keys())
+    rates = np.zeros(len(names))
+    lifetimes = []
+
+    for k, name in enumerate(names):
+        with open_dataset(f'data/{config.name}/{name}.nc') as ds:
+            launches = ds['age'].values == 0
+            age = np.nan_to_num(ds['age'].values)
+            idx = (age[1:] - age[:-1]) < 0
+
+            rates[k] = launches.sum(axis=1).mean()
+            lifetimes.append(np.log(age[:-1][idx].flatten() / 3600))
+
+    y = -np.arange(len(rates))
+    axes[0].barh(
+        y, rates + 1,
+        height=1,
+        facecolor='lightgray',
+        edgecolor='k',
+        left=-1
+    )
+
+    axes[1].boxplot(
+        lifetimes,
+        positions=y,
+        whis=(0, 100),
+        vert=False,
+        medianprops={'color' : 'k', 'ls' : 'dashed'}
+    )
+
+    axes[0].set_xlim(0, 32)
+    axes[0].set_xticks(np.linspace(0, 32, 5))
+    
+    labels = map(_format, names)
+    axes[0].set_ylim(-len(rates) + 0.5, 0.5)
+    axes[0].set_yticks(y, labels=labels)
+
+    line = np.linspace(*axes[0].get_ylim(), 50)
+    target = rates[0] / strategies.SPEEDUP * np.ones(50)
+    axes[0].plot(target, line, color='tab:red', ls='dashed', zorder=2)
+
+    xmin, xmax = axes[1].get_xlim()
+    ticks = np.linspace(xmin, xmax, 6)
+    labels = np.round(np.exp(ticks), 2)
+    axes[1].set_xticks(ticks, labels=labels, rotation=45)
+
+    axes[0].set_title('launches per $\Delta t$')
+    axes[1].set_title('ray lifetimes (h)')
+
+    plt.tight_layout()
+    plt.savefig(f'{PLOT_DIR}/{config.name}/life-cycles.png', dpi=400)
 
 def plot_scores() -> None:
     """Plot the error with respect to the reference for each strategy."""
@@ -136,7 +196,7 @@ def plot_scores() -> None:
     ax.legend(loc='lower right')
 
     plt.tight_layout()
-    plt.savefig(f'plots/{config.name}/scores.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/scores.png', dpi=400)
 
 def _format(strategy: str) -> str:
     """Format the name of a strategy to appear in plots."""

@@ -1,7 +1,7 @@
 *.ipynb*
 *.slurm
 *.pyc
-data/*
+data
 logs/*
 old-msgwam/*
 plots/*

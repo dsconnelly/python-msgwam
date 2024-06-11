@@ -227,7 +227,9 @@ class RayCollection:
         
         datas, replaced = self.source.launch(crossed, mean.u)
         excess = self.count + datas.shape[1] - config.n_ray_max
-        self.purge(excess)
+
+        if excess > 0:
+            self.purge(excess)
 
         for j, data in enumerate(datas.T):
             self.ghosts[replaced[j]] = self.add_ray(data)
