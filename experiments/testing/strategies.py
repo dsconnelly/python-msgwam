@@ -86,10 +86,5 @@ def _stochastic() -> None:
     config.purge_mode = 'energy'
 
 def _network() -> None:
+    _coarse_square()
     config.source_type = 'network'
-    config.n_ray_max = N_MAX // SPEEDUP
-    config.purge_mode = 'energy'
-
-    root = int(SPEEDUP ** 0.5)
-    config.coarse_height = root
-    config.coarse_width = root

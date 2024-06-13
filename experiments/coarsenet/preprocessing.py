@@ -14,6 +14,7 @@ from utils import integrate_batches
 
 N_BATCHES = 200
 PACKETS_PER_BATCH = 128
+FIXED_WIND = False
 
 def save_training_data():
     """
@@ -174,9 +175,10 @@ def _sample_wind_profiles() -> torch.Tensor:
     Returns
     -------
     torch.Tensor
-        Tensor of shape `(N_BATCHES, 2, config.n_grid - 1)` whose first
-        dimension ranges over batches, whose second dimension ranges over
-        components of the mean wind, and whose third dimension ranges over
+        Tensor of shape `(N_BATCHES, n_time, 2, config.n_grid - 1)` whose first
+        dimension ranges over batches, whose second dimension ranges over time
+        steps (or is a singleton if `FIXED_WIND`), whose third dimension ranges
+        over components of the mean wind, and whose fourth dimension ranges over
         vertical grid points.
 
     """
@@ -184,15 +186,31 @@ def _sample_wind_profiles() -> torch.Tensor:
     name = config.name.replace('-training', '')
     path = f'data/{name}/mean-state.nc'
 
+    n_grid = config.n_grid - 1
+    n_time = 1 if FIXED_WIND else config.n_t_max
+    wind = torch.zeros((N_BATCHES, n_time, 2, n_grid))
+
     with open_dataset(path) as ds:
         days = cftime.date2num(ds['time'], f'days since {EPOCH}')
         ds = ds.isel(time=((5 <= days) & (days <= 25)))
 
-        idx = torch.randperm(len(ds['time']))[:N_BATCHES]
-        u = torch.as_tensor(ds['u'].values)[idx]
-        v = torch.as_tensor(ds['v'].values)[idx]
+        hi = len(ds['time']) - n_time + 1
+        starts = torch.randperm(hi)[:N_BATCHES]
+        u = torch.as_tensor(ds['u'].values)
+        v = torch.as_tensor(ds['v'].values)
 
-    return torch.stack((u, v), dim=1)
+        if FIXED_WIND:
+            wind[:, :, 0] = u[starts, None]
+            wind[:, :, 1] = v[starts, None]
+
+        else:
+            pairs = zip(starts, starts + n_time)
+            idx = torch.vstack([torch.arange(s, e) for s, e in pairs])
+
+            wind[:, :, 0] = u[idx]
+            wind[:, :, 1] = v[idx]
+
+    return wind
 
 def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
     """

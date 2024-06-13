@@ -8,23 +8,19 @@ from torch.nn.utils import clip_grad_norm_
 
 from architectures import CoarseNet
 from hyperparameters import (
-    beta,
+    beta_decay,
     learning_rate,
+    smoothing_decay,
     task_id,
-    warmup_batches,
     weight_decay
 )
 from losses import RegularizedMSELoss
-from monitors import LossMonitor
 
 DATA_DIR = 'data/coarsenet'
-RESUME = False
-
-if RESUME:
-    warmup_batches = 0
+RESTART = 0
 
 MAX_BATCHES = 35
-MAX_EPOCHS = 100
+MAX_EPOCHS = 30
 MAX_HOURS = 11
 
 MAX_GRAD_NORM = 2
@@ -35,48 +31,38 @@ def train_network() -> None:
     """Train a CoarseNet instance."""
 
     loss = RegularizedMSELoss()
-    monitor = LossMonitor(5, 0.04)
     loader_tr, loader_va = _load_data(loss.keep)
     u_tr, Y_tr, _ = loader_tr.dataset.tensors
 
     model = CoarseNet(u_tr, Y_tr)
     optimizer = _get_optimizer(model)
 
-    if RESUME:
+    if RESTART > 0:
         state = torch.load(f'{DATA_DIR}/state-{task_id}.pkl')
         model.load_state_dict(state['model'])
         optimizer.load_state_dict(state['optimizer'])
 
     hours = 0
-    n_epoch = 1
-    smoothing = MAX_SMOOTHING
-
     start = time()
+    n_epoch = 1
+
     while n_epoch <= MAX_EPOCHS and hours < MAX_HOURS:
         print(f'==== starting epoch {n_epoch} ====')
 
-        n_batches = MAX_BATCHES
-        if n_epoch <= warmup_batches:
-            n_batches = min(5, MAX_BATCHES)
+        arg = torch.tensor(MAX_EPOCHS * RESTART + n_epoch - 1)
+        smoothing = MAX_SMOOTHING * torch.exp(-arg / smoothing_decay)
+        beta = torch.exp(-arg / beta_decay)
 
-        _train(model, loader_tr, optimizer, loss, smoothing, n_batches)
-        mse_va = _validate(model, loader_va, loss)
-        
-        if monitor.has_plateaued(mse_va):
-            if smoothing is None:
-                print('Ending training based on validation loss\n')
-                break
+        tail = f'{smoothing:.4f}'
+        if smoothing < MIN_SMOOTHING:
+            smoothing = None
+            tail = 'None'
 
-            if smoothing <= MIN_SMOOTHING:
-                print('Turning off smoothing\n')
-                smoothing = None
+        print(f'smoothing = {tail}')
+        print(f'beta = {beta:.4f}\n')
 
-            else:
-                smoothing = smoothing // 2
-                print(f'Reducing smoothing to {smoothing}\n')
-
-        if n_epoch <= warmup_batches:
-            optimizer = _get_optimizer(model)
+        _train(model, loader_tr, optimizer, loss, smoothing, beta)
+        _ = _validate(model, loader_va, loss)
 
         n_epoch = n_epoch + 1
         hours = (time() - start) / 3600
@@ -141,12 +127,12 @@ def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
 
     """
 
-    u = torch.load(f'{DATA_DIR}/wind.pkl')[:, 0]
+    u = torch.load(f'{DATA_DIR}/wind.pkl')[:, 0, 0]
     Y = torch.load(f'{DATA_DIR}/squares.pkl')
     Z = torch.load(f'{DATA_DIR}/targets.pkl')
     Z = Z.mean(dim=2)[..., keep]
 
-    if RESUME:
+    if RESTART > 0:
         idx_tr = torch.load(f'{DATA_DIR}/idx-tr-{task_id}.pkl')
         idx_va = torch.load(f'{DATA_DIR}/idx-va-{task_id}.pkl')
 
@@ -171,7 +157,7 @@ def _train(
     optimizer: torch.optim.Adam,
     loss: RegularizedMSELoss,
     smoothing: float,
-    n_batches: int
+    beta: float,
 ) -> None:
     """
     Evaluate the training losses and backpropagate.
@@ -198,8 +184,9 @@ def _train(
         start = time()
         optimizer.zero_grad()
         reg, mse = loss(u, Y, Z, model, smoothing)
+        total = beta * reg + (1 - beta) * mse
 
-        (beta * reg + mse).backward()
+        total.backward()
         clip_grad_norm_(model.parameters(), MAX_GRAD_NORM)
         optimizer.step()
 
@@ -208,8 +195,8 @@ def _train(
         message += f'reg = {reg.item():.4f} mse = {mse.item():.4f}'
         print(message)
 
-        del reg, mse
-        if i + 1 == n_batches:
+        del reg, mse, total
+        if i + 1 == MAX_BATCHES:
             return
 
 def _validate(

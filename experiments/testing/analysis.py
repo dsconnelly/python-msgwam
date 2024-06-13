@@ -116,7 +116,7 @@ def plot_life_cycles() -> None:
             age = np.nan_to_num(ds['age'].values)
             idx = (age[1:] - age[:-1]) < 0
 
-            rates[k] = launches.sum(axis=1).mean()
+            rates[k] = launches.sum(axis=1).mean() / config.dt * 3600
             lifetimes.append(np.log(age[:-1][idx].flatten() / 3600))
 
     y = -np.arange(len(rates))
@@ -136,8 +136,8 @@ def plot_life_cycles() -> None:
         medianprops={'color' : 'k', 'ls' : 'dashed'}
     )
 
-    axes[0].set_xlim(0, 32)
-    axes[0].set_xticks(np.linspace(0, 32, 5))
+    axes[0].set_xlim(0, 600)
+    axes[0].set_xticks(np.linspace(0, 600, 4))
     
     labels = map(_format, names)
     axes[0].set_ylim(-len(rates) + 0.5, 0.5)
@@ -152,7 +152,7 @@ def plot_life_cycles() -> None:
     labels = np.round(np.exp(ticks), 2)
     axes[1].set_xticks(ticks, labels=labels, rotation=45)
 
-    axes[0].set_title('launches per $\Delta t$')
+    axes[0].set_title('launches per hour')
     axes[1].set_title('ray lifetimes (h)')
 
     plt.tight_layout()
