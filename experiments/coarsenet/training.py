@@ -49,7 +49,7 @@ def train_network() -> None:
     while n_epoch <= MAX_EPOCHS and hours < MAX_HOURS:
         print(f'==== starting epoch {n_epoch} ====')
 
-        arg = torch.tensor(MAX_EPOCHS * RESTART + n_epoch - 1)
+        arg = torch.tensor(RESTART + n_epoch - 1)
         smoothing = MAX_SMOOTHING * torch.exp(-arg / smoothing_decay)
         beta = torch.exp(-arg / beta_decay)
 
