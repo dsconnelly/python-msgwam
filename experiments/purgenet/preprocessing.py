@@ -7,17 +7,17 @@ from msgwam import config
 from msgwam.integration import SBDF2Integrator
 from msgwam.utils import open_dataset, shapiro_filter
 
-PROPS_IN = ['r', 'dr', 'k', 'm', 'dm', 'dens']
-N_RANDOMIZATIONS = 10
-WINDOW = 1
+PROPS_IN = ['r', 'k', 'm', 'dm', 'dens']
+N_RANDOMIZATIONS = 6
+WINDOW = 0.25
 
 def save_training_data() -> None:
     """Generate and save the data necessary to train a `PurgeNet`."""
 
     Ys, Zs = [], []
     for _ in range(N_RANDOMIZATIONS):
-        _randomize_source()
         u, X, Z = _integrate()
+        _randomize_source()
 
         Y, Z = _process(u, X, Z)
         Ys.append(Y)
@@ -34,7 +34,7 @@ def _randomize_source() -> None:
 
     bounds = {
         'bc_mom_flux' : [1e-3, 5e-3],
-        'wvl_hor_char' : [20e3, 200e3],
+        'wvl_hor_char' : [90e3, 110e3],
         'c_center' : [0, 15],
         'c_width' : [8, 16]
     }
@@ -73,7 +73,7 @@ def _process(
 
     """
 
-    n_windows = config.n_day // WINDOW
+    n_windows = int(config.n_day // WINDOW)
     u = u[1:].reshape(n_windows, -1, u.shape[1])[1:]
     X = X[1:].reshape(n_windows, -1, *X.shape[1:])[1:]
     Z = Z[1:].reshape(n_windows, -1, *Z.shape[1:])[1:]

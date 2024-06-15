@@ -3,15 +3,16 @@ from time import time
 import torch
 
 from torch.utils.data import DataLoader, TensorDataset
+from tqdm import tqdm
 
 from architectures import PurgeNet
 from hyperparameters import batch_size, learning_rate, weight_decay, task_id
 from utils import standardize
 
 DATA_DIR = 'data/purgenet'
+RESUME = False
 
-MAX_BATCHES = 100
-MAX_EPOCHS = 50
+MAX_EPOCHS = 20
 MAX_HOURS = 5
 
 def train_network() -> None:
@@ -22,11 +23,18 @@ def train_network() -> None:
     optimizer = torch.optim.Adam(
         model.parameters(), 
         lr=learning_rate,
-        weight_decay=weight_decay
+        weight_decay=(weight_decay * learning_rate)
     )
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'Model has {n_params} trainable parameters\n')
+
+    if RESUME:
+        print(f'Resuming training model {task_id}\n')
+
+        state = torch.load(f'{DATA_DIR}/state-{task_id}.pkl')
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
 
     hours = 0
     start = time()
@@ -35,33 +43,38 @@ def train_network() -> None:
     while n_epoch <= MAX_EPOCHS and hours < MAX_HOURS:
         model.train()
 
-        for k, (Y, Z) in enumerate(loader_tr):
+        total_tr = 0
+        for Y, Z in loader_tr:
             optimizer.zero_grad()
-            _loss(model, Y, Z).backward()
-            optimizer.step()
+            loss = _loss(model, Y, Z)
+            total_tr += loss.item() * Y.shape[0]
 
-            if k + 1 >= MAX_BATCHES:
-                break
+            loss.backward()
+            optimizer.step()
 
         with torch.no_grad():
             model.eval()
             
-            total_loss = 0
+            total_va = 0
             for Y, Z in loader_va:
                 loss = _loss(model, Y, Z)
-                total_loss += loss.item() * Y.shape[0]
+                total_va += loss.item() * Y.shape[0]
+
+            total_tr /= len(loader_tr.dataset)
+            total_va /= len(loader_va.dataset)
 
             print(f'==== epoch {n_epoch} ====')
-            total_loss /= len(loader_va.dataset)
-            print(f'loss_va = {total_loss:.3f}\n')
+            print(f'loss_tr = {total_tr:.3f}')
+            print(f'loss_va = {total_va:.3f}\n')
 
         n_epoch = n_epoch + 1
         hours = (time() - start) / 3600
 
     for param in model.parameters():
-        param.detach()
+        param.detach_()
 
     with torch.no_grad():
+        model.eval()
         Y_ex = loader_tr.dataset.tensors[0][:256]
         traced = torch.jit.trace(model, Y_ex)
 
@@ -121,6 +134,9 @@ def _load_data() -> tuple[DataLoader, DataLoader]:
 
     Y_tr, Y_va = Y[idx_tr], Y[idx_va]
     Z_tr, Z_va = Z[idx_tr], Z[idx_va]
+
+    n_tr, n_va = len(idx_tr), len(idx_va)
+    print(f'Loaded {n_tr} training samples and {n_va} validation samples\n')
 
     means, stds = Z_tr.mean(dim=0), Z_tr.std(dim=0)
     Z_tr = standardize(Z_tr, means, stds)

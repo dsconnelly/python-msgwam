@@ -20,17 +20,15 @@ class PurgeNet(nn.Module):
         """
 
         super().__init__()
-
-        Y_tr = self._transform(Y_tr)
-        self.means = Y_tr.mean(dim=0)
-        self.stds = Y_tr.std(dim=0)
+        self._init_stats(Y_tr)
 
         n_z = config.n_grid - 1
-        wind_sizes = [1, 16, 32] + [64] * network_size + [1]
+        wind_sizes = [1] + [16] * network_size + [1]
         rays_sizes = [len(PROPS_IN)] + [256] * network_size
 
-        n_shared = n_z - 2 * len(wind_sizes) + 2 + rays_sizes[-1]
-        shared_sizes = [n_shared] + [512] * (network_size + 1) + [n_z]
+        seq_out = n_z - 2 * len(wind_sizes) + 2
+        rays_sizes = rays_sizes + [seq_out]
+        shared_sizes = [seq_out] + [512] * network_size + [n_z]
 
         wind_args = []
         for a, b in zip(wind_sizes[:-1], wind_sizes[1:]):
@@ -58,49 +56,64 @@ class PurgeNet(nn.Module):
 
     def forward(self, Y: torch.Tensor) -> torch.Tensor:
         """
-        Standardize the inputs and apply the `PurgeNet`.
-
-        Parameters
-        ----------
-        Y
-            Tensor of neural network inputs.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor of neural network outputs estimate (possibly standardized)
-            mean momentum flux profiles for each input ray volume.
-
+        
         """
 
-        n_z = config.n_grid - 1
-        Y = standardize(self._transform(Y), self.means, self.stds)
-        u, X = Y[:, None, :n_z], Y[:, n_z:]
+        u, X = self._split(Y)
+        u = standardize(u, self.u_means, self.u_stds)
+        X = standardize(X, self.X_means, self.X_stds)
+        u = u.view(u.shape[0], 1, u.shape[1])
 
-        p = self.wind_layers(u).squeeze()
+        p = self.wind_layers(u)[:, 0]
         q = self.rays_layers(X)
 
-        return self.shared_layers(torch.hstack((p, q)))
-
-    def _transform(self, Y: torch.Tensor):
+        return self.shared_layers(p + q)
+    
+    def get_extra_state(self) -> dict[str, torch.Tensor]:
         """
-        Transform a neural network input using a signed root transform.
+        
+        """
 
-        Parameters
-        ----------
-        Y
-            Tensor of neural network inputs.
+        return {
+            'u_means' : self.u_means,
+            'X_means' : self.X_means,
+            'u_stds' : self.u_stds,
+            'X_stds' : self.X_stds
+        }
+    
+    def set_extra_state(self, state: dict[str, torch.Tensor]) -> None:
+        """
+        
+        """
+        
+        self.u_means = state['u_means']
+        self.X_means = state['X_means']
+        self.u_stds = state['u_stds']
+        self.X_stds = state['X_stds']
 
-        Returns
-        -------
-        torch.Tensor
-            Transformed data.
-
+    def _split(self, Y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        
         """
 
         n_z = config.n_grid - 1
-        data = root_transform(Y[:, n_z:], root)
-        return torch.hstack((Y[:, :n_z], data))
+        u, X = Y[:, :n_z], Y[:, n_z:]
+        X = root_transform(X, root)
+
+        return u, X
+
+    def _init_stats(self, Y: torch.Tensor) -> torch.Tensor:
+        """
+        
+        """
+
+        u, X = self._split(Y)
+
+        self.u_means = u.mean(dim=0)
+        self.X_means = X.mean(dim=0)
+        
+        self.u_stds = u.std(dim=0)
+        self.X_stds = X.std(dim=0)
 
 def _xavier_init(layer: nn.Module):
     """

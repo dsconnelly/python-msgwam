@@ -9,11 +9,11 @@ root: float
 weight_decay: float
 
 _grid = {
-    'batch_size' : [1024, 2048],
-    'learning_rate' : [1e-3],
-    'network_size' : [3, 6, 9],
-    'root' : [3, 5, 7],
-    'weight_decay' : [0, 2e-4]
+    'batch_size' : [32, 64],
+    'learning_rate' : [1e-4],
+    'network_size' : [2, 3, 6],
+    'root' : [1, 5, 7],
+    'weight_decay' : [0, 0.1]
 }
 
 def _set_hyperparameters():

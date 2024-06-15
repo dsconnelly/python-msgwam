@@ -33,6 +33,9 @@ class RayCollection:
         for slot, data in enumerate(self.source.data.T):
             self.ghosts[slot] = self.add_ray(data)
 
+        if config.purge_mode == 'network':
+            self.model = torch.jit.load(config.purge_network_path)
+
     def __getattr__(self, prop: str) -> Any:
         """
         Return the row of self.data corresponding to the named ray property.
@@ -159,7 +162,7 @@ class RayCollection:
         self.data[8, j] = 0
         self.data[9:, j] = torch.nan
 
-    def purge(self, excess: int) -> None:
+    def purge(self, excess: int, mean: MeanState) -> None:
         """
         Delete enough rays to enforce the bottom boundary condition. The rays to
         be purged will be selected according to `config.purge_mode`.
@@ -168,6 +171,8 @@ class RayCollection:
         ----------
         excess
             How many rays need to be deleted.
+        u
+            Current zonal wind profile.
 
         """
 
@@ -185,6 +190,19 @@ class RayCollection:
 
         elif config.purge_mode == 'pmf':
             criterion = abs(self.k * self.cg_r() * self.action)
+
+        elif config.purge_mode == 'network':
+            props = ['r', 'k', 'm', 'dm', 'dens']
+            idx = [self.indices[prop] for prop in props]
+            X = self.data[idx].T
+
+            u = mean.u[None].expand(X.shape[0], -1)
+            stacked = torch.hstack((u, X))
+
+            with torch.no_grad():
+                keep = (mean.z_centers > 35e3) # & (mean.z_centers < 40e3)
+                criterion = abs(self.model(stacked))[:, keep].sum(dim=1)
+                criterion = torch.nan_to_num(criterion, torch.inf)
 
         else:
             message = f'Unknown purge mode: {config.purge_mode}'
@@ -229,7 +247,7 @@ class RayCollection:
         excess = self.count + datas.shape[1] - config.n_ray_max
 
         if excess > 0:
-            self.purge(excess)
+            self.purge(excess, mean)
 
         for j, data in enumerate(datas.T):
             self.ghosts[replaced[j]] = self.add_ray(data)

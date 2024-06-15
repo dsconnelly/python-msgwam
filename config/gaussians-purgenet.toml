@@ -9,8 +9,8 @@ prescribed_wind = 'data/gaussians/mean-state.nc'
 # time stepping
 # ==============================================================================
 dt = 120
-dt_output = 120
-n_day = 8
+dt_output = 1080
+n_day = 9
 
 # ==============================================================================
 # vertical grid
@@ -51,8 +51,8 @@ dissipation = 1
 # ==============================================================================
 # ray volumes and propagation
 # ==============================================================================
-n_ray_max = 22000
-min_pmf = 1e-9
+n_ray_max = 10000
+min_pmf = 0
 n_chromatic = 1
 epsilon = 1
 
@@ -60,9 +60,12 @@ epsilon = 1
 # source and spectrum (parameters in this section are likely to be used by more
 # than one source or spectrum type)
 # ==============================================================================
-source_type = 'deterministic'
+source_type = 'coarse'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
+
+coarse_height = 3
+coarse_width = 3
 
 dt_launch = 1
 bc_mom_flux = 3e-3

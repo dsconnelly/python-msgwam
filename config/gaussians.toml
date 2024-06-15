@@ -63,6 +63,7 @@ epsilon = 1
 source_type = 'deterministic'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
+purge_network_path = 'data/purgenet/model-8.jit'
 
 dt_launch = 1
 bc_mom_flux = 3e-3
