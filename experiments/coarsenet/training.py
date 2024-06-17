@@ -19,8 +19,8 @@ from losses import RegularizedMSELoss
 DATA_DIR = 'data/coarsenet'
 RESTART = 0
 
-MAX_BATCHES = 35
-MAX_EPOCHS = 30
+MAX_BATCHES = 50
+MAX_EPOCHS = 75
 MAX_HOURS = 11
 
 MAX_GRAD_NORM = 2
@@ -41,6 +41,8 @@ def train_network() -> None:
         state = torch.load(f'{DATA_DIR}/state-{task_id}.pkl')
         model.load_state_dict(state['model'])
         optimizer.load_state_dict(state['optimizer'])
+
+        print(f'Resuming training of model {task_id}\n')
 
     hours = 0
     start = time()
@@ -105,7 +107,7 @@ def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
     return torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
-        weight_decay=weight_decay
+        weight_decay=(weight_decay * learning_rate)
     )
 
 def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:

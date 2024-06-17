@@ -26,10 +26,10 @@ def save_mean_state(scenario: str) -> None:
     ds: xr.Dataset = globals()[func_name]()
 
     _, cbar = plot_time_series(ds['u'], 45)
-    cbar.set_label('$\\bar{u}$ (m s$^{-1}$)')
+    cbar.set_label('$\\bar{u}$ (m / s)')
 
     plt.tight_layout()
-    plt.savefig(f'plots/{config.name}/mean-state.png')
+    plt.savefig(f'plots/{config.name}/mean-state.png', dpi=400)
     ds.to_netcdf(f'data/{config.name}/mean-state.nc')
 
 def _jra_midlatitudes() -> xr.Dataset:

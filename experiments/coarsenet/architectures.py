@@ -45,26 +45,43 @@ class CoarseNet(nn.Module):
         self._init_stats(u_tr, Y_tr)
 
         n_z = config.n_grid - 1
-        n_in = n_z + len(self.props_in)
-        n_out = len(self.props_out)
+        wind_sizes = [1] + [16] * network_size + [1]
+        rays_sizes = [len(self.props_in)] + [256] * network_size
 
-        sizes = [n_in] + [512] * network_size
-        sizes = sizes + [256, 128, 64, 32, n_out]
-        args = []
+        seq_out = n_z - 2 * len(wind_sizes) + 2
+        rays_sizes = rays_sizes + [seq_out]
+        shared_sizes = [seq_out] + [512] * network_size + [len(self.props_out)]
 
-        for a, b in zip(sizes[:-1], sizes[1:]):
-            args.append(nn.Linear(a, b))
-            args.append(nn.ReLU())
+        wind_args = []
+        for a, b in zip(wind_sizes[:-1], wind_sizes[1:]):
+            wind_args.append(nn.Conv1d(a, b, 3))
+            wind_args.append(nn.ReLU())
 
-        args = args[:-1] + [nn.Softplus()]
-        self.layers = nn.Sequential(*args)
-        self.layers.apply(xavier_init)
+        rays_args = []
+        for a, b in zip(rays_sizes[:-1], rays_sizes[1:]):
+            rays_args.append(nn.Linear(a, b, 3))
+            rays_args.append(nn.ReLU())
+
+        shared_args = []
+        for a, b in zip(shared_sizes[:-1], shared_sizes[1:]):
+            shared_args.append(nn.Linear(a, b, 3))
+            shared_args.append(nn.ReLU())
+
+        shared_args = shared_args[:-1] + [nn.Softplus()]
+
+        self.wind_layers = nn.Sequential(*wind_args)
+        self.rays_layers = nn.Sequential(*rays_args)
+        self.shared_layers = nn.Sequential(*shared_args)
+
+        self.wind_layers.apply(xavier_init)
+        self.rays_layers.apply(xavier_init)
+        self.shared_layers.apply(xavier_init)
         self.to(torch.double)
 
     def forward(self, u: torch.Tensor, Y: torch.Tensor) -> torch.Tensor:
         """
-        Apply the `CoarseNet`, including unpacking the ray volume data, stacking
-        it with the zonal wind data, and passing it through the neural network.
+        Apply the `CoarseNet` to a zonal wind profile and tensor of coarse ray
+        volume properties.
 
         Parameters
         ----------
@@ -82,11 +99,15 @@ class CoarseNet(nn.Module):
 
         """
 
-        Y = root_transform(Y, root)[self.idx_in]
         u = u[:, None].expand(-1, Y.shape[1])
-        stacked = torch.hstack((u.T, Y.T))
+        Y = root_transform(Y, root)[self.idx_in]
+        u = self._standardize(u.T, mode='u')
+        Y = self._standardize(Y.T, mode='Y')
+        
+        p = self.wind_layers(u[:, None])[:, 0]
+        q = self.rays_layers(Y)
 
-        return self.layers(self._standardize(stacked)).T
+        return self.shared_layers(p + q).T
 
     def _init_stats(self, u: torch.Tensor, Y: torch.Tensor) -> None:
         """
@@ -106,35 +127,40 @@ class CoarseNet(nn.Module):
         shape = (-1, -1, Y.shape[-1])
         u = u[..., None].expand(*shape).transpose(1, 2).flatten(0, 1)
         Y = Y[:, self.idx_in].transpose(1, 2).flatten(0, 1)
-        
-        stacked = torch.hstack((u, Y))
-        self.means = torch.mean(stacked, dim=0)
-        self.stds = torch.std(stacked, dim=0)
-        self.sdx = self.stds != 0
 
-    def _standardize(self, stacked: torch.Tensor) -> torch.Tensor:
+        self.Y_means = torch.mean(Y, dim=0)
+        self.Y_stds = torch.std(Y, dim=0)
+        self.Y_sdx = self.Y_stds > 0
+
+        self.u_means = torch.mean(u, dim=0)
+        self.u_stds = torch.std(u, dim=0)
+        self.u_sdx = self.u_stds > 0
+        
+    def _standardize(self, a: torch.Tensor, mode: str) -> torch.Tensor:
         """
-        Standardize neural network inputs using means and standard deviations
-        calculated at initialization.
+        Standardize a tensor of either zonal wind profiles or coarse ray volume
+        properties to have zero mean and unit variance.
 
         Parameters
         ----------
-        stacked
-            Tensor of inputs to the neural network, consisting of zonal wind and
-            coarse wave packet information side by side.
+        a
+            Tensor to standardize
+        mode
+            Whether to use statistics for `u` or `Y`.
 
         Returns
         -------
         torch.Tensor
-            Standardized data.
+            Standardized tensor.
 
         """
 
-        out = torch.zeros_like(stacked)
-        out[:, self.sdx] = (
-            (stacked - self.means)[:, self.sdx] /
-            self.stds[self.sdx]
-        )
+        means = getattr(self, f'{mode}_means')
+        stds = getattr(self, f'{mode}_stds')
+        sdx = getattr(self, f'{mode}_sdx')
+
+        out = torch.zeros_like(a)
+        out[:, sdx] = (a - means)[:, sdx] / stds[sdx]
 
         return out
     

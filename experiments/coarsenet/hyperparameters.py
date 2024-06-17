@@ -10,12 +10,12 @@ smoothing_decay: float
 weight_decay: float
 
 _grid = {
-    'beta_decay' : [25, 35],
-    'learning_rate' : [1e-3, 2e-4],
-    'network_size' : [9],
-    'root' : [3, 5],
-    'smoothing_decay' : [10, 14],
-    'weight_decay' : [0, 1e-4]
+    'beta_decay' : [20, 25],
+    'learning_rate' : [1e-3],
+    'network_size' : [3, 8],
+    'root' : [5, 7],
+    'smoothing_decay' : [10, 18, 25],
+    'weight_decay' : [0.1, 0.2]
 }
 
 def _set_hyperparameters():

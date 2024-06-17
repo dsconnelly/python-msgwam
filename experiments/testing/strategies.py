@@ -1,7 +1,5 @@
 import sys
 
-from abc import ABC, abstractmethod
-
 sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.integration import SBDF2Integrator

@@ -63,7 +63,6 @@ epsilon = 1
 source_type = 'deterministic'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
-purge_network_path = 'data/purgenet/model-8.jit'
 
 dt_launch = 1
 bc_mom_flux = 3e-3
@@ -86,7 +85,7 @@ coarse_width = 0
 # ==============================================================================
 # 'network' source
 # ==============================================================================
-model_path = 'data/coarsenet/model-31.jit'
+model_path = 'data/coarsenet/model-5.jit'
 
 # ==============================================================================
 # 'gaussians' spectrum

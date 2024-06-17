@@ -12,8 +12,8 @@ from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
-N_BATCHES = 200
-PACKETS_PER_BATCH = 128
+N_BATCHES = 800
+PACKETS_PER_BATCH = 64
 FIXED_WIND = False
 
 def save_training_data():
@@ -73,8 +73,8 @@ def _get_random_spectrum() -> None:
 
     bounds = {
         'bc_mom_flux' : [1e-3, 5e-3],
-        'wvl_hor_char' : [20e3, 200e3],
-        'c_center' : [0, 15],
+        'wvl_hor_char' : [90e3, 110e3],
+        'c_center' : [0, 10],
         'c_width' : [8, 16]
     }
 
@@ -183,7 +183,7 @@ def _sample_wind_profiles() -> torch.Tensor:
 
     """
 
-    name = config.name.replace('-training', '')
+    name = config.name.replace('-coarsenet', '')
     path = f'data/{name}/mean-state.nc'
 
     n_grid = config.n_grid - 1

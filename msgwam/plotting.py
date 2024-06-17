@@ -46,14 +46,17 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     plt.tight_layout()
     plt.savefig(output_path)
 
-def plot_source(amax: float, axes: Optional[list[Axes]]=None) -> ScalarMappable:
+def plot_source(
+    amax: float,
+    axes: Optional[list[Axes]]=None
+) -> tuple[ScalarMappable, Optional[Colorbar]]:
     """
     Plot the source spectrum specified by the current config settings.
 
     Parameters
     ----------
     amax
-        Maximum absolute value to use in the symmetric norm.
+        Maximum absolute value to use in the symmetric norm, in mPa.
     axes
         List containing the `Axes` object that should contain the color plot
         and, if a colorbar is to be added, the `Axes` that will contain the
@@ -94,21 +97,29 @@ def plot_source(amax: float, axes: Optional[list[Axes]]=None) -> ScalarMappable:
             ec='k'
         ))
 
-    axes[0].set_xlim(-32, 32)
-    axes[0].set_xticks(np.linspace(-32, 32, 9))
+    axes[0].set_xlim(-30, 30)
+    axes[0].set_xticks(np.linspace(-30, 30, 7))
     axes[0].set_xlabel('phase speed (m / s)')
 
-    axes[0].set_ylim(7.3e3, 9.8e3)
-    ticks = np.linspace(7.3e3, 9.8e3, 6)
-    axes[0].set_yticks(ticks, labels=(ticks / 1000))    
-    axes[0].set_ylabel('height (km)')
+    ymax = config.r_launch
+    ymin = config.r_ghost - 500
+
+    axes[0].set_ylim(ymin, ymax)
+    ticks = np.linspace(ymin, ymax, 4)
+    labels = (ymax - ticks).astype(int)
+
+    axes[0].set_yticks(ticks, labels=labels)    
+    axes[0].set_ylabel('m below launch level')
 
     img = ScalarMappable(norm=norm, cmap=RdBu_r)
 
     if len(axes) > 1:
-        plt.colorbar(img, cax=axes[1])
+        cbar = plt.colorbar(img, cax=axes[1], orientation='horizontal')
 
-    return img
+    else:
+        cbar = None
+
+    return img, cbar
 
 def plot_time_series(
     data: xr.DataArray,
@@ -163,8 +174,8 @@ def plot_time_series(
     axes[0].set_yticks(yticks, labels=ylabels)
     
     try:
-        cbar = plt.colorbar(img, cax=axes[1])
-        cbar.set_ticks(np.linspace(-amax, amax, 5)) # type: ignore
+        cbar = plt.colorbar(img, cax=axes[1], orientation='horizontal')
+        cbar.set_ticks(np.linspace(-amax, amax, 7)) # type: ignore
 
     except IndexError:
         cbar = None
