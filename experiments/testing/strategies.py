@@ -49,18 +49,17 @@ def integrate(strategy: str, *args) -> None:
 def _reference() -> None:
     config.min_pmf = 1e-9
 
-def _ICON(mode: str='energy') -> None:
+def _ICON() -> None:
     config.n_ray_max = N_MAX
-    config.purge_mode = mode
+    config.purge_mode = 'energy'
 
 def _do_nothing() -> None:
     config.n_ray_max = N_MAX // SPEEDUP
     config.purge_mode = 'energy'
 
-def _coarse_square(mode: str='energy') -> None:
+def _coarse_square() -> None:
     config.source_type = 'coarse'
     _do_nothing()
-    config.purge_mode = mode
 
     root = int(SPEEDUP ** 0.5)
     config.coarse_height = root

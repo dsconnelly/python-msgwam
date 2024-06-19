@@ -22,7 +22,7 @@ class CoarseNet(nn.Module):
     """
 
     props_in = ['k', 'm', 'dm', 'dens']
-    props_out = ['dr', 'k', 'm', 'dm']
+    props_out = ['k', 'm', 'dm', 'dens']
 
     idx_in = [RayCollection.indices[prop] for prop in props_in]
     idx_out = [RayCollection.indices[prop] for prop in props_out]

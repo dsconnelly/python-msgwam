@@ -9,21 +9,21 @@ from architectures import CoarseNet
 from utils import integrate_batches
 
 class RegularizedMSELoss(nn.Module):    
-    def __init__(self, z_min: float=15e3, z_max: float=50e3) -> None:
+    def __init__(self, Z_tr: torch.Tensor) -> None:
         """
         Initialize a module to compute MSE and regularization losses.
 
         Parameters
         ----------
-        z_min, z_max
-            Minimum and maximum heights bounding the vertical region on which
-            the MSE loss should be computed.
+        Z_tr
+            Training momentum flux profiles, from which standard deviations at
+            each level will be calculated.
 
         """
 
         super().__init__()
-        centers = MeanState().z_centers
-        self.keep = (z_min < centers) & (centers < z_max)
+        self.stds = Z_tr.std(dim=(0, 1))
+        self.sdx = self.stds > 0
 
     def forward(
         self,
@@ -62,22 +62,25 @@ class RegularizedMSELoss(nn.Module):
 
         """
 
-        output = model(u, Y)
+        output = model(u[0], Y)
         reg = ((output - 1) ** 2).mean()
         spectrum = model.build_spectrum(Y, output)
-        wind = torch.vstack((u, torch.zeros_like(u)))
+
+        v = torch.zeros_like(u)
+        wind = torch.stack((u, v), dim=1)
 
         Z_hat = integrate_batches(
             wind, spectrum,
             rays_per_packet=1,
             smoothing=smoothing
-        ).mean(dim=1)[..., self.keep]
+        ).mean(dim=1)
 
-        scales, _ = abs(Z).max(dim=-1)
-        errors = torch.zeros_like(Z_hat)
-        idx = scales > 0
-        
-        errors[idx] = (Z_hat - Z)[idx] / scales[idx, None]
+        errors = torch.zeros_like(Z)
+        errors[..., self.sdx] = (
+            (Z - Z_hat)[..., self.sdx] / 
+            self.stds[self.sdx]
+        )
+
         mse = (errors ** 2).mean()
 
         return reg, mse

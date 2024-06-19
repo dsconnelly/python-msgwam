@@ -4,18 +4,20 @@ import torch
 
 beta_decay: float
 learning_rate: float
+max_smoothing: float
 network_size: int
 root: int
 smoothing_decay: float
 weight_decay: float
 
 _grid = {
-    'beta_decay' : [20, 25],
+    'beta_decay' : [25],
     'learning_rate' : [1e-3],
-    'network_size' : [3, 8],
-    'root' : [5, 7],
-    'smoothing_decay' : [10, 18, 25],
-    'weight_decay' : [0.1, 0.2]
+    'max_smoothing' : [6],
+    'network_size' : [3],
+    'root' : [5],
+    'smoothing_decay' : [25],
+    'weight_decay' : [0.1]
 }
 
 def _set_hyperparameters():

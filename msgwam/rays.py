@@ -191,18 +191,8 @@ class RayCollection:
         elif config.purge_mode == 'pmf':
             criterion = abs(self.k * self.cg_r() * self.action)
 
-        elif config.purge_mode == 'network':
-            props = ['r', 'k', 'm', 'dm', 'dens']
-            idx = [self.indices[prop] for prop in props]
-            X = self.data[idx].T
-
-            u = mean.u[None].expand(X.shape[0], -1)
-            stacked = torch.hstack((u, X))
-
-            with torch.no_grad():
-                keep = (mean.z_centers > 35e3) # & (mean.z_centers < 40e3)
-                criterion = abs(self.model(stacked))[:, keep].sum(dim=1)
-                criterion = torch.nan_to_num(criterion, torch.inf)
+        elif config.purge_mode == 'random':
+            criterion = torch.rand(config.n_ray_max)
 
         else:
             message = f'Unknown purge mode: {config.purge_mode}'

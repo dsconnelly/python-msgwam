@@ -10,6 +10,7 @@ from architectures import CoarseNet
 from hyperparameters import (
     beta_decay,
     learning_rate,
+    max_smoothing,
     smoothing_decay,
     task_id,
     weight_decay
@@ -19,23 +20,25 @@ from losses import RegularizedMSELoss
 DATA_DIR = 'data/coarsenet'
 RESTART = 0
 
-MAX_BATCHES = 50
-MAX_EPOCHS = 75
+MAX_BATCHES = 35
+MAX_EPOCHS = 15
 MAX_HOURS = 11
 
-MAX_GRAD_NORM = 2
-MAX_SMOOTHING = 16
+MAX_GRAD_NORM = 5
 MIN_SMOOTHING = 2
 
 def train_network() -> None:
     """Train a CoarseNet instance."""
 
-    loss = RegularizedMSELoss()
-    loader_tr, loader_va = _load_data(loss.keep)
-    u_tr, Y_tr, _ = loader_tr.dataset.tensors
+    loader_tr, loader_va = _load_data()
+    u_tr, Y_tr, Z_tr = loader_tr.dataset.tensors
 
-    model = CoarseNet(u_tr, Y_tr)
+    model = CoarseNet(u_tr[:, 0], Y_tr)
     optimizer = _get_optimizer(model)
+    loss = RegularizedMSELoss(Z_tr)
+
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'Model has {n_params} trainable parameters\n')
 
     if RESTART > 0:
         state = torch.load(f'{DATA_DIR}/state-{task_id}.pkl')
@@ -52,7 +55,7 @@ def train_network() -> None:
         print(f'==== starting epoch {n_epoch} ====')
 
         arg = torch.tensor(RESTART + n_epoch - 1)
-        smoothing = MAX_SMOOTHING * torch.exp(-arg / smoothing_decay)
+        smoothing = max_smoothing * torch.exp(-arg / smoothing_decay)
         beta = torch.exp(-arg / beta_decay)
 
         tail = f'{smoothing:.4f}'
@@ -72,13 +75,13 @@ def train_network() -> None:
     for param in model.parameters():
         param.detach_()
 
-    def _evaluate(u: torch.Tensor, X: torch.Tensor):
-        return model.build_spectrum(X, model(u, X))
+    def _evaluate(u: torch.Tensor, Y: torch.Tensor):
+        return model.build_spectrum(Y, model(u, Y))
     
     with catch_warnings(action='ignore', category=torch.jit.TracerWarning):
         with torch.no_grad():
-            *example_inputs, _ = next(iter(loader_tr))
-            traced = torch.jit.trace(_evaluate, example_inputs)
+            u_ex, Y_ex, _ = next(iter(loader_tr))
+            traced = torch.jit.trace(_evaluate, (u_ex[0], Y_ex))
 
     state = {
         'model' : model.state_dict(),
@@ -110,15 +113,9 @@ def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
         weight_decay=(weight_decay * learning_rate)
     )
 
-def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
+def _load_data() -> tuple[DataLoader, DataLoader]:
     """
-    Construct `DataLoader` objects containing training and validation datasets,
-    keeping only the requested vertical levels.
-
-    Parameters
-    ----------
-    keep
-        Boolean index indicating which levels should be included in the targets.
+    Construct `DataLoader` objects containing training and validation datasets.
 
     Returns
     -------
@@ -129,25 +126,25 @@ def _load_data(keep: torch.Tensor) -> tuple[DataLoader, DataLoader]:
 
     """
 
-    u = torch.load(f'{DATA_DIR}/wind.pkl')[:, 0, 0]
+    u = torch.load(f'{DATA_DIR}/wind.pkl')[:, :, 0]
     Y = torch.load(f'{DATA_DIR}/squares.pkl')
     Z = torch.load(f'{DATA_DIR}/targets.pkl')
-    Z = Z.mean(dim=2)[..., keep]
+    Z = Z.mean(dim=2)
 
     if RESTART > 0:
         idx_tr = torch.load(f'{DATA_DIR}/idx-tr-{task_id}.pkl')
         idx_va = torch.load(f'{DATA_DIR}/idx-va-{task_id}.pkl')
 
     else:
-        m = int(0.8 * Y.shape[2])
-        idx = torch.randperm(Y.shape[2])
+        m = int(0.8 * Y.shape[0])
+        idx = torch.randperm(Y.shape[0])
         idx_tr, idx_va = idx[:m], idx[m:]
 
         torch.save(idx_tr, f'{DATA_DIR}/idx-tr-{task_id}.pkl')
         torch.save(idx_va, f'{DATA_DIR}/idx-va-{task_id}.pkl')
 
-    data_tr = TensorDataset(u, Y[:, :, idx_tr], Z[:, idx_tr])
-    data_va = TensorDataset(u, Y[:, :, idx_va], Z[:, idx_va])
+    data_tr = TensorDataset(u[idx_tr], Y[idx_tr], Z[idx_tr])
+    data_va = TensorDataset(u[idx_va], Y[idx_va], Z[idx_va])
     loader_tr = DataLoader(data_tr, batch_size=None, shuffle=True)
     loader_va = DataLoader(data_va, batch_size=None, shuffle=True)
 

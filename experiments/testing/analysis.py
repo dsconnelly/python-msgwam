@@ -16,7 +16,7 @@ import strategies
 
 PLOT_DIR = 'plots'
 
-COARSENINGS = {
+COLORS = {
     'ICON' : 'k',
     'do-nothing' : 'gold',
     'coarse-square' : 'forestgreen',
@@ -26,19 +26,10 @@ COARSENINGS = {
     'network' : 'fuchsia'
 }
 
-PURGINGS = {
-    'ICON' : 'k',
-    'coarse-square-energy' : 'forestgreen',
-    'coarse-square-pmf' : 'royalblue',
-    'coarse-square-cg_r' : 'tab:red',
-    'coarse-square-action' : 'darkviolet',
-    'coarse-square-network' : 'fuchsia'
-}
-
 def plot_sources() -> None:
     """Plot the source spectrum for each coarsening strategy."""
 
-    n_plots = len(COARSENINGS) + 1
+    n_plots = len(COLORS) + 1
     n_cols = int(n_plots // 2)
     n_cols = n_cols + n_plots % 2
     n_rows = 2
@@ -57,7 +48,7 @@ def plot_sources() -> None:
     cax = fig.add_subplot(grid[:, -1])
     amax = 0.4
 
-    setups = ['reference'] + list(COARSENINGS.keys())
+    setups = ['reference'] + list(COLORS.keys())
     for setup, ax in zip(setups, axes):
         getattr(strategies, '_' + setup.replace('-', '_'))()
         img = plot_source(amax, [ax])
@@ -70,20 +61,10 @@ def plot_sources() -> None:
 
     plt.savefig(f'{PLOT_DIR}/{config.name}/sources.png', dpi=400)
 
-def plot_fluxes(which: str) -> None:
-    """
-    Plot the pseudomomentum flux time series for each strategy.
-    
-    Parameters
-    ----------
-    which
-        Whether to plot `COARSENINGS` or `PURGINGS`.
+def plot_fluxes() -> None:
+    """Plot the pseudomomentum flux time series for each strategy."""
 
-    """
-
-    colors = {'coarsenings' : COARSENINGS, 'purgings' : PURGINGS}[which]
-    
-    n_plots = len(colors) + 1
+    n_plots = len(COLORS) + 1
     n_cols = int(n_plots // 2)
     n_cols = n_cols + n_plots % 2
     n_rows = 2
@@ -101,7 +82,7 @@ def plot_fluxes(which: str) -> None:
     axes = [fig.add_subplot(grid[i // 4, i % 4]) for i in range(n_plots)]
     cax = fig.add_subplot(grid[:, -1])
 
-    strategies = ['reference'] + list(colors.keys())
+    strategies = ['reference'] + list(COLORS.keys())
     for i, (strategy, ax) in enumerate(zip(strategies, axes)):
         with open_dataset(f'data/{config.name}/{strategy}.nc') as ds:
             img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
@@ -117,25 +98,15 @@ def plot_fluxes(which: str) -> None:
     cbar.set_ticks(np.linspace(-2, 2, 9))
     cbar.set_label('momentum flux (mPa)')
 
-    plt.savefig(f'{PLOT_DIR}/{config.name}/fluxes-{which}.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/fluxes.png', dpi=400)
 
-def plot_life_cycles(which: str) -> None:
-    """
-    Plot launch rate and lifetime statistics for each strategy.
-    
-    Parameters
-    ----------
-    which
-        Whether to plot `COARSENINGS` or `PURGINGS`.
-
-    """
-
-    colors = {'coarsenings' : COARSENINGS, 'purgings' : PURGINGS}[which]
+def plot_life_cycles() -> None:
+    """Plot launch rate and lifetime statistics for each strategy."""
 
     fig, axes = plt.subplots(ncols=2, sharey=True)
     fig.set_size_inches(6, 4.5)
 
-    names = ['reference'] + list(colors.keys())
+    names = ['reference'] + list(COLORS.keys())
     rates = np.zeros(len(names))
     lifetimes = []
 
@@ -185,20 +156,10 @@ def plot_life_cycles(which: str) -> None:
     axes[1].set_title('ray lifetimes (h)')
 
     plt.tight_layout()
-    plt.savefig(f'{PLOT_DIR}/{config.name}/life-cycles-{which}.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/life-cycles.png', dpi=400)
 
-def plot_scores(which: str) -> None:
-    """
-    Plot the error with respect to the reference for each strategy.
-    
-    Parameters
-    ----------
-    which
-        Whether to plot `COARSENINGS` or `PURGINGS`.
-
-    """
-
-    colors = {'coarsenings' : COARSENINGS, 'purgings' : PURGINGS}[which]
+def plot_scores() -> None:
+    """Plot the error with respect to the reference for each strategy."""
 
     with _open_and_transform(f'data/{config.name}/reference.nc') as ds:
         ref = ds['pmf_u']
@@ -207,7 +168,7 @@ def plot_scores(which: str) -> None:
     fig, ax = plt.subplots()
     fig.set_size_inches(4, 6.5)
 
-    for strategy, color in colors.items():
+    for strategy, color in COLORS.items():
         with _open_and_transform(f'data/{config.name}/{strategy}.nc') as ds:
             pmf = ds['pmf_u']
             error = np.sqrt(((ref - pmf) ** 2).mean('time'))
@@ -235,7 +196,7 @@ def plot_scores(which: str) -> None:
     ax.legend(loc='lower right')
 
     plt.tight_layout()
-    plt.savefig(f'{PLOT_DIR}/{config.name}/scores-{which}.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/scores.png', dpi=400)
 
 def _format(strategy: str) -> str:
     """Format the name of a strategy to appear in plots."""

@@ -179,7 +179,7 @@ class NetworkSource(CoarseSource):
         volumes before sending them back to the integrator.
         """
 
-        return self.model(u, self.data[:, jdx]), jdx
+        return self.model(u.to(torch.double), self.data[:, jdx]), jdx
 
 class StochasticSource(Source):
     def __init__(self) -> None:
