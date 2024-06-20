@@ -8,7 +8,7 @@ from msgwam.rays import RayCollection
 from msgwam.sources import CoarseSource
 from msgwam.utils import put
 
-from hyperparameters import network_size, root
+from hyperparameters import conservative, network_size, root
 from utils import (
     root_transform, 
     xavier_init
@@ -187,7 +187,9 @@ class CoarseNet(nn.Module):
 
         fluxes = CoarseSource._get_fluxes(Y)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
-        factor = fluxes / CoarseSource._get_fluxes(Y)
-        Y = put(Y, 8, Y[8] * factor)
+
+        if conservative > 0:
+            factor = fluxes / CoarseSource._get_fluxes(Y)
+            Y = put(Y, 8, Y[8] * factor)
 
         return Y

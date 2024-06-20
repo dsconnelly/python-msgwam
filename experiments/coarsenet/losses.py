@@ -7,34 +7,33 @@ from msgwam.mean import MeanState
 
 from architectures import CoarseNet
 from utils import integrate_batches
+from preprocessing import SMOOTHING
 
 class RegularizedMSELoss(nn.Module):    
-    def __init__(self, Z_tr: torch.Tensor) -> None:
+    def __init__(self, z_max: float=35e3) -> None:
         """
         Initialize a module to compute MSE and regularization losses.
 
         Parameters
         ----------
-        Z_tr
-            Training momentum flux profiles, from which standard deviations at
-            each level will be calculated.
+        z_max
+            Level above which to ignore errors in momentum flux.
 
         """
 
         super().__init__()
-        self.stds = Z_tr.std(dim=(0, 1))
-        self.sdx = self.stds > 0
+        centers = MeanState().z_centers
+        self.keep = centers <= z_max
 
     def forward(
         self,
         u: torch.Tensor,
         Y: torch.Tensor,
         Z: torch.Tensor,
-        model: CoarseNet,
-        smoothing: float
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        model: CoarseNet
+    ) -> torch.Tensor:
         """
-        Calculate the regularization and MSE losses.
+        Calculate the MSE loss averaged over the specified vertical levels.
 
         Parameters
         ----------
@@ -46,14 +45,9 @@ class RegularizedMSELoss(nn.Module):
             Time-averaged momentum flux profiles for the given batch.
         model
             `CoarseNet` instance being trained.
-        smoothing
-            Smoothing value to use in Gaussian projection.
 
         Returns
         -------
-        torch.Tensor
-            Regularization loss, penalizing squared deviations from the default
-            replacement ray volumes.
         torch.Tensor
             Squared error between the target momentum flux profile and the
             profile obtained by integrating with the replacement ray volume.
@@ -62,25 +56,23 @@ class RegularizedMSELoss(nn.Module):
 
         """
 
-        output = model(u[0], Y)
-        reg = ((output - 1) ** 2).mean()
-        spectrum = model.build_spectrum(Y, output)
-
         v = torch.zeros_like(u)
         wind = torch.stack((u, v), dim=1)
+        
+        output = model(u[0], Y)
+        spectrum = model.build_spectrum(Y, output)
 
+        Z = Z[..., self.keep]
         Z_hat = integrate_batches(
             wind, spectrum,
             rays_per_packet=1,
-            smoothing=smoothing
-        ).mean(dim=1)
+            smoothing=SMOOTHING
+        ).mean(dim=1)[..., self.keep]
+
+        scales, _ = torch.abs(Z).max(dim=-1)
+        sdx = scales > 0
 
         errors = torch.zeros_like(Z)
-        errors[..., self.sdx] = (
-            (Z - Z_hat)[..., self.sdx] / 
-            self.stds[self.sdx]
-        )
+        errors[sdx] = (Z - Z_hat)[sdx] / scales[sdx, None]
 
-        mse = (errors ** 2).mean()
-
-        return reg, mse
+        return (errors ** 2).mean()

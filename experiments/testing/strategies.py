@@ -53,6 +53,28 @@ def _ICON() -> None:
     config.n_ray_max = N_MAX
     config.purge_mode = 'energy'
 
+def _just_reduce() -> None:
+    config.n_ray_max = N_MAX // SPEEDUP
+    config.purge_mode = 'energy'
+
+def _just_coarsen() -> None:
+    config.n_ray_max = N_MAX
+    config.purge_mode = 'energy'
+    config.source_type = 'coarse'
+
+    root = int(SPEEDUP ** 0.5)
+    config.coarse_height = root
+    config.coarse_width = root
+
+def _reduce_and_coarsen() -> None:
+    _just_coarsen()
+    _just_reduce()
+
+def _just_network() -> None:
+    _just_coarsen()
+
+    config.source_type = 'network'
+
 def _do_nothing() -> None:
     config.n_ray_max = N_MAX // SPEEDUP
     config.purge_mode = 'energy'

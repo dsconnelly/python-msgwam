@@ -12,9 +12,10 @@ from msgwam.utils import open_dataset
 
 from utils import integrate_batches
 
-N_BATCHES = 800
-PACKETS_PER_BATCH = 64
+N_BATCHES = 400
+PACKETS_PER_BATCH = 32
 FIXED_WIND = False
+SMOOTHING = None
 
 def save_training_data():
     """
@@ -248,7 +249,7 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
             wind[i],
             spectrum,
             config.rays_per_packet,
-            smoothing=None
+            smoothing=SMOOTHING
         )
         
         print(f'finished integrating batch {i + 1}')

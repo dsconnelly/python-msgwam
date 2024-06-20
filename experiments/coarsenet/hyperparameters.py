@@ -2,22 +2,20 @@ import os
 
 import torch
 
-beta_decay: float
+conservative: int
 learning_rate: float
-max_smoothing: float
 network_size: int
 root: int
-smoothing_decay: float
+use_adam: int
 weight_decay: float
 
 _grid = {
-    'beta_decay' : [25],
-    'learning_rate' : [1e-3],
-    'max_smoothing' : [6],
-    'network_size' : [3],
+    'conservative' : [0, 1],
+    'learning_rate' : [1e-4, 1e-5],
+    'network_size' : [3, 6],
     'root' : [5],
-    'smoothing_decay' : [25],
-    'weight_decay' : [0.1]
+    'use_adam' : [0, 1],
+    'weight_decay' : [0, 0.1]
 }
 
 def _set_hyperparameters():

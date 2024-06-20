@@ -18,12 +18,10 @@ PLOT_DIR = 'plots'
 
 COLORS = {
     'ICON' : 'k',
-    'do-nothing' : 'gold',
-    'coarse-square' : 'forestgreen',
-    'coarse-tall' : 'royalblue',
-    'coarse-wide' : 'tab:red',
-    'stochastic' : 'darkviolet',
-    'network' : 'fuchsia'
+    'just-reduce' : 'tab:red',
+    'just-coarsen' : 'forestgreen',
+    'reduce-and-coarsen' : 'royalblue',
+    'just-network' : 'darkviolet'
 }
 
 def plot_sources() -> None:
@@ -79,8 +77,10 @@ def plot_fluxes() -> None:
         figure=fig
     )
 
-    axes = [fig.add_subplot(grid[i // 4, i % 4]) for i in range(n_plots)]
-    cax = fig.add_subplot(grid[:, -1])
+    axes = []
+    for k in range(n_plots):
+        i, j = k // n_cols, k % n_cols
+        axes.append(fig.add_subplot(grid[i, j]))
 
     strategies = ['reference'] + list(COLORS.keys())
     for i, (strategy, ax) in enumerate(zip(strategies, axes)):
@@ -88,13 +88,15 @@ def plot_fluxes() -> None:
             img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
             ax.set_title(_format(strategy))
 
-        if i < 4:
+        if i < n_cols:
             ax.set_xlabel('')
-        
-        if i % 4 > 0:
+
+        if i % n_cols > 0:
             ax.set_ylabel('')
 
+    cax = fig.add_subplot(grid[:, -1])
     cbar = plt.colorbar(img, cax=cax)
+
     cbar.set_ticks(np.linspace(-2, 2, 9))
     cbar.set_label('momentum flux (mPa)')
 
@@ -201,10 +203,7 @@ def plot_scores() -> None:
 def _format(strategy: str) -> str:
     """Format the name of a strategy to appear in plots."""
 
-    if strategy == 'reference':
-        return 'no-purge'
-
-    return strategy.replace('e-', 'e, ')
+    return strategy.replace('-', ' ')
 
 def _open_and_transform(path: str) -> xr.Dataset:
     """Open a dataset, resample, and take only the time domain of interest."""
