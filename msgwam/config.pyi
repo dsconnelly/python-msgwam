@@ -97,8 +97,6 @@ purge_mode: str # Criterion to use when purging rays to enforce the bottom
     # boundary condition. Must be one of 'action', 'cg_r', 'energy', or 'pmf'.
     # If 'none', rays will not be purged when checking the source, but an error
     # will be raised if the boundary condition cannot be enforced.
-purge_network_path: str # Where the neural network used to purge is stored. Only
-    # used if `purge mode == 'network'`.
 
 dt_launch: int # Time step between calls to the source. If inf, new ray volumes
     # are not launched beyond the initial packet.

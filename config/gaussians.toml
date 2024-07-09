@@ -30,11 +30,11 @@ latitude = 0
 # ==============================================================================
 # mean wind initialization
 # ==============================================================================
-# wind_init_method =
-# u0 =
-# v0 =
-# z0 =
-# sigma_uv =
+wind_init_method = 'gaussian'
+u0 = 5
+v0 = 0
+z0 = 30e3
+sigma_uv = 3e3
 
 # ==============================================================================
 # pseudomomentum flux calculation
@@ -52,7 +52,7 @@ dissipation = 1
 # ray volumes and propagation
 # ==============================================================================
 n_ray_max = 25000
-min_pmf = 0
+min_pmf = 1e-9
 n_chromatic = -1
 epsilon = 1
 

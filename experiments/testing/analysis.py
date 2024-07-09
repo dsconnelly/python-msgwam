@@ -17,15 +17,24 @@ import strategies
 PLOT_DIR = 'plots'
 
 COLORS = {
-    'ICON' : 'k',
-    'just-reduce' : 'tab:red',
-    'just-coarsen' : 'forestgreen',
-    'reduce-and-coarsen' : 'royalblue',
-    'just-network' : 'darkviolet'
+    'many-fine' : 'k',
+    'few-fine' : 'gold',
+    'many-coarse' : 'forestgreen',
+    'few-coarse' : 'royalblue',
+    'few-network' : 'tab:red',
+    'intermittent' : 'darkviolet'
 }
 
-def plot_sources() -> None:
-    """Plot the source spectrum for each coarsening strategy."""
+def plot_fluxes(mode: str) -> None:
+    """
+    Plot the pseudomomentum flux time series for each strategy.
+    
+    Parameters
+    ----------
+    mode
+        Whether to plot data from `'prescribed'` or `'interactive'` runs.
+
+    """
 
     n_plots = len(COLORS) + 1
     n_cols = int(n_plots // 2)
@@ -42,41 +51,6 @@ def plot_sources() -> None:
         figure=fig
     )
 
-    axes = [fig.add_subplot(grid[i // 4, i % 4]) for i in range(n_plots)]
-    cax = fig.add_subplot(grid[:, -1])
-    amax = 0.4
-
-    setups = ['reference'] + list(COLORS.keys())
-    for setup, ax in zip(setups, axes):
-        getattr(strategies, '_' + setup.replace('-', '_'))()
-        img = plot_source(amax, [ax])
-        config.reset()
-
-        ax.set_title(_format(setup))
-
-    cbar = plt.colorbar(img, cax=cax)
-    cbar.set_label('momentum flux (mPa)')
-
-    plt.savefig(f'{PLOT_DIR}/{config.name}/sources.png', dpi=400)
-
-def plot_fluxes() -> None:
-    """Plot the pseudomomentum flux time series for each strategy."""
-
-    n_plots = len(COLORS) + 1
-    n_cols = int(n_plots // 2)
-    n_cols = n_cols + n_plots % 2
-    n_rows = 2
-
-    widths = [4.5] * n_cols + [0.3]
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(sum(widths), 3 * n_rows)
-
-    grid = gs.GridSpec(
-        nrows=n_rows, ncols=(n_cols + 1),
-        width_ratios=widths,
-        figure=fig
-    )
-
     axes = []
     for k in range(n_plots):
         i, j = k // n_cols, k % n_cols
@@ -84,8 +58,10 @@ def plot_fluxes() -> None:
 
     strategies = ['reference'] + list(COLORS.keys())
     for i, (strategy, ax) in enumerate(zip(strategies, axes)):
-        with open_dataset(f'data/{config.name}/{strategy}.nc') as ds:
-            img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
+        path = f'data/{config.name}/{strategy}-{mode}.nc'
+
+        with open_dataset(path) as ds:
+            img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=1, axes=[ax])
             ax.set_title(_format(strategy))
 
         if i < n_cols:
@@ -97,23 +73,33 @@ def plot_fluxes() -> None:
     cax = fig.add_subplot(grid[:, -1])
     cbar = plt.colorbar(img, cax=cax)
 
-    cbar.set_ticks(np.linspace(-2, 2, 9))
+    cbar.set_ticks(np.linspace(-1, 1, 9))
     cbar.set_label('momentum flux (mPa)')
 
-    plt.savefig(f'{PLOT_DIR}/{config.name}/fluxes.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/fluxes-{mode}.png', dpi=400)
 
-def plot_life_cycles() -> None:
-    """Plot launch rate and lifetime statistics for each strategy."""
+def plot_lifetimes(mode: str) -> None:
+    """
+    Make box-and-whisker plots of the ray volume lifetimes in each integration.
+    
+    Parameters
+    ----------
+    mode
+        Whether to plot data from `'prescribed'` or `'interactive'` runs.
 
-    fig, axes = plt.subplots(ncols=2, sharey=True)
-    fig.set_size_inches(6, 4.5)
+    """
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(5, 4.5)
 
     names = ['reference'] + list(COLORS.keys())
     rates = np.zeros(len(names))
     lifetimes = []
 
     for k, name in enumerate(names):
-        with open_dataset(f'data/{config.name}/{name}.nc') as ds:
+        path = f'data/{config.name}/{name}-{mode}.nc'
+
+        with open_dataset(path) as ds:
             launches = ds['age'].values == 0
             age = np.nan_to_num(ds['age'].values)
             idx = (age[1:] - age[:-1]) < 0
@@ -122,15 +108,7 @@ def plot_life_cycles() -> None:
             lifetimes.append(np.log(age[:-1][idx].flatten() / 3600))
 
     y = -np.arange(len(rates))
-    axes[0].barh(
-        y, rates + 1,
-        height=1,
-        facecolor='lightgray',
-        edgecolor='k',
-        left=-1
-    )
-
-    axes[1].boxplot(
+    ax.boxplot(
         lifetimes,
         positions=y,
         whis=(0, 100),
@@ -138,75 +116,121 @@ def plot_life_cycles() -> None:
         medianprops={'color' : 'k', 'ls' : 'dashed'}
     )
 
-    axes[0].set_xlim(0, 600)
-    axes[0].set_xticks(np.linspace(0, 600, 4))
-    
     labels = map(_format, names)
-    axes[0].set_ylim(-len(rates) + 0.5, 0.5)
-    axes[0].set_yticks(y, labels=labels)
+    ax.set_ylim(-len(rates) + 0.5, 0.5)
+    ax.set_yticks(y, labels=labels)
 
-    line = np.linspace(*axes[0].get_ylim(), 50)
-    target = rates[0] / strategies.SPEEDUP * np.ones(50)
-    axes[0].plot(target, line, color='tab:red', ls='dashed', zorder=2)
+    ticks = np.log(np.array([1 / 60, 1, 8, 24, 24 * 7]))
+    labels = ['1 min', '1 hr', '8 hr', '1 day', '1 week']
 
-    xmin, xmax = axes[1].get_xlim()
-    ticks = np.linspace(xmin, xmax, 6)
-    labels = np.round(np.exp(ticks), 2)
-    axes[1].set_xticks(ticks, labels=labels, rotation=45)
-
-    axes[0].set_title('launches per hour')
-    axes[1].set_title('ray lifetimes (h)')
+    ax.set_xlim(ticks.min(), ticks.max())
+    ax.set_xticks(ticks, labels=labels, rotation=30)
+    ax.set_xlabel('ray volume lifetimes')
 
     plt.tight_layout()
-    plt.savefig(f'{PLOT_DIR}/{config.name}/life-cycles.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/lifetimes-{mode}.png', dpi=400)
 
-def plot_scores() -> None:
-    """Plot the error with respect to the reference for each strategy."""
+def plot_scores(mode: str) -> None:
+    """
+    Plot the error with respect to the reference for each strategy.
+    
+    Parameters
+    ----------
+    mode
+        Whether to plot data from `'prescribed'` or `'interactive'` runs. If
+        interactive data is plotted, error will be plotted for mean wind too.
 
-    with _open_and_transform(f'data/{config.name}/reference.nc') as ds:
-        ref = ds['pmf_u']
+    """
+
+    names = ['pmf_u']
+    if mode == 'interactive':
+        names = names + ['u']
+
+    path = f'data/{config.name}/reference-{mode}.nc'
+    with _open_and_transform(path) as ds:
+        refs = {name: ds[name] for name in names}
         z = ds['z'] / 1000
 
-    fig, ax = plt.subplots()
-    fig.set_size_inches(4, 6.5)
+    fig, axes = plt.subplots(ncols=len(names), squeeze=False)
+    fig.set_size_inches(4 * len(names), 6.5)
+    axes = axes[0]
 
-    for strategy, color in COLORS.items():
-        with _open_and_transform(f'data/{config.name}/{strategy}.nc') as ds:
-            pmf = ds['pmf_u']
-            error = np.sqrt(((ref - pmf) ** 2).mean('time'))
+    factors = {'u' : 1, 'pmf_u' : 1000}
+    units = {'u' : 'm / s', 'pmf_u' : 'mPa'}
+    long_names = {'u' : 'wind', 'pmf_u' : 'flux'}
 
-            label = _format(strategy)
-            ax.plot(error * 1000, z, color=color, label=label)
+    for (strategy, color), ax in zip(COLORS.items(), axes):
+        path = f'data/{config.name}/{strategy}-{mode}.nc'
+        label = _format(strategy)
 
-    label = 'average absolute PMF'
-    scale = abs(ref).mean('time') * 1000
-    ax.plot(scale, z, color='gray', ls='dashed', label=label)
+        with _open_and_transform(path) as ds:
+            for name in names:
+                error = ds[name] - refs[name]
+                profile = np.sqrt((error ** 2).mean('time'))
+                ax.plot(profile * factors[name], z, color=color, label=label) 
 
-    ax.set_xlim(0, 1.5)
-    ax.set_ylim(z.min(), z.max())
-    ax.grid(color='lightgray')
+    axes[0].legend(loc='upper right')
+    for name, ax in zip(names, axes):
+        label = f'RMS {long_names[name]}'
+        scale = np.sqrt((refs[name] ** 2).mean('time')) * factors[name]
+        ax.plot(scale, z, color='gray', ls='dashed', label=label)
 
-    xticks = np.linspace(0, 1.5, 4)
-    ax.set_xticks(xticks)
+        xmax = {'u' : 20, 'pmf_u' : 1.5}[name]
 
-    yticks = np.linspace(z.min(), z.max(), 7)
-    ylabels = (10 * np.round((yticks / 10))).astype(int)
-    ax.set_yticks(yticks, labels=ylabels)
+        ax.set_xlim(0, xmax)
+        ax.set_ylim(z.min(), z.max())
+        ax.grid(color='lightgray')
 
-    ax.set_xlabel('RMSE (mPa)')
-    ax.set_ylabel('height (km)')
-    ax.legend(loc='lower right')
+        xticks = np.linspace(0, xmax, 4)
+        ax.set_xticks(xticks)
+
+        yticks = np.linspace(z.min(), z.max(), 7)
+        ylabels = (10 * np.round((yticks / 10))).astype(int)
+        ax.set_yticks(yticks, labels=ylabels)
+
+        ax.set_xlabel(f'RMSE ({units[name]})')
+        ax.set_ylabel('height (km)')
 
     plt.tight_layout()
-    plt.savefig(f'{PLOT_DIR}/{config.name}/scores.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/scores-{mode}.png', dpi=400)
 
 def _format(strategy: str) -> str:
-    """Format the name of a strategy to appear in plots."""
+    """
+    Format the name of a strategy to appear in plots.
+    
+    Parameters
+    ----------
+    strategy
+        Name of the strategy being plotted.
 
-    return strategy.replace('-', ' ')
+    Returns
+    -------
+    str
+        Formatted strategy name.
+
+    """
+
+    output = strategy.replace('-', ', ')
+    if output == 'many, fine':
+        output = output + ' ("ICON")'
+
+    return output
 
 def _open_and_transform(path: str) -> xr.Dataset:
-    """Open a dataset, resample, and take only the time domain of interest."""
+    """
+    Open a dataset, resample, and take only the time domain of interest.
+    
+    Parameters
+    ----------
+    path
+        Path to netCDF dataset to be opened.
+
+    Returns
+    -------
+    xr.Dataset
+        Six-hourly averaged dataset, including only the specified time range.
+
+    """
 
     ds = open_dataset(path)
     days = cftime.date2num(ds['time'], f'days since {EPOCH}')

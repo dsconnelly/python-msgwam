@@ -46,80 +46,48 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     plt.tight_layout()
     plt.savefig(output_path)
 
-def plot_source(
-    amax: float,
-    axes: Optional[list[Axes]]=None
-) -> tuple[ScalarMappable, Optional[Colorbar]]:
+def plot_source(ax: Optional[Axes]=None) -> Axes:
     """
     Plot the source spectrum specified by the current config settings.
 
     Parameters
     ----------
-    amax
-        Maximum absolute value to use in the symmetric norm, in mPa.
-    axes
-        List containing the `Axes` object that should contain the color plot
-        and, if a colorbar is to be added, the `Axes` that will contain the
-        colorbar. If `len(axes) == 1`, no colorbar will be created. If `axes` is
-        `None`, then a new figure will be created with two axes.
+    ax
+        `Axes` object to plot with. If `None`, a new axis will be created and
+        the size of the figure will be specified.
 
     Returns
     -------
-    ScalarMappable
-        Mappable object encoding the norm and colormap used.
+    Axes
+        `Axes` object used to plot. If `ax` is provided as an argument, the same
+        object is returned.
 
     """
 
-    if axes is None:
-        widths = [4.5, 0.2]
-        fig, axes = plt.subplots(ncols=2, width_ratios=widths)
-        fig.set_size_inches(sum(widths), 3)
+    if ax is None:
+        fig, ax = plt.subplots()
+        fig.set_size_inches(4.5, 3)
 
     cls_name = config.source_type.capitalize() + 'Source'
     source: sources.Source = getattr(sources, cls_name)()
-    r, dr, k, l, m, dk, dl, dm, dens = source.data
-    
+    k, l, m, dk, dl, dm, dens = source.data[2:]
+
     cp = cp_x(k, l, m)
     cg = cg_r(k, l, m)
     dc = abs(dm * cg / k)
 
-    norm = plt.Normalize(vmin=-amax, vmax=amax)
-    flux = k * cg * dens * abs(dk * dl * dm)
-    colors = RdBu_r(norm(1000 * flux))
+    flux = k * cg * dens * abs(dk * dl * dm) * 1000
+    ax.bar(cp, flux, dc, ec='k', fc='lightgray', zorder=2)
 
-    for j, color in enumerate(colors):
-        x = cp[j] - 0.5 * dc[j]
-        y = r[j] - 0.5 * dr[j]
+    ax.set_xlim(-32, 32)
+    ax.set_xticks(np.linspace(-32, 32, 9))
+    ax.set_ylim(-0.15, 0.15)
 
-        axes[0].add_patch(Rectangle(
-            (x, y), dc[j], dr[j],
-            fc=color,
-            ec='k'
-        ))
+    ax.set_xlabel('phase speed (m / s)')
+    ax.set_ylabel('flux (mPa)')
+    ax.grid(color='lightgray', zorder=1)
 
-    axes[0].set_xlim(-30, 30)
-    axes[0].set_xticks(np.linspace(-30, 30, 7))
-    axes[0].set_xlabel('phase speed (m / s)')
-
-    ymax = config.r_launch
-    ymin = config.r_ghost - 500
-
-    axes[0].set_ylim(ymin, ymax)
-    ticks = np.linspace(ymin, ymax, 4)
-    labels = (ymax - ticks).astype(int)
-
-    axes[0].set_yticks(ticks, labels=labels)    
-    axes[0].set_ylabel('m below launch level')
-
-    img = ScalarMappable(norm=norm, cmap=RdBu_r)
-
-    if len(axes) > 1:
-        cbar = plt.colorbar(img, cax=axes[1], orientation='horizontal')
-
-    else:
-        cbar = None
-
-    return img, cbar
+    return ax
 
 def plot_time_series(
     data: xr.DataArray,
@@ -169,12 +137,15 @@ def plot_time_series(
     axes[0].set_xlabel('time (days)')
     axes[0].set_ylabel('height (km)')
 
-    axes[0].set_xlim(0, time.max())
+    tmax = time.max()
+    axes[0].set_xlim(0, tmax)
+    axes[0].set_xticks(np.linspace(0, tmax, 5))
+
     axes[0].set_ylim(z.min(), z.max())
     axes[0].set_yticks(yticks, labels=ylabels)
     
     try:
-        cbar = plt.colorbar(img, cax=axes[1], orientation='horizontal')
+        cbar = plt.colorbar(img, cax=axes[1], orientation='vertical')
         cbar.set_ticks(np.linspace(-amax, amax, 7)) # type: ignore
 
     except IndexError:

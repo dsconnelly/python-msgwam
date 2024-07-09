@@ -74,11 +74,69 @@ class Source(ABC):
 
         return self.data.shape[1]
 
+    @property
+    def data(self) -> torch.Tensor:
+        """
+        Return the properties of the source ray volumes.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor whose rows correspond to properties and whose columes to
+            individual ray volumes in the source spectrum.
+
+        """
+
+        return self._data
+    
+    @data.setter
+    def data(self, value: torch.Tensor) -> None:
+        """
+        Set the data for this source, and also recompute the intermittency
+        factors with the new values.
+
+        Parameters
+        ----------
+        value
+            Ray volume properties to be associated with this source.
+
+        """
+
+        self._data = value
+        self.intermittency_factors = self._get_intermittency_factors(value)
+
+    @staticmethod
+    def _get_intermittency_factors(data: torch.Tensor) -> torch.Tensor:
+        """
+        If launches are not occurring every time step, compute the factor by
+        which each ray volume should be scaled to account for the rays not
+        simulated due to intermittency.
+
+        Parameters
+        ----------
+        data
+            Tensor of ray volume properties.
+
+        Returns
+        -------
+        torch.Tensor
+            Scale factor for each ray volume in `data`.
+
+        """
+
+        if config.dt_launch <= 1:
+            return torch.ones(data.shape[1])
+
+        return cg_r(*data[2:5]) * config.dt_launch / data[1]
+
 class DeterministicSource(Source):
     def launch(self, jdx: torch.Tensor, _) -> tuple[torch.Tensor, torch.Tensor]:
         """A `DeterministicSource` simply returns the requested columns."""
 
-        return self.data[:, jdx], jdx
+        data = self.data[:, jdx]
+        data[-1] = data[-1] * self.intermittency_factors[jdx]
+
+        return data, jdx
 
 class CoarseSource(DeterministicSource):
     def __init__(self) -> None:
@@ -179,34 +237,4 @@ class NetworkSource(CoarseSource):
         volumes before sending them back to the integrator.
         """
 
-        return self.model(u.to(torch.double), self.data[:, jdx]), jdx
-
-class StochasticSource(Source):
-    def __init__(self) -> None:
-        """
-        At initialization, the stochastic source calculates the vertical group
-        velocity of each ray volume in the spectrum and thereby estimates the
-        launch rate that would be attained without stochasticity.
-        """
-
-        super().__init__()
-
-        self.cg_source = cg_r(*self.data[2:5])
-        times = torch.ceil(config.dr_init / (self.cg_source * config.dt))
-        self.launch_rate = config.epsilon * (1 / times).sum()
-
-    def launch(self, jdx: torch.Tensor, _) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Return `config.epsilon` times the number of rays requested, sampled such
-        that faster ray volumes are launched more frequently.
-        """
-
-        size = int(torch.floor(self.launch_rate))
-        if torch.rand(1) < self.launch_rate - size:
-            size = size + 1
-
-        weights = self.cg_source[jdx]
-        weights = weights / weights.sum()
-        jdx = jdx[torch.multinomial(weights, num_samples=size)]
-
-        return self.data[:, jdx], jdx
+        return self.model(u, self.data[:, jdx]), jdx

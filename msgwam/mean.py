@@ -99,7 +99,7 @@ class MeanState:
                 output = pad_ends(output)
 
             return output
-        
+    
         elif config.proj_method == 'gaussian':
             sigma = rays.dr * config.smoothing
             grid = {'faces' : self.z_faces, 'centers' : self.z_centers}[onto]
@@ -109,7 +109,7 @@ class MeanState:
             weighted = data * (env * amplitude).reshape(-1, *data.shape)
 
             return torch.nansum(weighted, dim=-1)
-        
+
         message = f'Unknown projection method: {config.proj_method}'
         raise ValueError(message)
     

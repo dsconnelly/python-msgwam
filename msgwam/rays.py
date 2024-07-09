@@ -33,9 +33,6 @@ class RayCollection:
         for slot, data in enumerate(self.source.data.T):
             self.ghosts[slot] = self.add_ray(data)
 
-        if config.purge_mode == 'network':
-            self.model = torch.jit.load(config.purge_network_path)
-
     def __getattr__(self, prop: str) -> Any:
         """
         Return the row of self.data corresponding to the named ray property.
@@ -162,24 +159,23 @@ class RayCollection:
         self.data[8, j] = 0
         self.data[9:, j] = torch.nan
 
-    def purge(self, excess: int, mean: MeanState) -> None:
+    def purge(self, excess: int) -> None:
         """
         Delete enough rays to enforce the bottom boundary condition. The rays to
-        be purged will be selected according to `config.purge_mode`.
+        be purged will be selected according to `config.purge_mode`. If `excess`
+        is non-positive, no rays are purged.
 
         Parameters
         ----------
         excess
             How many rays need to be deleted.
-        u
-            Current zonal wind profile.
 
         """
 
-        if config.purge_mode == 'none':
+        if excess <= 0 or config.purge_mode == 'none':
             return
-
-        elif config.purge_mode == 'action':
+        
+        if config.purge_mode == 'action':
             criterion = self.action
 
         elif config.purge_mode == 'cg_r':
@@ -193,10 +189,6 @@ class RayCollection:
 
         elif config.purge_mode == 'random':
             criterion = torch.rand(config.n_ray_max)
-
-        else:
-            message = f'Unknown purge mode: {config.purge_mode}'
-            raise ValueError(message)
 
         idx = torch.argsort(criterion)
         idx = idx[(~torch.isin(idx, self.ghosts)) & self.valid[idx]]
@@ -225,6 +217,12 @@ class RayCollection:
         Enforce the bottom boundary condition by adding ray volumes as necessary
         to replace those that have cleared the ghost layer.
 
+        Parameters
+        ----------
+        mean
+            Current mean state of the system. Used to provide mean wind data to
+            wind-dependent sources.
+
         """
 
         r_lo = self.r[self.ghosts] - 0.5 * self.dr[self.ghosts]
@@ -236,9 +234,7 @@ class RayCollection:
         datas, replaced = self.source.launch(crossed, mean.u)
         excess = self.count + datas.shape[1] - config.n_ray_max
 
-        if excess > 0:
-            self.purge(excess, mean)
-
+        self.purge(excess)
         for j, data in enumerate(datas.T):
             self.ghosts[replaced[j]] = self.add_ray(data)
 
