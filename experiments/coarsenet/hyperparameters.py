@@ -2,19 +2,19 @@ import os
 
 import torch
 
-conservative: int
+conservative: bool
 learning_rate: float
 network_size: int
 root: int
-use_adam: int
+use_adam: bool
 weight_decay: float
 
 _grid = {
-    'conservative' : [0, 1],
+    'conservative' : [1, 0],
     'learning_rate' : [1e-4, 1e-5],
     'network_size' : [3, 6],
     'root' : [5],
-    'use_adam' : [0, 1],
+    'use_adam' : [1, 0],
     'weight_decay' : [0, 0.1]
 }
 

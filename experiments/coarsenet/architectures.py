@@ -124,8 +124,6 @@ class CoarseNet(nn.Module):
         """
 
         Y = root_transform(Y, root)
-        shape = (-1, -1, Y.shape[-1])
-        u = u[..., None].expand(*shape).transpose(1, 2).flatten(0, 1)
         Y = Y[:, self.idx_in].transpose(1, 2).flatten(0, 1)
 
         self.Y_means = torch.mean(Y, dim=0)
@@ -188,7 +186,7 @@ class CoarseNet(nn.Module):
         fluxes = CoarseSource._get_fluxes(Y)
         Y = put(Y, cls.idx_out, output * Y[cls.idx_out])
 
-        if conservative > 0:
+        if conservative:
             factor = fluxes / CoarseSource._get_fluxes(Y)
             Y = put(Y, 8, Y[8] * factor)
 

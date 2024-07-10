@@ -9,10 +9,11 @@ from architectures import CoarseNet
 from utils import integrate_batches
 from preprocessing import SMOOTHING
 
-class RegularizedMSELoss(nn.Module):    
+class ColumnMSELoss(nn.Module):
     def __init__(self, z_max: float=35e3) -> None:
         """
-        Initialize a module to compute MSE and regularization losses.
+        Initialize a module to compute MSE loss normalized by the maximum
+        absolute momentum flux in each column.
 
         Parameters
         ----------
@@ -33,7 +34,8 @@ class RegularizedMSELoss(nn.Module):
         model: CoarseNet
     ) -> torch.Tensor:
         """
-        Calculate the MSE loss averaged over the specified vertical levels.
+        Calculated the MSE loss averaged over the specified vertical levels and
+        normalized by the largest absolute momentum flux in each profile.
 
         Parameters
         ----------
@@ -49,29 +51,25 @@ class RegularizedMSELoss(nn.Module):
         Returns
         -------
         torch.Tensor
-            Squared error between the target momentum flux profile and the
-            profile obtained by integrating with the replacement ray volume.
-            Both profiles are normalized by the absolute maximum of the target
-            profile before the error is computed.
+            Squared error between the target momentum flux profiles and the
+            profiles obtained by integrating with the replacement ray volumes.
 
         """
 
         v = torch.zeros_like(u)
         wind = torch.stack((u, v), dim=1)
-        
-        output = model(u[0], Y)
-        spectrum = model.build_spectrum(Y, output)
+        spectrum = model.build_spectrum(Y, model(u[0], Y))
 
         Z = Z[..., self.keep]
+        scales, _ = torch.abs(Z).max(dim=-1)
+
         Z_hat = integrate_batches(
             wind, spectrum,
             rays_per_packet=1,
             smoothing=SMOOTHING
         ).mean(dim=1)[..., self.keep]
 
-        scales, _ = torch.abs(Z).max(dim=-1)
         sdx = scales > 0
-
         errors = torch.zeros_like(Z)
         errors[sdx] = (Z - Z_hat)[sdx] / scales[sdx, None]
 

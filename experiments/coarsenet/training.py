@@ -13,13 +13,13 @@ from hyperparameters import (
     use_adam,
     weight_decay
 )
-from losses import RegularizedMSELoss
+from losses import ColumnMSELoss
 
-DATA_DIR = 'data/coarsenet'
-RESTART = False
+DATA_DIR = '../data/coarsenet'
+RESTART = True
 
-MAX_BATCHES = 45
-MAX_EPOCHS = 20
+MAX_BATCHES = 3
+MAX_EPOCHS = 5
 MAX_HOURS = 11
 
 MAX_GRAD_NORM = 5
@@ -32,7 +32,7 @@ def train_network() -> None:
 
     model = CoarseNet(u_tr[:, 0], Y_tr)
     optimizer = _get_optimizer(model)
-    loss = RegularizedMSELoss()
+    loss = ColumnMSELoss()
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'Model has {n_params} trainable parameters')
@@ -45,9 +45,7 @@ def train_network() -> None:
         print(f'Resuming training of model {task_id}\n')
 
     else:
-        n_reg = _regularize(model, loader_tr, optimizer, 5e-6)
-        optimizer = _get_optimizer(model)
-
+        n_reg = _regularize(model, loader_tr, 5e-6)
         print(f'Regularized model {task_id} in {n_reg} epochs\n')
 
     hours = 0
@@ -97,7 +95,7 @@ def _get_optimizer(model: CoarseNet) -> torch.optim.Optimizer:
 
     """
 
-    cls = [torch.optim.SGD, torch.optim.Adam][use_adam]
+    cls = torch.optim.Adam if use_adam else torch.optim.SGD
     decay = weight_decay * learning_rate
 
     return cls(model.parameters(), lr=learning_rate, weight_decay=decay)
@@ -134,7 +132,7 @@ def _load_data() -> tuple[DataLoader, DataLoader]:
 
     data_tr = TensorDataset(u[idx_tr], Y[idx_tr], Z[idx_tr])
     data_va = TensorDataset(u[idx_va], Y[idx_va], Z[idx_va])
-    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=True)
+    loader_tr = DataLoader(data_tr, batch_size=None, shuffle=False)
     loader_va = DataLoader(data_va, batch_size=None, shuffle=True)
 
     return loader_tr, loader_va
@@ -142,7 +140,6 @@ def _load_data() -> tuple[DataLoader, DataLoader]:
 def _regularize(
     model: CoarseNet,
     loader: DataLoader,
-    optimizer: torch.optim.Optimizer,
     threshold: float
 ) -> int:
     """
@@ -155,9 +152,6 @@ def _regularize(
         `CoarseNet` instance to be trained.
     loader
         Training (u, Y, Z) triples.
-    optimizer
-        Optimizer to use during regularization. Should probably be discarded
-        after this function is called.
     threshold
         Dataset-averaged regularization error below which regularization will be
         considered complete.
@@ -173,6 +167,8 @@ def _regularize(
     n_epochs = 0
 
     model.train()
+    optimizer = _get_optimizer(model)
+
     while total > threshold:
         total = 0
 
@@ -187,6 +183,7 @@ def _regularize(
 
         total = total / len(loader)
         n_epochs = n_epochs + 1
+        print(total)
 
     return n_epochs
 
@@ -194,7 +191,7 @@ def _train(
     model: CoarseNet,
     loader: DataLoader,
     optimizer: torch.optim.Adam,
-    loss: RegularizedMSELoss,
+    loss: ColumnMSELoss,
 ) -> None:
     """
     Evaluate the training losses and backpropagate.
@@ -234,7 +231,7 @@ def _train(
 def _validate(
     model: CoarseNet,
     loader: DataLoader,
-    loss: RegularizedMSELoss,
+    loss: ColumnMSELoss,
 ) -> None:
     """
     Evaluate the model on the validation data and return the MSE loss.

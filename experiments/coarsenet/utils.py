@@ -33,6 +33,13 @@ def integrate_batches(
         If `None`, discrete projection is used to compute the fluxes. Otherwise,
         sets the smoothing parameter used for Gaussian projection.
 
+    Returns
+    -------
+    torch.Tensor
+        Tensor of momentum fluxes whose first dimension ranges over packets in a
+        batch, whose second dimension ranges over time steps within an
+        integration, and whose third dimension ranges over vertical grid points.
+
     """
 
     n_z = config.n_grid - 1
