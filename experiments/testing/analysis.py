@@ -159,12 +159,12 @@ def plot_scores(mode: str) -> None:
     units = {'u' : 'm / s', 'pmf_u' : 'mPa'}
     long_names = {'u' : 'wind', 'pmf_u' : 'flux'}
 
-    for (strategy, color), ax in zip(COLORS.items(), axes):
+    for strategy, color in COLORS.items():
         path = f'data/{config.name}/{strategy}-{mode}.nc'
         label = _format(strategy)
 
         with _open_and_transform(path) as ds:
-            for name in names:
+            for name, ax in zip(names, axes):
                 error = ds[name] - refs[name]
                 profile = np.sqrt((error ** 2).mean('time'))
                 ax.plot(profile * factors[name], z, color=color, label=label) 

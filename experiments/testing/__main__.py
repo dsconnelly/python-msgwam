@@ -6,7 +6,7 @@ torch.set_default_dtype(torch.float64)
 sys.path.insert(0, '.')
 from msgwam import config
 
-from analysis import plot_fluxes, plot_life_cycles, plot_scores
+from analysis import plot_fluxes, plot_lifetimes, plot_scores
 from scenarios import save_mean_state
 from strategies import integrate
 
