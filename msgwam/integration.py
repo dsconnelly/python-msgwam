@@ -25,9 +25,6 @@ class Integrator(ABC):
         Also load in the prescribed wind file, if there is one.
         """
 
-        mean = MeanState()
-        rays = RayCollection()
-
         self.time = cftime.num2date(
             config.dt * torch.arange(config.n_t_max),
             units=f'seconds since {EPOCH}'
@@ -45,14 +42,6 @@ class Integrator(ABC):
             else:
                 shape = (len(self.time), -1, -1)
                 self.prescribed_wind = config.prescribed_wind.expand(shape)
-
-            mean.wind = self.prescribed_wind[0]
-
-        self.snapshots_mean = [mean]
-        self.snapshots_rays = [rays]
-
-        pmf = mean.pmf(rays, onto='centers')
-        self.snapshots_pmf = [pmf]
 
     @abstractmethod
     def step(
@@ -81,7 +70,7 @@ class Integrator(ABC):
         """
         ...
 
-    def integrate(self) -> Integrator:
+    def integrate(self) -> xr.Dataset:
         """
         Integrate the system over the time interval specified in config.
 
@@ -92,62 +81,109 @@ class Integrator(ABC):
 
         """
 
-        mean = self.snapshots_mean[0]
-        rays = self.snapshots_rays[0]
+        mean = MeanState()
+        rays = RayCollection()
 
+        if not config.interactive_mean:
+            mean.wind = self.prescribed_wind[0]
+
+        ds = self._init_dataset(mean.z_centers)
+        self._update_dataset(mean, rays, ds, 0)
+        
         start = now()
         for i in get_iterator():
             if i * config.dt % config.dt_launch == 0:
                 rays.check_source(mean)
 
             mean, rays = self.step(mean, rays)
-            rays.check_boundaries(mean)
-            rays.dissipate_and_break(mean)
-
             if not config.interactive_mean:
                 mean.wind = self.prescribed_wind[i]
 
+            rays.check_boundaries(mean)
+            rays.dissipate_and_break(mean)
+
             if i % config.n_skip == 0:
-                self.snapshots_mean.append(mean)
-                self.snapshots_rays.append(rays)
+                self._update_dataset(mean, rays, ds, i // config.n_skip)
 
-                pmf = mean.pmf(rays, onto='centers')
-                self.snapshots_pmf.append(pmf)
+        runtime = now() - start
+        ds.assign_attrs(runtime=runtime)
 
-        self.runtime = now() - start
-
-        return self
+        return ds
     
-    def to_dataset(self) -> xr.Dataset:
-        """Return a dataset containing the integration results."""
+    def _init_dataset(self, z: torch.Tensor) -> xr.Dataset:
+        """
+        Initialize a dataset to hold integration results.
+
+        Parameters
+        ----------
+        z
+            Tensor of vertical grid cell centers.
+
+        Returns
+        -------
+        xr.Dataset
+            Dataset full of `torch.nan` values for the mean state, ray property,
+            and momentum flux time series.
+
+        """
 
         data: dict[str, Any] = {
             'time' : self.time[::config.n_skip],
             'nray' : torch.arange(config.n_ray_max),
-            'z' : self.snapshots_mean[0].z_centers
+            'z' : z
         }
 
-        for name in ['u', 'v']:
-            fields = [getattr(mean, name) for mean in self.snapshots_mean]
-            data[name] = (('time', 'z'), torch.vstack(fields))
+        for name in ['u', 'v', 'pmf_u', 'pmf_v']:
+            shape = (len(data['time']), len(data['z']))
+            data[name] = (('time', 'z'), torch.nan * torch.zeros(shape))
 
         for name in RayCollection.props:
-            fields = [getattr(rays, name) for rays in self.snapshots_rays]
-            data[name] = (('time', 'nray'), torch.vstack(fields))
+            shape = (len(data['time']), config.n_ray_max)
+            data[name] = (('time', 'nray'), torch.nan * torch.zeros(shape))
 
-        stacked = torch.stack(self.snapshots_pmf)
-        data['pmf_u'] = (('time', 'z'), stacked[:, 0])
-        data['pmf_v'] = (('time', 'z'), stacked[:, 1])
+        return xr.Dataset(data)
 
-        return xr.Dataset(data, attrs={'runtime' : self.runtime})
-    
+    def _update_dataset(
+        self,
+        mean: MeanState,
+        rays: RayCollection,
+        ds: xr.Dataset,
+        i: int
+    ) -> None:
+        """
+        Update each variable in the dataset during integration.
+
+        Parameters
+        ----------
+        mean
+            Current mean state of the system.
+        rays
+            Collection of current ray volumes.
+        ds
+            Dataset holding integration results.
+        i
+            Time index in the output dataset.
+
+        """
+
+        for name in ['u', 'v']:
+            ds[name][i] = getattr(mean, name)
+
+        for name in RayCollection.props:
+            ds[name][i] = getattr(rays, name)
+
+        pmf = mean.pmf(rays, onto='centers')
+        for j, name in enumerate(['pmf_u', 'pmf_v']):
+            ds[name][i] = pmf[j]
+
 class SBDF2Integrator(Integrator):
     def __init__(self) -> None:
         """Initialize an SBDF2Integrator. See Wang and Ruuth (2008)."""
 
         super().__init__()
+        _mean = MeanState()
 
-        nu = self.snapshots_mean[0].nu
+        nu = _mean.nu
         diag = -nu[:-1] - nu[1:]
         off_diag = nu[1:-1]
 
@@ -159,7 +195,7 @@ class SBDF2Integrator(Integrator):
 
         D[0, 0] = D[0, 0] - nu[0]
         D[-1, -1] = D[-1, -1] - nu[-1]
-        D = D / self.snapshots_mean[0].dz ** 2
+        D = D / _mean.dz ** 2
 
         m, _ = D.shape
         self.A = lu_factor(torch.eye(m) - config.dt * D)

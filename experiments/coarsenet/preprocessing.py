@@ -28,13 +28,19 @@ def save_training_data():
     
     X = _sample_packets()
     wind = _sample_wind_profiles()
-    Z = _generate_targets(X, wind)
-    Y = _coarsen(X)
-
+    print(f'Integrating fine ray volumes...')
+    Z = _generate_targets(X, wind, config.rays_per_packet)
+    
     torch.save(wind, 'data/coarsenet/wind.pkl')
     torch.save(X, 'data/coarsenet/packets.pkl')
-    torch.save(Y, 'data/coarsenet/squares.pkl')
     torch.save(Z, 'data/coarsenet/targets.pkl')
+
+    Y = _coarsen(X)
+    print('\nIntegrating coarse ray volumes')
+    Z_coarse = _generate_targets(Y, wind, 1)
+
+    torch.save(Y, 'data/coarsenet/squares.pkl')
+    torch.save(Z_coarse, 'data/coarsenet/targets-coarse.pkl')
 
 def _sample_packets() -> torch.Tensor:
     """
@@ -213,7 +219,11 @@ def _sample_wind_profiles() -> torch.Tensor:
 
     return wind
 
-def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
+def _generate_targets(
+    X: torch.Tensor,
+    wind: torch.Tensor,
+    rays_per_packet: int
+) -> torch.Tensor:
     """
     Integrate the model with each mean wind profile and batch of wave packets,
     and then postprocess the outputs accordingly. For smoothness, the output
@@ -222,9 +232,12 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
     Parameters
     ----------
     X
-        Tensor structured as in the output of `_sample_wave_packets`.
+        Tensor structured as in the output of `_sample_wave_packets` or as the
+        output of calling `_coarsen` on such a tensor.
     wind
         Tensor structured as in the outout of `_sample_wind_profiles`.
+    rays_per_packet
+        How many rays to use in each packet during integration.
 
     Returns
     -------
@@ -248,7 +261,7 @@ def _generate_targets(X: torch.Tensor, wind: torch.Tensor) -> torch.Tensor:
         Z[i] = integrate_batches(
             wind[i],
             spectrum,
-            config.rays_per_packet,
+            rays_per_packet,
             smoothing=SMOOTHING
         )
         

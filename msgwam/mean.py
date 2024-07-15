@@ -135,7 +135,7 @@ class MeanState:
 
         """
 
-        action_flux = rays.cg_r() * rays.action / config.epsilon
+        action_flux = rays.cg_r() * rays.action
         pmf_x = self.project(rays, action_flux * rays.k, onto=onto)
         pmf_y = self.project(rays, action_flux * rays.l, onto=onto)
 

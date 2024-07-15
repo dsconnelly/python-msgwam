@@ -80,8 +80,6 @@ n_chromatic: int # Number of waves considered at once when determining which ray
     # is polychromatic over the whole collection of rays. If 0, no ray volume
     # breaking occurs. Values are than these are most useful during batch
     # integrations, so that subsets of ray volumes can break individually.
-epsilon: float # Intermittency parameter defining the percentage of time that a
-    # new ray volume will be launched. Must be in (0, 1].
 
 # ==============================================================================
 # source and spectrum (parameters in this section are likely to be used by more

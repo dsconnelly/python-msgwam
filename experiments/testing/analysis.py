@@ -12,8 +12,6 @@ from msgwam.constants import EPOCH
 from msgwam.plotting import plot_source, plot_time_series
 from msgwam.utils import open_dataset
 
-import strategies
-
 PLOT_DIR = 'plots'
 
 COLORS = {
