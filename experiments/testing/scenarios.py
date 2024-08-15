@@ -43,8 +43,8 @@ def _jra_midlatitudes() -> xr.Dataset:
 
     """
 
-    lat_slice = slice(45, 35)
-    lon_slice = slice(280, 290)
+    lat_slice = slice(-12, -14)
+    lon_slice = slice(109, 111)
 
     kwargs = {'engine' : 'cfgrib', 'indexpath' : ''}
     with xr.open_dataset('data/JRA-55/gh.grib', **kwargs) as ds:

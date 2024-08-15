@@ -110,6 +110,22 @@ class RayCollection:
 
         return self.dens * abs(self.dk * self.dl * self.dm)
     
+    @property
+    def n_ray_max(self) -> int:
+        """
+        Return the maximum number of ray volumes permitted in this collection.
+        Usually just returns `config.n_ray_max`, but useful in runs where the
+        maximum is adaptive and may have been increased.
+
+        Returns
+        -------
+        int
+            Maximum number of ray volumes this collection can hold.
+        
+        """
+
+        return self.data.shape[1]
+    
     def add_ray(self, data: torch.Tensor) -> int:
         """
         Add a ray to the collection, storing its data in the first available
@@ -129,12 +145,18 @@ class RayCollection:
         Raises
         ------
         RuntimeError
-            Indicates that the RayCollection already has config.n_ray_max rays.
+            Indicates that the RayCollection already has self.n_ray_max rays.
 
         """
 
-        if self.count == config.n_ray_max:
-            raise RuntimeError('RayCollection has too many rays')
+        if self.count == self.n_ray_max:
+            if config.n_increment > 0:
+                shape = (len(self.props), config.n_increment)
+                blank = torch.nan * torch.zeros(shape)
+                self.data = torch.hstack((self.data, blank))
+
+            else:
+                raise RuntimeError('RayCollection has too many rays')
 
         self.next_meta = self.next_meta + 1
         j = int(torch.argmin(self.valid.int()))
@@ -188,7 +210,7 @@ class RayCollection:
             criterion = abs(self.k * self.cg_r() * self.action)
 
         elif config.purge_mode == 'random':
-            criterion = torch.rand(config.n_ray_max)
+            criterion = torch.rand(self.n_ray_max)
 
         idx = torch.argsort(criterion)
         idx = idx[(~torch.isin(idx, self.ghosts)) & self.valid[idx]]
@@ -232,7 +254,7 @@ class RayCollection:
             return
         
         datas, replaced = self.source.launch(crossed, mean.u)
-        excess = self.count + datas.shape[1] - config.n_ray_max
+        excess = self.count + datas.shape[1] - self.n_ray_max
 
         self.purge(excess)
         for j, data in enumerate(datas.T):
@@ -294,8 +316,8 @@ class RayCollection:
         dv_dr = interp(self.r, mean.z_faces[1:-1], torch.diff(mean.v) / mean.dz)
         dm_dt = -(self.k * du_dr + self.l * dv_dr)
 
-        ddr_dt, ddm_dt = torch.zeros((2, config.n_ray_max))
-        dk_dt, dl_dt, ddk_dt, ddl_dt = torch.zeros((4, config.n_ray_max))
+        ddr_dt, ddm_dt = torch.zeros((2, self.n_ray_max))
+        dk_dt, dl_dt, ddk_dt, ddl_dt = torch.zeros((4, self.n_ray_max))
 
         idx = self.r < config.r_launch
         dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0

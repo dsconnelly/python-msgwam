@@ -1,7 +1,12 @@
+import os
 import sys
 
 import torch
 torch.set_default_dtype(torch.float64)
+
+n_cpus = int(os.environ.get('SLURM_CPUS_PER_TASK', 1))
+print(f'Pytorch will use {n_cpus} CPUs')
+torch.set_num_threads(n_cpus)
 
 sys.path.insert(0, '.')
 from msgwam import config

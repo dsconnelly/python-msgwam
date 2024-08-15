@@ -28,6 +28,9 @@ prescribed_wind: str | torch.Tensor # Prescribed mean wind field to use if
 dt: int # Time step (s).
 dt_output: int # Output time step (s)
 n_day: int # Number of days to integrate for.
+average_output: bool # Whether or not to average mean state variables (wind and
+    # momentum flux profiles) in the output file. Has no effect unless dt_output
+    # is larger than dt.
 
 # ==============================================================================
 # vertical grid
@@ -95,6 +98,8 @@ purge_mode: str # Criterion to use when purging rays to enforce the bottom
     # boundary condition. Must be one of 'action', 'cg_r', 'energy', or 'pmf'.
     # If 'none', rays will not be purged when checking the source, but an error
     # will be raised if the boundary condition cannot be enforced.
+n_increment: int # If nonzero, then n_ray_max will be increased by this amount
+    # whenever necessary to allow the boundary condition to be enforced.
 
 dt_launch: int # Time step between calls to the source. If inf, new ray volumes
     # are not launched beyond the initial packet.

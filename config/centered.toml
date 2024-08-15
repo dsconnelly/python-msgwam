@@ -3,14 +3,15 @@
 # ==============================================================================
 show_progress = true # Whether to show a progress bar during integration.
 interactive_mean = false # Whether the ray volumes affect the mean state.
-prescribed_wind = '../data/centered/mean-state.nc'
+prescribed_wind = '../data/centered/mean-state-tropics.nc'
 
 # ==============================================================================
 # time stepping
 # ==============================================================================
 dt = 120
-dt_output = 120
-n_day = 1
+dt_output = 1800
+n_day = 5
+average_output = true
 
 # ==============================================================================
 # vertical grid
@@ -30,11 +31,11 @@ latitude= 0
 # ==============================================================================
 # mean wind initialization
 # ==============================================================================
-# wind_init_method =
-# u0 =
-# v0 =
-# z0 = 
-# sigma_uv =
+# wind_init_method = 'gaussian'
+# u0 = 4
+# v0 = 0
+# z0 = 30e3
+# sigma_uv = 3e3
 
 # ==============================================================================
 # pseudomomentum flux calculation
@@ -52,8 +53,8 @@ dissipation = 1
 # ==============================================================================
 # ray volumes and propagation
 # ==============================================================================
-n_ray_max = 50000
-min_pmf = 1e-9
+n_ray_max = 5000
+min_pmf = 1e-8
 n_chromatic = -1
 
 # ==============================================================================
@@ -63,12 +64,13 @@ n_chromatic = -1
 source_type = 'deterministic'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
+n_increment = 10000
 
 dt_launch = 1
 bc_mom_flux = 3e-3
 
-r_launch = 10e3
-dr_init = 60
+r_launch = 5e3
+dr_init = 600
 
 dk_init = 1e-4
 dl_init = 1e-4
@@ -80,8 +82,8 @@ direction = 0
 # 'gaussians' spectrum
 # ==============================================================================
 c_center = 0
-c_width = 15
-n_source = 108
+c_width = 25
+n_source = 54
 
 # ==============================================================================
 # 'coarse' source

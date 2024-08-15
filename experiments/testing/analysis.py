@@ -9,7 +9,7 @@ import xarray as xr
 sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.constants import EPOCH
-from msgwam.plotting import plot_source, plot_time_series
+from msgwam.plotting import plot_time_series
 from msgwam.utils import open_dataset
 
 PLOT_DIR = 'plots'
@@ -59,7 +59,8 @@ def plot_fluxes(mode: str) -> None:
         path = f'data/{config.name}/{strategy}-{mode}.nc'
 
         with open_dataset(path) as ds:
-            img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=1, axes=[ax])
+            ds = ds.resample(time='30min').mean('time')
+            img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
             ax.set_title(_format(strategy))
 
         if i < n_cols:
@@ -71,7 +72,7 @@ def plot_fluxes(mode: str) -> None:
     cax = fig.add_subplot(grid[:, -1])
     cbar = plt.colorbar(img, cax=cax)
 
-    cbar.set_ticks(np.linspace(-1, 1, 9))
+    cbar.set_ticks(np.linspace(-2, 2, 9))
     cbar.set_label('momentum flux (mPa)')
 
     plt.savefig(f'{PLOT_DIR}/{config.name}/fluxes-{mode}.png', dpi=400)
@@ -232,7 +233,7 @@ def _open_and_transform(path: str) -> xr.Dataset:
 
     ds = open_dataset(path)
     days = cftime.date2num(ds['time'], f'days since {EPOCH}')
-    ds = ds.isel(time=((10 <= days) & (days <= 20)))
+    ds = ds.isel(time=((5 <= days) & (days <= 35)))
     ds = ds.resample(time='6h').mean('time')
 
     return ds

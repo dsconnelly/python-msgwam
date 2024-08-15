@@ -29,14 +29,19 @@ def integrate(strategy: str, mode: str) -> None:
         config.interactive_mean = True
 
     config.refresh()
-    ds = SBDF2Integrator().integrate().to_dataset()
+    ds = SBDF2Integrator().integrate()
 
     fname = strategy + f'-{mode}'
     ds.to_netcdf(f'data/{config.name}/{fname}.nc')
     config.reset()
 
 def _reference() -> None:
-    pass
+    config.dt = 40
+    config.n_ray_max = 150000
+    config.n_increment = 10000
+    
+    config.dr_init /= 5
+    config.n_source *= 5
 
 def _many_fine() -> None:
     config.n_ray_max = N_MAX

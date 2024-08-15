@@ -31,7 +31,7 @@ def get_fracs(
     Returns
     -------
     torch.Tensor
-        Tensor of shape (len(edges) - 1, config.n_ray_max), where the value at
+        Tensor of shape (len(edges) - 1, rays.n_ray_max), where the value at
         index [i, j] corresponds to the fraction of cell i that is intersected
         by ray volume j.
     

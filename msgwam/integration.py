@@ -6,8 +6,10 @@ from typing import Any
 
 import cftime
 import torch
+import numpy as np
 import xarray as xr
 
+from torch.nn.functional import pad
 from torch.linalg import lu_factor, lu_solve as _lu_solve
 lu_solve = lambda A, b: _lu_solve(*A, b.T).T
 
@@ -91,9 +93,16 @@ class Integrator(ABC):
         self._update_dataset(mean, rays, ds, 0)
         
         start = now()
-        for i in get_iterator():
+        self._iterator = get_iterator()
+
+        for i in self._iterator:
             if i * config.dt % config.dt_launch == 0:
-                rays.check_source(mean)
+                try:
+                    rays.check_source(mean)
+                    
+                except RuntimeError:
+                    self._write(f'Too many rays at time step {i}.')
+                    break
 
             mean, rays = self.step(mean, rays)
             if not config.interactive_mean:
@@ -101,9 +110,7 @@ class Integrator(ABC):
 
             rays.check_boundaries(mean)
             rays.dissipate_and_break(mean)
-
-            if i % config.n_skip == 0:
-                self._update_dataset(mean, rays, ds, i // config.n_skip)
+            ds = self._update_dataset(mean, rays, ds, i)
 
         runtime = now() - start
         ds.assign_attrs(runtime=runtime)
@@ -135,7 +142,7 @@ class Integrator(ABC):
 
         for name in ['u', 'v', 'pmf_u', 'pmf_v']:
             shape = (len(data['time']), len(data['z']))
-            data[name] = (('time', 'z'), torch.nan * torch.zeros(shape))
+            data[name] = (('time', 'z'), torch.zeros(shape))
 
         for name in RayCollection.props:
             shape = (len(data['time']), config.n_ray_max)
@@ -149,7 +156,7 @@ class Integrator(ABC):
         rays: RayCollection,
         ds: xr.Dataset,
         i: int
-    ) -> None:
+    ) -> xr.Dataset:
         """
         Update each variable in the dataset during integration.
 
@@ -162,19 +169,60 @@ class Integrator(ABC):
         ds
             Dataset holding integration results.
         i
-            Time index in the output dataset.
+            Index of the integration step.
+
+        Returns
+        -------
+        xr.Dataset
+            Updated dataset. Same as the provided dataset, unless rays has had
+            its size increased, in which case an expanded dataset is returned.
 
         """
 
-        for name in ['u', 'v']:
-            ds[name][i] = getattr(mean, name)
+        if rays.n_ray_max > len(ds['nray']):
+            to_drop = ['u', 'v', 'pmf_u', 'pmf_v']
+            ndx = slice(None, rays.n_ray_max - len(ds['nray']))
+            self._write(f'Adding {ndx.stop} ray volumes at step {i}.')
 
-        for name in RayCollection.props:
-            ds[name][i] = getattr(rays, name)
+            ext = xr.full_like(ds.drop_vars(to_drop).isel(nray=ndx), np.nan)
+            ext = ext.assign_coords(nray=(ext['nray'] + len(ds['nray'])))
+            ds = xr.concat((ds, ext), dim='nray', data_vars='minimal')
 
-        pmf = mean.pmf(rays, onto='centers')
-        for j, name in enumerate(['pmf_u', 'pmf_v']):
-            ds[name][i] = pmf[j]
+        k = (i - 1) // config.n_skip + 1
+        rollover = i % config.n_skip == 0
+        
+        if rollover:
+            for name in RayCollection.props:
+                ds[name][k] = getattr(rays, name)
+
+        if not (rollover or config.average_output):
+            return ds
+
+        names = ['u', 'v', 'pmf_u', 'pmf_v']
+        profiles = [*mean.wind, *mean.pmf(rays, onto='centers')]
+        factor = 1 / config.n_skip if config.average_output else int(rollover)
+
+        for name, profile in zip(names, profiles):
+            ds[name][k] = ds[name].values[k] + profile.numpy() * factor
+
+        return ds
+    
+    def _write(self, message: str) -> None:
+        """
+        Print a message, using a `tqdm` iterator's `write` method if necessary.
+
+        Parameters
+        ----------
+        message
+            String to be printed.
+
+        """
+
+        if isinstance(self._iterator, range):
+            print(message)
+
+        else:
+            self._iterator.write(message)
 
 class SBDF2Integrator(Integrator):
     def __init__(self) -> None:
@@ -226,6 +274,11 @@ class SBDF2Integrator(Integrator):
         if not first_step:
             last_mean, last_rays = self.last
             last_dmean_dt, last_drays_dt = self.dlast_dt
+
+            if rays.n_ray_max > last_rays.shape[1]:
+                excess = rays.n_ray_max - last_rays.shape[1]
+                last_rays = pad(last_rays, (0, excess, 0, 0))
+                last_drays_dt = pad(last_drays_dt, (0, excess, 0, 0))
 
         self.last = [mean.wind, rays.data]
         self.dlast_dt = [dmean_dt, drays_dt]
