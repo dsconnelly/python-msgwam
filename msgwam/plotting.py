@@ -2,12 +2,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 import cftime
+import matplotlib.font_manager as fm
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-
-from matplotlib.cm import RdBu_r, ScalarMappable
-from matplotlib.patches import Rectangle
 
 from . import config, sources
 from .constants import EPOCH
@@ -18,6 +16,12 @@ if TYPE_CHECKING:
     from matplotlib.collections import QuadMesh
     from matplotlib.colorbar import Colorbar
 
+_font_path = 'data/fonts/Lato-Regular.ttf'
+_prop = fm.FontProperties(fname=_font_path)
+fm.fontManager.addfont(_font_path)
+
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = _prop.get_name()
 plt.rcParams['figure.dpi'] = 400
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:

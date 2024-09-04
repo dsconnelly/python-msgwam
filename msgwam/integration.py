@@ -14,9 +14,9 @@ from torch.linalg import lu_factor, lu_solve as _lu_solve
 lu_solve = lambda A, b: _lu_solve(*A, b.T).T
 
 from . import config
-from .constants import EPOCH
+from .constants import EPOCH, PROP_NAMES
 from .mean import MeanState
-from .rays import RayCollection
+from .rays import RayCollection, TooManyRaysError
 from .utils import get_iterator, open_dataset
 
 class Integrator(ABC):
@@ -93,23 +93,22 @@ class Integrator(ABC):
         self._update_dataset(mean, rays, ds, 0)
         
         start = now()
-        self._iterator = get_iterator()
-
-        for i in self._iterator:
-            if i * config.dt % config.dt_launch == 0:
-                try:
-                    rays.check_source(mean)
-                    
-                except RuntimeError:
-                    self._write(f'Too many rays at time step {i}.')
-                    break
-
+        for i in get_iterator():
             mean, rays = self.step(mean, rays)
             if not config.interactive_mean:
                 mean.wind = self.prescribed_wind[i]
 
             rays.check_boundaries(mean)
             rays.dissipate_and_break(mean)
+            
+            if i * config.dt % config.dt_launch == 0:
+                try:
+                    rays.check_source(i, mean)
+
+                except TooManyRaysError:
+                    print(f'Too many rays at time step {i}.')
+                    break
+
             ds = self._update_dataset(mean, rays, ds, i)
 
         runtime = now() - start
@@ -144,7 +143,7 @@ class Integrator(ABC):
             shape = (len(data['time']), len(data['z']))
             data[name] = (('time', 'z'), torch.zeros(shape))
 
-        for name in RayCollection.props:
+        for name in PROP_NAMES:
             shape = (len(data['time']), config.n_ray_max)
             data[name] = (('time', 'nray'), torch.nan * torch.zeros(shape))
 
@@ -182,7 +181,7 @@ class Integrator(ABC):
         if rays.n_ray_max > len(ds['nray']):
             to_drop = ['u', 'v', 'pmf_u', 'pmf_v']
             ndx = slice(None, rays.n_ray_max - len(ds['nray']))
-            self._write(f'Adding {ndx.stop} ray volumes at step {i}.')
+            print(f'Adding {ndx.stop} ray volumes at step {i}.')
 
             ext = xr.full_like(ds.drop_vars(to_drop).isel(nray=ndx), np.nan)
             ext = ext.assign_coords(nray=(ext['nray'] + len(ds['nray'])))
@@ -192,7 +191,7 @@ class Integrator(ABC):
         rollover = i % config.n_skip == 0
         
         if rollover:
-            for name in RayCollection.props:
+            for name in PROP_NAMES:
                 ds[name][k] = getattr(rays, name)
 
         if not (rollover or config.average_output):
@@ -207,23 +206,6 @@ class Integrator(ABC):
 
         return ds
     
-    def _write(self, message: str) -> None:
-        """
-        Print a message, using a `tqdm` iterator's `write` method if necessary.
-
-        Parameters
-        ----------
-        message
-            String to be printed.
-
-        """
-
-        if isinstance(self._iterator, range):
-            print(message)
-
-        else:
-            self._iterator.write(message)
-
 class SBDF2Integrator(Integrator):
     def __init__(self) -> None:
         """Initialize an SBDF2Integrator. See Wang and Ruuth (2008)."""

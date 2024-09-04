@@ -13,6 +13,8 @@ from msgwam.plotting import plot_time_series
 from msgwam.utils import open_dataset
 
 PLOT_DIR = 'plots'
+RESAMPLING = '12H'
+SPINUP = 2
 
 COLORS = {
     'many-fine' : 'k',
@@ -22,6 +24,10 @@ COLORS = {
     'few-network' : 'tab:red',
     'intermittent' : 'darkviolet'
 }
+
+FACTORS = {'u' : 1, 'pmf_u' : 1000}
+LONG_NAMES = {'u' : 'wind', 'pmf_u' : 'flux'}
+UNITS = {'u' : 'm / s', 'pmf_u' : 'mPa'}
 
 def plot_fluxes(mode: str) -> None:
     """
@@ -59,7 +65,6 @@ def plot_fluxes(mode: str) -> None:
         path = f'data/{config.name}/{strategy}-{mode}.nc'
 
         with open_dataset(path) as ds:
-            ds = ds.resample(time='30min').mean('time')
             img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
             ax.set_title(_format(strategy))
 
@@ -129,69 +134,74 @@ def plot_lifetimes(mode: str) -> None:
     plt.tight_layout()
     plt.savefig(f'{PLOT_DIR}/{config.name}/lifetimes-{mode}.png', dpi=400)
 
-def plot_scores(mode: str) -> None:
+def plot_scores(mode: str, name: str) -> None:
     """
-    Plot the error with respect to the reference for each strategy.
-    
+    Plot profiles analyzing the performance of various strategies.
+
     Parameters
     ----------
     mode
-        Whether to plot data from `'prescribed'` or `'interactive'` runs. If
-        interactive data is plotted, error will be plotted for mean wind too.
+        Suffix indicating which files to open for analysis.
+    name
+        Whether to plot scores for `'pmf_u'` or `'u'`.
 
     """
 
-    names = ['pmf_u']
-    if mode == 'interactive':
-        names = names + ['u']
+    fig, axes = plt.subplots(ncols=2)
+    fig.set_size_inches(6, 4.5)
 
-    path = f'data/{config.name}/reference-{mode}.nc'
-    with _open_and_transform(path) as ds:
-        refs = {name: ds[name] for name in names}
+    with _open_partial(f'data/{config.name}/reference-{mode}.nc') as ds:
+        ds = ds.resample(time=RESAMPLING).mean('time')
+
+        ref = ds[name]
+        scale = _get_rmse(ref, 0)
         z = ds['z'] / 1000
-
-    fig, axes = plt.subplots(ncols=len(names), squeeze=False)
-    fig.set_size_inches(4 * len(names), 6.5)
-    axes = axes[0]
-
-    factors = {'u' : 1, 'pmf_u' : 1000}
-    units = {'u' : 'm / s', 'pmf_u' : 'mPa'}
-    long_names = {'u' : 'wind', 'pmf_u' : 'flux'}
 
     for strategy, color in COLORS.items():
         path = f'data/{config.name}/{strategy}-{mode}.nc'
         label = _format(strategy)
 
-        with _open_and_transform(path) as ds:
-            for name, ax in zip(names, axes):
-                error = ds[name] - refs[name]
-                profile = np.sqrt((error ** 2).mean('time'))
-                ax.plot(profile * factors[name], z, color=color, label=label) 
+        with _open_partial(path) as ds:
+            ds = ds.resample(time=RESAMPLING).mean('time')
 
-    axes[0].legend(loc='upper right')
-    for name, ax in zip(names, axes):
-        label = f'RMS {long_names[name]}'
-        scale = np.sqrt((refs[name] ** 2).mean('time')) * factors[name]
-        ax.plot(scale, z, color='gray', ls='dashed', label=label)
+            rmse = _get_rmse(ref, ds[name])
+            bias = _get_rmse(ds[name], 0) - scale
+            axes[0].plot(FACTORS[name] * rmse, z, color=color, label=label)
+            axes[1].plot(FACTORS[name] * bias, z, color=color)
 
-        xmax = {'u' : 20, 'pmf_u' : 1.5}[name]
+    label = 'RMS ' + LONG_NAMES[name]
+    axes[0].plot(
+        FACTORS[name] * scale, z,
+        color='gray',
+        ls='dashed',
+        label=label
+    )
 
-        ax.set_xlim(0, xmax)
+    xmax = {'u' : 40, 'pmf_u' : 0.6}[name]
+    xticks = np.linspace(0, xmax, 5)
+    axes[0].set_xlim(0, xmax)
+    axes[0].set_xticks(xticks)
+
+    xmax = {'u' : 20, 'pmf_u' : 0.2}[name]
+    xticks = np.linspace(-xmax, xmax, 5)
+    axes[1].set_xlim(-xmax, xmax)
+    axes[1].set_xticks(xticks)
+
+    yticks = np.linspace(z.min(), z.max(), 7)
+    ylabels = (10 * np.round((yticks / 10))).astype(int)
+
+    for ax in axes:
         ax.set_ylim(z.min(), z.max())
+        ax.set_yticks(yticks, labels=ylabels)
+        ax.set_ylabel('height (km)')
         ax.grid(color='lightgray')
 
-        xticks = np.linspace(0, xmax, 4)
-        ax.set_xticks(xticks)
-
-        yticks = np.linspace(z.min(), z.max(), 7)
-        ylabels = (10 * np.round((yticks / 10))).astype(int)
-        ax.set_yticks(yticks, labels=ylabels)
-
-        ax.set_xlabel(f'RMSE ({units[name]})')
-        ax.set_ylabel('height (km)')
+    axes[0].set_xlabel(f'RMS {LONG_NAMES[name]} error ({UNITS[name]})')
+    axes[1].set_xlabel(f'difference in RMS {LONG_NAMES[name]} ({UNITS[name]})')
+    axes[0].legend()
 
     plt.tight_layout()
-    plt.savefig(f'{PLOT_DIR}/{config.name}/scores-{mode}.png', dpi=400)
+    plt.savefig(f'{PLOT_DIR}/{config.name}/scores-{mode}-{name}.png', dpi=400)
 
 def _format(strategy: str) -> str:
     """
@@ -215,25 +225,46 @@ def _format(strategy: str) -> str:
 
     return output
 
-def _open_and_transform(path: str) -> xr.Dataset:
+def _get_rmse(a: xr.DataArray, b: xr.DataArray) -> xr.DataArray:
     """
-    Open a dataset, resample, and take only the time domain of interest.
-    
+    Calculate the RMSE in time between two arrays.
+
+    Parameters
+    ----------
+    a
+        First array of values.
+    b
+        Second array of values. Alternatively, pass `b=0` to calculate the RMS
+        values of `a` in time.
+
+    Returns
+    -------
+    xr.DataArray
+        RMS errors in time between `a` and `b`. Has the same coordinates as `a`
+        and `b` except that `'time'` has been averaged out.
+
+    """
+
+    return np.sqrt(((a - b) ** 2).mean('time'))
+
+def _open_partial(path: str) -> xr.Dataset:
+    """
+    Open a dataset, dropping the first `SPINUP` days.
+
     Parameters
     ----------
     path
-        Path to netCDF dataset to be opened.
+        Location of the dataset on disk.
 
     Returns
     -------
     xr.Dataset
-        Six-hourly averaged dataset, including only the specified time range.
-
+        Data excluding the first `SPINUP` days.
+  
     """
 
     ds = open_dataset(path)
     days = cftime.date2num(ds['time'], f'days since {EPOCH}')
-    ds = ds.isel(time=((5 <= days) & (days <= 35)))
-    ds = ds.resample(time='6h').mean('time')
+    keep = SPINUP <= days
 
-    return ds
+    return ds.isel(time=keep)

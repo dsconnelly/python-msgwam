@@ -103,7 +103,6 @@ n_increment: int # If nonzero, then n_ray_max will be increased by this amount
 
 dt_launch: int # Time step between calls to the source. If inf, new ray volumes
     # are not launched beyond the initial packet.
-bc_mom_flux: float # Momentum flux across lower boundary (Pa).
 
 r_launch: float # Launch height of ray volumes (m).
 dr_init: float # Initial vertical extent of ray volumes (m).
@@ -114,19 +113,20 @@ dl_init: float # Initial extent of ray volumes in l space.
 wvl_hor_char: float # Characteristic horizontal wavelength (m).
 direction: float # Direction of horizontal propagation (deg relative to east).
 
+n_source: int # How many ray volumes to discretize source into. Must be even.
+c_max: float # Maximum absolute phase speed in source spectrum (m / s).
+
 # ==============================================================================
 # 'gaussians' spectrum
 # ==============================================================================
 c_center: float # Phase speed with peak amplitude (m / s).
 c_width: float # Width of Gaussian in phase speed space (m / s).
-n_source: int # How many ray volumes to discretize source into. Must be even.
+bc_mom_flux: float # Total momentum flux across lower boundary (Pa).
 
 # ==============================================================================
-# 'coarse' source
+# 'from_file' spectrum
 # ==============================================================================
-coarse_height: int # Factor by which ray volume heights should be multiplied.
-coarse_width: int # Factor by which ray volume widths in phase speed space
-    # should be multiplied.
+spectrum_file: str # Path to saved spectrum.
 
 # ==============================================================================
 # 'network' source

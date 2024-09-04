@@ -18,7 +18,9 @@ def integrate(strategy: str, mode: str) -> None:
         Name of the strategy to run. Must correspond to the name of one of the
         setup functions in strategies.py.
     mode
-        Whether to run with a `'prescribed'` or `'interactive'` mean flow.
+        Whether to run with a `'prescribed'` or `'interactive'` mean flow. Or,
+        if set to `'convective'`, runs with prescribed mean winds but a source
+        spectrum that varies in time according to ICON convection data.
 
     """
     
@@ -27,6 +29,9 @@ def integrate(strategy: str, mode: str) -> None:
 
     if mode == 'interactive':
         config.interactive_mean = True
+
+    elif mode == 'convective':
+        config.spectrum_type = 'from_file'
 
     config.refresh()
     ds = SBDF2Integrator().integrate()
@@ -37,11 +42,12 @@ def integrate(strategy: str, mode: str) -> None:
 
 def _reference() -> None:
     config.dt = 40
+    config.dt_launch = 40
     config.n_ray_max = 150000
     config.n_increment = 10000
-    
-    config.dr_init /= 5
+
     config.n_source *= 5
+    config.dr_init /= 5
 
 def _many_fine() -> None:
     config.n_ray_max = N_MAX
@@ -54,20 +60,14 @@ def _few_fine() -> None:
 def _many_coarse() -> None:
     config.n_ray_max = N_MAX
     config.purge_mode = 'energy'
-    config.source_type = 'coarse'
 
     root = int(SPEEDUP ** 0.5)
-    config.coarse_height = root
-    config.coarse_width = root
+    config.n_source //= root
+    config.dr_init *= root
 
 def _few_coarse() -> None:
+    _many_coarse()
     config.n_ray_max = N_MAX // SPEEDUP
-    config.purge_mode = 'energy'
-    config.source_type = 'coarse'
-
-    root = int(SPEEDUP ** 0.5)
-    config.coarse_height = root
-    config.coarse_width = root
 
 def _few_network() -> None:
     _few_coarse()
@@ -75,4 +75,4 @@ def _few_network() -> None:
 
 def _intermittent() -> None:
     _few_fine()
-    config.dt_launch = 6 * 60 * 60
+    config.dt_launch = 3 * 60 * 60

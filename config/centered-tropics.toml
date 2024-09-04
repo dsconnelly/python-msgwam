@@ -3,7 +3,7 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
+prescribed_wind = 'data/centered-tropics/mean-state-ICON.nc'
 
 # ==============================================================================
 # time stepping
@@ -31,11 +31,11 @@ latitude = 0
 # ==============================================================================
 # mean wind initialization
 # ==============================================================================
-wind_init_method = 'gaussian'
-u0 = 4
-v0 = 0
-z0 = 30e3
-sigma_uv = 3e3
+# wind_init_method = 'gaussian'
+# u0 = 4
+# v0 = 0
+# z0 = 30e3
+# sigma_uv = 3e3
 
 # ==============================================================================
 # pseudomomentum flux calculation
@@ -90,7 +90,7 @@ bc_mom_flux = 2e-3
 # ==============================================================================
 # 'from_file' spectrum
 # ==============================================================================
-# spectrum_file: str # Path to saved spectrum.
+spectrum_file = 'data/centered-tropics/ICON-spectra.nc'
 
 # ==============================================================================
 # 'network' source

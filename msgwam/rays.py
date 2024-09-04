@@ -4,25 +4,28 @@ from typing import TYPE_CHECKING, Any, cast
 import torch
 
 from . import config, sources
+from .constants import PROP_NAMES
 from .dispersion import cg_r, omega_hat
 from .utils import interp, get_fracs, put
 
 if TYPE_CHECKING:
     from .mean import MeanState
 
-class RayCollection:
-    props = ['r', 'dr', 'k', 'l', 'm', 'dk', 'dl', 'dm', 'dens', 'age', 'meta']
-    indices = {prop : i for i, prop in enumerate(props)}
+class TooManyRaysError(Exception):
+    pass
 
+class RayCollection:
     r: torch.Tensor; dr: torch.Tensor
     k: torch.Tensor; l: torch.Tensor; m: torch.Tensor
     dk: torch.Tensor; dl: torch.Tensor; dm: torch.Tensor
     dens: torch.Tensor; age: torch.Tensor; meta: torch.Tensor
 
+    indices = {prop : i for i, prop in enumerate(PROP_NAMES)}
+
     def __init__(self) -> None:
         """Initialize the collection of ray volumes."""
 
-        shape = (len(self.props), config.n_ray_max)
+        shape = (len(PROP_NAMES), config.n_ray_max)
         self.data = torch.nan * torch.zeros(shape)
         self.next_meta = -1
 
@@ -30,7 +33,7 @@ class RayCollection:
         self.source: sources.Source = getattr(sources, cls_name)()
 
         self.ghosts = torch.zeros(self.source.n_slots).int()
-        for slot, data in enumerate(self.source.data.T):
+        for slot, data in enumerate(self.source.data[:, 0].T):
             self.ghosts[slot] = self.add_ray(data)
 
     def __getattr__(self, prop: str) -> Any:
@@ -44,7 +47,7 @@ class RayCollection:
         Parameters
         ----------
         prop
-            Name of the ray property to return. Should be in self.props.
+            Name of the ray property to return. Should be in PROP_NAMES.
 
         Returns
         -------
@@ -151,12 +154,12 @@ class RayCollection:
 
         if self.count == self.n_ray_max:
             if config.n_increment > 0:
-                shape = (len(self.props), config.n_increment)
+                shape = (len(PROP_NAMES), config.n_increment)
                 blank = torch.nan * torch.zeros(shape)
                 self.data = torch.hstack((self.data, blank))
 
             else:
-                raise RuntimeError('RayCollection has too many rays')
+                raise TooManyRaysError('RayCollection has too many rays')
 
         self.next_meta = self.next_meta + 1
         j = int(torch.argmin(self.valid.int()))
@@ -234,13 +237,15 @@ class RayCollection:
         pmf = self.k * self.cg_r() * self.action
         self.delete_rays(abs(pmf) < config.min_pmf)
 
-    def check_source(self, mean: MeanState) -> None:
+    def check_source(self, i: int, mean: MeanState) -> None:
         """
         Enforce the bottom boundary condition by adding ray volumes as necessary
         to replace those that have cleared the ghost layer.
 
         Parameters
         ----------
+        i
+            Index of current time step.
         mean
             Current mean state of the system. Used to provide mean wind data to
             wind-dependent sources.
@@ -253,12 +258,12 @@ class RayCollection:
         if len(crossed) == 0:
             return
         
-        datas, replaced = self.source.launch(crossed, mean.u)
+        datas = self.source.launch(i, crossed, mean)
         excess = self.count + datas.shape[1] - self.n_ray_max
 
         self.purge(excess)
         for j, data in enumerate(datas.T):
-            self.ghosts[replaced[j]] = self.add_ray(data)
+            self.ghosts[crossed[j]] = self.add_ray(data)
 
     def cg_r(self) -> torch.Tensor:
         """
@@ -307,7 +312,7 @@ class RayCollection:
         -------
         torch.Tensor
             Tensor of time tendencies, each row of which corresponds to a ray
-            property named in self.props.
+            property named in PROP_NAMES.
 
         """
 

@@ -13,6 +13,7 @@ from msgwam import config
 
 from analysis import plot_fluxes, plot_lifetimes, plot_scores
 from scenarios import save_mean_state
+from spectra import save_ICON_spectra
 from strategies import integrate
 
 if __name__ == '__main__':

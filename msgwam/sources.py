@@ -1,240 +1,159 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
+import cftime
 import torch
+import xarray as xr
 
 from . import config
-from .dispersion import cg_r, cp_x, m_from
-from .spectra import get_spectrum
+from .constants import EPOCH
+from .dispersion import cg_r
+from .spectra import get_flux, get_spectrum
+
+if TYPE_CHECKING:
+    from .mean import MeanState
 
 class Source(ABC):
     def __init__(self) -> None:
         """
         Initialize the source with data from the spectrum type specified in the
-        config file. That parameter must correspond to the name of a function
-        defined in spectra.py.
-
+        configuration file. At initialization, the `Source` takes a `Dataset`
+        of source spectrum information and matches it to the correct time grid.
+        It then rescales the flux associated with each source ray volume to
+        account for intermittency effects.
         """
 
-        self.data = get_spectrum()
+        n_launch = (86400 * config.n_day) // config.dt_launch + 1
+        seconds = config.dt_launch * torch.arange(n_launch)
+        time = cftime.num2date(seconds, f'seconds since {EPOCH}')
 
+        ds = get_spectrum()
+        if 'time' in ds.coords:
+            ds = self._average_backwards(ds)
+            ds = ds.sel(time=time, method='ffill')
+
+        data = torch.as_tensor(ds.to_array().values)
+        data[-1] *= self._get_intermittency_factors(data)
+
+        if data.dim() < 3:
+            data = data.unsqueeze(1).expand(-1, n_launch, -1)
+
+        self.data = data
+
+    @property
+    def n_slots(self) -> int:
+        """Returns the number of phase speeds in the source spectrum."""
+
+        return self.data.shape[-1]
+    
     @abstractmethod
     def launch(
-        self,
+        self,        
+        i: int,
         jdx: torch.Tensor,
-        u: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+        mean: MeanState
+    ) -> torch.Tensor:
         """
-        Each spectrum is discretized into a fixed number of slots, each of which
-        corresponds to a column in `self.data`. This function takes in a tensor
-        containing the slots of rays that have cleared the launch level, along
-        with the current state of the mean zonal wind, and returns the 
-        properties of the ray volumes that should be launched.
+        Each spectrum is discretized into a fixed number of slots corresponding
+        to the last dimension of `self.data`. This function takes in the current
+        time step and a tensor containing the slots of rays that have cleared
+        the launch level, and returns the properties of the ray volumes that
+        should be launched.
 
-        This function may simply return the columns of `self.data` indexed by
-        `jdx`. However, subclasses might implement more complex behavior. For
-        example, a stochastic source might return only a subset of the requested
-        slots, while a neural network source might modify the source data before
-        returning it.
-
-        In addition to the properties of the ray volumes to launch, the source
-        returns a helper tensor containing the slots that are replaced by each
-        of the returned ray volumes.
-
+        A simple implementation of this method might return the slots as indexed
+        by `jdx`. Subclasses, however, might implement more complex behavior.
+        For example, a neural network source might modify the source data before
+        returning it. For this reason, this method also accepts the current mean
+        state of the system in case subclasses use the mean wind fields.
+        
         Parameters
         ----------
+        i
+            Index of current time step.
         jdx
             Tensor of slots of ray volumes that have cleared the launch level.
-        u
-            Current zonal wind profile (may be ignored by subclasses).
 
         Returns
         -------
         torch.Tensor
             Tensor of properties of the ray volumes that should be launched.
-        torch.Tensor
-            Tensor of slots that are replaced by one of the rays in the first
-            output tensor.
 
         """
         ...
 
-    @property
-    def n_slots(self) -> int:
+    @staticmethod
+    def _average_backwards(ds: xr.Dataset) -> xr.Dataset:
         """
-        Count the total number of ray volumes in this source. Implemented as a
-        property so that subclasses which modify the source data can do so after
-        `__init__` without having to redeclare an instance field.
-
-        Returns
-        -------
-        int
-            Number of ray volumes in the source spectrum.
-
-        """
-
-        return self.data.shape[1]
-
-    @property
-    def data(self) -> torch.Tensor:
-        """
-        Return the properties of the source ray volumes.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor whose rows correspond to properties and whose columes to
-            individual ray volumes in the source spectrum.
-
-        """
-
-        return self._data
-    
-    @data.setter
-    def data(self, value: torch.Tensor) -> None:
-        """
-        Set the data for this source, and also recompute the intermittency
-        factors with the new values.
+        If `config.dt_launch` is longer than the time step in the given source
+        spectrum, this function averages the ray volume properties over the
+        appropriate interval preceding the launch time. The spectral density is
+        then adjusted so that the average flux is correct.
+        
+        If `config.dt_launch` is shorter than the source spectrum time step (for
+        example, if it is equal to the integration time step) then this function
+        leaves the dataset unchanged.
 
         Parameters
         ----------
-        value
-            Ray volume properties to be associated with this source.
+        ds
+            Dataset of time-varying source ray volume properties.
+
+        Returns
+        -------
+        xr.Dataset
+            Backwards-averaged dataset.
 
         """
 
-        self._data = value
-        self.intermittency_factors = self._get_intermittency_factors(value)
+        bins = ds['time'].dt.ceil(f'{config.dt_launch}S')
+        targets = get_flux(ds).groupby(bins).mean()
+        ds = ds.groupby(bins).mean()
+
+        cs = ds['cp_x'].values
+        dc = abs(cs[1] - cs[0])
+        k, dk, dl = ds[['k', 'dk', 'dl']].to_array()
+        ds['dens'] = abs(targets) / (k ** 2 * dk * dl * dc)
+
+        return ds.rename(ceil='time')
 
     @staticmethod
     def _get_intermittency_factors(data: torch.Tensor) -> torch.Tensor:
         """
-        If launches are not occurring every time step, compute the factor by
-        which each ray volume should be scaled to account for the rays not
-        simulated due to intermittency.
+        Compute factors to scale the spectral density to account for rays that
+        ought to launch more than once in a launch window. This rescaling is
+        mainly to account for intermittent sources, where ray volumes might have
+        group velocities implying many launches per window, but fast-moving rays
+        can have their densities adjusted even when the source is constant.
 
         Parameters
         ----------
         data
-            Tensor of ray volume properties.
+            Tensor of ray volume properties whose first dimension corresponds to
+            individual ray properties and whose last dimension corresponds to
+            phase speeds. `data` may also have a middle time dimension.
 
         Returns
         -------
         torch.Tensor
-            Scale factor for each ray volume in `data`.
+            Tensor with the same shape as `data[-1]` containing the factors by
+            which the spectral density should be scaled.
 
         """
 
-        if config.dt_launch <= 1:
-            return torch.ones(data.shape[1])
+        _, dr, k, l, m, *_ = data
+        factors = cg_r(k, l, m) * config.dt_launch / dr
+        factors = torch.clamp(factors, torch.ones_like(factors))
 
-        return cg_r(*data[2:5]) * config.dt_launch / data[1]
+        return factors
 
-class DeterministicSource(Source):
-    def launch(self, jdx: torch.Tensor, _) -> tuple[torch.Tensor, torch.Tensor]:
-        """A `DeterministicSource` simply returns the requested columns."""
-
-        data = self.data[:, jdx]
-        data[-1] = data[-1] * self.intermittency_factors[jdx]
-
-        return data, jdx
-
-class CoarseSource(DeterministicSource):
-    def __init__(self) -> None:
-        """
-        At initialization, a CoarseSource replaces the loaded source spectrum
-        with an appropriately coarsened version.
-        """
-
-        super().__init__()
-        self.data = self.coarsen(self.data)
-
-    @classmethod
-    def coarsen(cls, spectrum: torch.Tensor) -> torch.Tensor:
-        """
-        Coarsen a source spectrum according to the loaded `config` settings.
-
-        Parameters
-        ----------
-        spectrum
-            Tensor of source ray volumes whose first dimension ranges over ray
-            volume properties and whose second dimension ranges over rays in the
-            source spectrum.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor of shape `(9, spectrum.shape[1] // config.coarse_width)` of
-            coarsened ray volumes.
-
-        """
-
-        cs = cp_x(*spectrum[2:5])
-        cs = cs.reshape(-1, config.coarse_width)
-        
-        c_lo, _ = cs.min(dim=-1)
-        c_hi, _ = cs.max(dim=-1)
-        cs = (c_lo + c_hi) / 2
-
-        spectrum = spectrum.reshape(9, -1, config.coarse_width)
-        fluxes = cls._get_fluxes(spectrum).sum(dim=-1)
-        spectrum = spectrum.mean(dim=-1)
-
-        r, dr = spectrum[:2]
-        spectrum[0] = r + (1 - config.coarse_height) * dr / 2
-        spectrum[1] = dr * config.coarse_height
-
-        k, l = spectrum[2:4]
-        spectrum[4] = m_from(k, l, cs)
-
-        if config.coarse_width > 1:
-            dc = (c_hi - c_lo) / (1 - 1 / config.coarse_width)
-            spectrum[7] = abs(k * dc / cg_r(k, l, spectrum[4]))
-
-        spectrum[8] *= fluxes / cls._get_fluxes(spectrum)
-
-        return spectrum
-
-    @staticmethod
-    def _get_fluxes(spectrum: torch.Tensor) -> torch.Tensor:
-        """
-        Calculate the pseudomomentum fluxes associated with ray volumes in a
-        source spectrum.
-
-        Parameters
-        ----------
-        spectrum
-            Tensor of source ray volumes. The first dimension must range over
-            ray properties, and the other dimensions may be arbitrary.
-
-        Returns
-        -------
-        torch.Tensor
-            Tensor of shape `spectrum.shape[1:]` containing the pseudomomentum
-            flux associated with each ray volume.
-
-        """
-
-        k, l, m, dk, dl, dm, dens = spectrum[2:]
-        return k * cg_r(k, l, m) * dens * dk * dl * dm
-    
-class NetworkSource(CoarseSource):
-    def __init__(self) -> None:
-        """
-        At initialization, a `CoarseSource` loads the jitted model saved at the
-        location indicated by the config file.
-        """
-
-        super().__init__()
-        self.model = torch.jit.load(config.model_path)
-
+class SimpleSource(Source):
     def launch(
-        self,
+        self,        
+        i: int,
         jdx: torch.Tensor,
-        u: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        A `NetworkSource` lets its loaded network modify the coarsened ray
-        volumes before sending them back to the integrator.
-        """
+        _: MeanState
+    ) -> torch.Tensor:
+        """A `SimpleSource` just returns the source slots indexed by `jdx`."""
 
-        return self.model(u, self.data[:, jdx]), jdx
+        return self.data[:, i * config.dt // config.dt_launch, jdx]

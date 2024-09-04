@@ -10,6 +10,12 @@ from msgwam import config
 from msgwam.constants import EPOCH, RAD_EARTH
 from msgwam.plotting import plot_time_series
 
+_REGIMES = {
+    'tropics' : (0, 30),
+    'midlatitudes' : (35, -140),
+    'vortex' : (60, -140)
+}
+
 def save_mean_state(scenario: str) -> None:
     """
     Save a mean state file for this config setup.
@@ -25,12 +31,54 @@ def save_mean_state(scenario: str) -> None:
     func_name = '_' + scenario.replace('-', '_')
     ds: xr.Dataset = globals()[func_name]()
 
-    _, cbar = plot_time_series(ds['u'], 45)
+    _, cbar = plot_time_series(ds['u'], 75)
     cbar.set_label('$\\bar{u}$ (m / s)')
 
     plt.tight_layout()
-    plt.savefig(f'plots/{config.name}/mean-state.png', dpi=400)
-    ds.to_netcdf(f'data/{config.name}/mean-state.nc')
+    plt.savefig(f'plots/{config.name}/mean-state-{scenario}.png', dpi=400)
+    ds.to_netcdf(f'data/{config.name}/mean-state-{scenario}.nc')
+
+def _ICON() -> xr.Dataset:
+    """
+    Return a mean flow scenario taken from ICON data.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset containing the mean flow scenario.
+
+    """
+
+    regime = config.name.split('-')[-1]
+    lat, lon = _REGIMES[regime]
+
+    with xr.open_dataset('data/ICON/DJF-2324.nc') as ds:
+        lats = np.rad2deg(ds['clat'].values)
+        lons = np.rad2deg(ds['clon'].values)
+
+        i = np.argmin((lats - lat) ** 2 + (lons - lon) ** 2)
+        seconds = ds['time'].values.astype(int) / 1e9
+        u = ds['u'].isel(ncells=i).values
+
+    with xr.open_dataset('data/ICON/vgrid.nc') as ds:
+        z = ds['z_ifc'].isel(ncells_2=i).values
+        z = (z[:-1] + z[1:]) / 2
+
+    time = cftime.num2date(seconds - seconds[0], f'seconds since {EPOCH}')
+    faces = np.linspace(*config.grid_bounds, config.n_grid)
+    centers = (faces[:-1] + faces[1:]) / 2
+
+    ds = xr.Dataset({
+        'time' : time,
+        'z' : z,
+        'u' : (('time', 'z'), u),
+        'v' : (('time', 'z'), np.zeros_like(u))
+    })
+
+    kwargs = {'fill_value' : 'extrapolate'}
+    ds = ds.interp(z=centers, kwargs=kwargs)
+
+    return ds
 
 def _jra_midlatitudes() -> xr.Dataset:
     """
