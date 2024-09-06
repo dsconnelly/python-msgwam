@@ -46,6 +46,7 @@ def _reference() -> None:
     config.n_ray_max = 150000
     config.n_increment = 10000
 
+    config.rescale_fluxes = False
     config.n_source *= 5
     config.dr_init /= 5
 

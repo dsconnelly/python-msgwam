@@ -55,10 +55,6 @@ def refresh(config: Optional[dict[str]]=None) -> None:
 
     config['r_ghost'] = config['r_launch'] - config['dr_init']
 
-    if 'coarse_height' in config and 'coarse_width' in config:
-        height, width = config['coarse_height'], config['coarse_width']
-        config['rays_per_packet'] = height * width
-
     globals().update(config)
 
 def reset() -> None:

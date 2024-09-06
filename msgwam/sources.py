@@ -24,12 +24,13 @@ class Source(ABC):
         account for intermittency effects.
         """
 
-        n_launch = (86400 * config.n_day) // config.dt_launch + 1
-        seconds = config.dt_launch * torch.arange(n_launch)
-        time = cftime.num2date(seconds, f'seconds since {EPOCH}')
-
         ds = get_spectrum()
-        if 'time' in ds.coords:
+        n_launch = int((86400 * config.n_day) // config.dt_launch) + 1
+
+        if 'time' in ds.coords and n_launch > 1:
+            seconds = config.dt_launch * torch.arange(n_launch)
+            time = cftime.num2date(seconds, f'seconds since {EPOCH}')
+
             ds = self._average_backwards(ds)
             ds = ds.sel(time=time, method='ffill')
 
@@ -141,8 +142,13 @@ class Source(ABC):
 
         """
 
+        if not config.rescale_fluxes or config.dt_launch == float('inf'):
+            return torch.ones_like(data[-1])
+
         _, dr, k, l, m, *_ = data
         factors = cg_r(k, l, m) * config.dt_launch / dr
+
+        # factors = factors * torch.ceil(1 / factors)
         factors = torch.clamp(factors, torch.ones_like(factors))
 
         return factors

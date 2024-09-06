@@ -49,7 +49,7 @@ for arg in "$@"; do
 
     elif [ "$arg" = "integrate" ]; then
 
-        python experiments/testing $cfg \
+        python experiments/testing $config \
             integrate:reference:$mode \
             integrate:many-fine:$mode \
             integrate:few-fine:$mode \
@@ -59,10 +59,15 @@ for arg in "$@"; do
 
     elif [ "$arg" = "analyze" ]; then
     
-        python experiments/testing $cfg \
+        python experiments/testing $config \
             plot-fluxes:$mode \
             plot-lifetimes:$mode \
-            plot-scores:$mode
+            plot-scores:$mode:pmf_u
+
+        if [ "$mode" = "interactive" ]; then
+            python experiments/testing $config \
+                plot-scores:$mode:u
+        fi
 
     fi
 

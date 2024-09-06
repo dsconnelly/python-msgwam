@@ -148,7 +148,7 @@ def plot_scores(mode: str, name: str) -> None:
     """
 
     fig, axes = plt.subplots(ncols=2)
-    fig.set_size_inches(6, 4.5)
+    fig.set_size_inches(1.25 * 6, 1.25 * 4.5)
 
     with _open_partial(f'data/{config.name}/reference-{mode}.nc') as ds:
         ds = ds.resample(time=RESAMPLING).mean('time')

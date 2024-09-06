@@ -1,4 +1,5 @@
 from __future__ import annotations
+from os.path import dirname as parent
 from typing import TYPE_CHECKING, Optional
 
 import cftime
@@ -16,13 +17,17 @@ if TYPE_CHECKING:
     from matplotlib.collections import QuadMesh
     from matplotlib.colorbar import Colorbar
 
-_font_path = 'data/fonts/Lato-Regular.ttf'
+_REPO_DIR = parent(parent(__file__))
+_font_path = f'{_REPO_DIR}/data/fonts/Lato-Regular.ttf'
 _prop = fm.FontProperties(fname=_font_path)
 fm.fontManager.addfont(_font_path)
 
 plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = _prop.get_name()
 plt.rcParams['figure.dpi'] = 400
+
+plt.rcParams["xtick.direction"] = "in"
+plt.rcParams["ytick.direction"] = "in"
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -74,7 +79,7 @@ def plot_source(ax: Optional[Axes]=None) -> Axes:
 
     cls_name = config.source_type.capitalize() + 'Source'
     source: sources.Source = getattr(sources, cls_name)()
-    k, l, m, dk, dl, dm, dens = source.data[2:]
+    k, l, m, dk, dl, dm, dens = source.data[2:, 0]
 
     cp = cp_x(k, l, m)
     cg = cg_r(k, l, m)
@@ -83,12 +88,17 @@ def plot_source(ax: Optional[Axes]=None) -> Axes:
     flux = k * cg * dens * abs(dk * dl * dm) * 1000
     ax.bar(cp, flux, dc, ec='k', fc='lightgray', zorder=2)
 
-    ax.set_xlim(-32, 32)
-    ax.set_xticks(np.linspace(-32, 32, 9))
-    ax.set_ylim(-0.15, 0.15)
+    ax.set_xlim(-config.c_max, config.c_max)
+    ax.set_xticks(np.linspace(-config.c_max, config.c_max, 11))
+
+    ax.set_ylim(-0.1, 0.1)
+    ax.set_yticks(np.linspace(-0.1, 0.1, 9))
 
     ax.set_xlabel('phase speed (m / s)')
     ax.set_ylabel('flux (mPa)')
+
+    total = abs(flux).sum()
+    ax.set_title(f'total flux: {total:.2f} mPa')
     ax.grid(color='lightgray', zorder=1)
 
     return ax

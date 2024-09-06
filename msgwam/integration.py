@@ -2,7 +2,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from copy import copy
 from time import time as now
-from typing import Any
+from typing import Any, Callable, Optional
 
 import cftime
 import torch
@@ -72,14 +72,23 @@ class Integrator(ABC):
         """
         ...
 
-    def integrate(self) -> xr.Dataset:
+    def integrate(self, snapshot_func: Optional[Callable]=None) -> xr.Dataset:
         """
         Integrate the system over the time interval specified in config.
 
+        Parameters
+        ----------
+        snapshot_func
+            If not `None`, should be a function that accepts a `MeanState` and a
+            `RayCollection` and returns any object the user would like to save
+            at each output time step. The outputs of the function will then be
+            saved in the `snapshots` attribute of this object. Most useful for
+            saving snapshots of momentum flux to enable autograd.
+
         Returns
         -------
-        Integrator
-            The integrated system.
+        xr.Dataset
+            Dataset holding the integration data.
 
         """
 
@@ -88,6 +97,9 @@ class Integrator(ABC):
 
         if not config.interactive_mean:
             mean.wind = self.prescribed_wind[0]
+
+        if snapshot_func is not None:
+            self.snapshots = [snapshot_func(mean, rays)]
 
         ds = self._init_dataset(mean.z_centers)
         self._update_dataset(mean, rays, ds, 0)
@@ -110,6 +122,8 @@ class Integrator(ABC):
                     break
 
             ds = self._update_dataset(mean, rays, ds, i)
+            if (snapshot_func is not None) and (i % config.n_skip == 0):
+                self.snapshots.append(snapshot_func(mean, rays))
 
         runtime = now() - start
         ds.assign_attrs(runtime=runtime)
@@ -205,7 +219,7 @@ class Integrator(ABC):
             ds[name][k] = ds[name].values[k] + profile.numpy() * factor
 
         return ds
-    
+
 class SBDF2Integrator(Integrator):
     def __init__(self) -> None:
         """Initialize an SBDF2Integrator. See Wang and Ruuth (2008)."""

@@ -1,14 +1,11 @@
 import sys
 
-sys.path.insert(0, '.')
-from msgwam import config
-
-from analysis import plot_scores
-from preprocessing import save_training_data
-from training import train_network
-
 import torch
 torch.set_default_dtype(torch.float64)
+
+from msgwam import config
+
+from preprocessing import save_training_data
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]

@@ -101,6 +101,7 @@ purge_mode: str # Criterion to use when purging rays to enforce the bottom
 n_increment: int # If nonzero, then n_ray_max will be increased by this amount
     # whenever necessary to allow the boundary condition to be enforced.
 
+rescale_fluxes: bool # Whether to correct amplitudes for intermittency.
 dt_launch: int # Time step between calls to the source. If inf, new ray volumes
     # are not launched beyond the initial packet.
 
@@ -141,5 +142,3 @@ n_t_max: int # Number of time steps to take.
 n_skip: int # Number of time steps to skip between outputs.
 f0: float # Coriolis parameter (1 / s).
 r_ghost: float # Vertical extent of the ghost layer (m).
-rays_per_packet: int # How many ray volumes the neural network accepts at once.
-    # Calculated as the product of coarse_height and coarse_width.

@@ -3,5 +3,6 @@
 *.pyc
 config/old
 data
+experiments/old-coarsenet
 logs/*
 plots/*

@@ -66,6 +66,7 @@ spectrum_type = 'gaussians'
 purge_mode = 'none'
 n_increment = 0
 
+rescale_fluxes = true
 dt_launch = 120
 
 r_launch = 5e3
