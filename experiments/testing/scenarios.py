@@ -9,6 +9,7 @@ sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.constants import EPOCH, RAD_EARTH
 from msgwam.plotting import plot_time_series
+from msgwam.utils import shapiro_filter
 
 _REGIMES = {
     'tropics' : (0, 30),
@@ -31,7 +32,7 @@ def save_mean_state(scenario: str) -> None:
     func_name = '_' + scenario.replace('-', '_')
     ds: xr.Dataset = globals()[func_name]()
 
-    _, cbar = plot_time_series(ds['u'], 75)
+    _, cbar = plot_time_series(ds['u'], 50)
     cbar.set_label('$\\bar{u}$ (m / s)')
 
     plt.tight_layout()
@@ -119,43 +120,6 @@ def _jra_midlatitudes() -> xr.Dataset:
         'v' : (('time', 'z'), v)
     }).interp(z=centers)
 
-def _oscillating_jets() -> xr.Dataset:
-    """
-    Return a mean flow scenario with two oscillating jets.
-
-    Returns
-    -------
-    xr.Dataset
-        Dataset containing the mean flow scenario.
-
-    """
-
-    faces = np.linspace(*config.grid_bounds, config.n_grid)
-    centers = (faces[:-1] + faces[1:]) / 2
-
-    width = 3e3
-    low = 10 * np.exp(-((centers - 25e3) / width) ** 2)
-    high = 10 * np.exp(-((centers - 38e3) / width) ** 2)
-
-    n_days = 35
-    seconds = 86400 * np.linspace(0, n_days, 24 * n_days)
-    datetimes = cftime.num2date(seconds, f'seconds since {EPOCH}')
-    arg = 2 * np.pi * seconds / 86400 / 30
-
-    shape = (len(seconds), len(centers))
-    low = np.broadcast_to(low, shape) * np.sin(arg)[:, None]
-    high = np.broadcast_to(high, shape) * np.cos(arg)[:, None]
-
-    u = low - high
-    v = np.zeros_like(u)
-
-    return xr.Dataset({
-        'z' : centers,
-        'time' : datetimes,
-        'u' : (('time', 'z'), u),
-        'v' : (('time', 'z'), v)
-    })
-
 def _descending_jets() -> xr.Dataset:
     """
     Return a mean flow scenario with descending jets approximating the QBO.
@@ -167,18 +131,24 @@ def _descending_jets() -> xr.Dataset:
 
     """
 
+    seconds = config.dt * np.arange(config.n_t_max)
+    datetimes = cftime.num2date(seconds, f'seconds since {EPOCH}')
     faces = np.linspace(*config.grid_bounds, config.n_grid)
     centers = (faces[:-1] + faces[1:]) / 2
 
-    seconds = config.dt * np.arange(config.n_t_max)
-    datetimes = cftime.num2date(seconds, f'seconds since {EPOCH}')
-
-    k = 2 * np.pi / (10 * 86400)
+    k = 2 * np.pi / (14 * 86400)
     ell = 2 * np.pi / 25e3
 
     x, y = np.meshgrid(seconds, centers)
-    env = 40 * np.exp(-((centers - 33e3) / 10e3) ** 2)
-    u = env * np.exp(1j * (k * x + ell * y)).real.T
+    wave = np.exp(1j * (k * x + ell * y)).real.T
+    env = np.exp(-((centers - 45e3) / 10e3) ** 2)
+
+    args = [config.n_t_max, config.n_grid - 1, 5 / 2]
+    noise_1 = _make_colored_noise(*args)
+    noise_2 = _make_colored_noise(*args)
+
+    u = env * 40 * (wave + noise_1) + 5 * noise_2
+    u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 
     return xr.Dataset({
@@ -187,3 +157,37 @@ def _descending_jets() -> xr.Dataset:
         'u' : (('time', 'z'), u),
         'v' : (('time', 'z'), v)
     })
+
+def _make_colored_noise(n_t: int, n_z: int, p: float=3) -> np.ndarray:
+    """
+    Generate power law noise on a potentially unequal time-height grid.
+
+    Parameters
+    ----------
+    n_t
+        Number of points in the time dimension.
+    n_z
+        Number of points in the vertical dimension.
+    p
+        Power law governing noise.
+
+    Returns
+    -------
+    np.ndarray
+        Two-dimensional array of noise, ranging from -1 to 1.
+
+    """
+
+    ell = n_z * np.fft.fftfreq(n_z)
+    k = n_t * np.fft.fftfreq(n_t)[:, None]
+    wvn = np.sqrt((k ** 2 + ell ** 2) / (n_t ** 2 + n_z ** 2))
+
+    A = np.zeros_like(wvn)
+    A[wvn != 0] = 1 / wvn[wvn != 0]
+    A = A ** (p / 2)
+
+    phase = 2 * np.pi * np.random.rand(*A.shape)
+    noise_hat = A * (np.cos(phase) * 1j * np.sin(phase))
+    noise = np.fft.ifft2(noise_hat).real
+
+    return 2 * (noise - noise.min()) / (noise.max() - noise.min()) - 1

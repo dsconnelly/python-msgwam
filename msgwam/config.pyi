@@ -31,6 +31,9 @@ n_day: int # Number of days to integrate for.
 average_output: bool # Whether or not to average mean state variables (wind and
     # momentum flux profiles) in the output file. Has no effect unless dt_output
     # is larger than dt.
+check_sign_changes: bool # Whether to artificially break waves whose difference
+    # in phase speed from the mean flow has changed since launch. Prevents waves
+    # from skipping critical levels for lack of time resolution.
 
 # ==============================================================================
 # vertical grid

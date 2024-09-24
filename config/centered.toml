@@ -10,13 +10,14 @@ prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
 # ==============================================================================
 dt = 120
 dt_output = 1800
-n_day = 60
+n_day = 28
 average_output = true
+check_sign_changes = true
 
 # ==============================================================================
 # vertical grid
 # ==============================================================================
-grid_bounds = [0, 60e3]
+grid_bounds = [10e3, 70e3]
 n_grid = 101
 
 # ==============================================================================
@@ -69,7 +70,7 @@ n_increment = 0
 rescale_fluxes = true
 dt_launch = 120
 
-r_launch = 5e3
+r_launch = 15e3
 dr_init = 600
 
 dk_init = 1e-4
@@ -86,7 +87,7 @@ c_max = 50
 # ==============================================================================
 c_center = 0
 c_width = 25
-bc_mom_flux = 2e-3
+bc_mom_flux = 4e-3
 
 # ==============================================================================
 # 'from_file' spectrum
@@ -96,4 +97,4 @@ bc_mom_flux = 2e-3
 # ==============================================================================
 # 'network' source
 # ==============================================================================
-# model_path: str # Path where JIT-compiled neural network is saved.
+# model_path = 'data/ml-accel/tinkerer/model-56-r0.jit'

@@ -147,8 +147,6 @@ class Source(ABC):
 
         _, dr, k, l, m, *_ = data
         factors = cg_r(k, l, m) * config.dt_launch / dr
-
-        # factors = factors * torch.ceil(1 / factors)
         factors = torch.clamp(factors, torch.ones_like(factors))
 
         return factors
@@ -163,3 +161,30 @@ class SimpleSource(Source):
         """A `SimpleSource` just returns the source slots indexed by `jdx`."""
 
         return self.data[:, i * config.dt // config.dt_launch, jdx]
+
+class NetworkSource(SimpleSource):
+    def __init__(self) -> None:
+        """
+        At initialization, a `NetworkSource` loads the JITted `CoarseNet` model
+        specified in the config file.
+        """
+
+        super().__init__()
+        self.model = torch.jit.load(config.model_path)
+
+    def launch(
+        self,        
+        i: int,
+        jdx: torch.Tensor,
+        mean: MeanState
+    ) -> torch.Tensor:
+        """
+        A `NetworkSource` uses the zonal mean profile included in `mean` to
+        apply the `CoarseNet` to the desired ray volumes.
+        """
+
+        Y = super().launch(i, jdx, None).T
+        u = mean.u[None].expand(Y.shape[0], -1)
+
+        with torch.no_grad():
+            return self.model(u.double(), Y).T

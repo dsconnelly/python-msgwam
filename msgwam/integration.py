@@ -93,7 +93,7 @@ class Integrator(ABC):
         """
 
         mean = MeanState()
-        rays = RayCollection()
+        rays = RayCollection(mean)
 
         if not config.interactive_mean:
             mean.wind = self.prescribed_wind[0]

@@ -26,8 +26,8 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = _prop.get_name()
 plt.rcParams['figure.dpi'] = 400
 
-plt.rcParams["xtick.direction"] = "in"
-plt.rcParams["ytick.direction"] = "in"
+# plt.rcParams["xtick.direction"] = "in"
+# plt.rcParams["ytick.direction"] = "in"
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -137,9 +137,11 @@ def plot_time_series(
         fig.set_size_inches(sum(widths), 3)
 
     z = data['z'].values / 1000
-    yticks = np.linspace(z.min(), z.max(), 7)
-    ylabels = (10 * np.round((yticks / 10))).astype(int)
     time = cftime.date2num(data['time'], f'days since {EPOCH}')
+
+    yticks = np.linspace(z.min(), z.max(), 7)
+    ylabels = 10 * np.round((yticks - yticks.min()) / 10)
+    ylabels = (ylabels + yticks.min()).astype(int)
 
     img = axes[0].pcolormesh(
         time, z, data.T,

@@ -3,20 +3,21 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
+prescribed_wind = 'data/ml-accel/mean-state-descending-jets.nc'
 
 # ==============================================================================
 # time stepping
 # ==============================================================================
-dt = 120
-dt_output = 120
-n_day = 2
-average_output = false
+dt = 30
+dt_output = 30
+n_day = 1
+average_output = true
+check_sign_changes = true
 
 # ==============================================================================
 # vertical grid
 # ==============================================================================
-grid_bounds = [0, 60e3]
+grid_bounds = [10e3, 70e3]
 n_grid = 101
 
 # ==============================================================================
@@ -54,7 +55,7 @@ dissipation = 1
 # ray volumes and propagation
 # ==============================================================================
 n_ray_max = 1
-min_pmf = 1e-8
+min_pmf = 0
 n_chromatic = -1
 
 # ==============================================================================
@@ -66,10 +67,10 @@ spectrum_type = 'gaussians'
 purge_mode = 'none'
 n_increment = 0
 
-rescale_fluxes = true
+rescale_fluxes = false
 dt_launch = inf
 
-r_launch = 5e3
+r_launch = 15e3
 dr_init = 600
 
 dk_init = 1e-4

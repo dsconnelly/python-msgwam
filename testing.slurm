@@ -2,7 +2,7 @@
 
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --time=48:00:00
+#SBATCH --time=36:00:00
 #SBATCH --mem=128G
 
 #SBATCH --mail-user=dsconnelly@nyu.edu
@@ -10,7 +10,7 @@
 
 python ()
 { 
-    cmd="python $@";
+    cmd="python -u $@";
     singularity exec \
         --overlay ${overlay}:ro ${image} \
         /bin/bash -c "source /ext3/activate.sh; $cmd"
@@ -50,18 +50,19 @@ for arg in "$@"; do
     elif [ "$arg" = "integrate" ]; then
 
         python experiments/testing $config \
-            integrate:reference:$mode \
-            integrate:many-fine:$mode \
-            integrate:few-fine:$mode \
-            integrate:many-coarse:$mode \
-            integrate:few-coarse:$mode \
-            integrate:intermittent:$mode
+            integrate:inf:hyperfine:$mode \
+            integrate:inf:fine:$mode \
+            integrate:inf:coarse:$mode \
+            integrate:many:fine:$mode \
+            integrate:few:fine:$mode \
+            integrate:many:coarse:$mode \
+            integrate:few:coarse:$mode \
+            integrate:few:intermittent:$mode
 
     elif [ "$arg" = "analyze" ]; then
     
         python experiments/testing $config \
             plot-fluxes:$mode \
-            plot-lifetimes:$mode \
             plot-scores:$mode:pmf_u
 
         if [ "$mode" = "interactive" ]; then

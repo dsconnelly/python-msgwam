@@ -1,0 +1,10 @@
+# architectures
+conservative = [1]
+batch_norm_pos = [0]
+dropout_rate = [0]
+n_blocks = [1]
+network_size = [5]
+
+# training
+batch_size = [32]
+learning_rate = [1e-2, 1e-3, 1e-4]

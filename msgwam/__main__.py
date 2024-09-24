@@ -10,6 +10,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     config.load(args.config_path)
-    ds = SBDF2Integrator().integrate().to_dataset()
-    plot_integration(ds, f'plots/{config.name}.png')
-    ds.to_netcdf(f'data/{config.name}.nc')
+    ds = SBDF2Integrator().integrate()
+    ds.to_netcdf(f'data/{config.name}/integration.nc')

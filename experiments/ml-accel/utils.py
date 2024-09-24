@@ -1,7 +1,8 @@
 from __future__ import annotations
+from os.path import dirname as parent
 from typing import TYPE_CHECKING, Optional
 
-import torch
+import torch, torch.nn as nn
 import xarray as xr
 
 from msgwam import config, spectra
@@ -13,6 +14,31 @@ from msgwam.utils import shapiro_filter
 if TYPE_CHECKING:
     from msgwam.mean import MeanState
     from msgwam.rays import RayCollection
+
+_REPO_DIR = parent(parent(parent(__file__)))
+DATA_DIR = f'{_REPO_DIR}/data/ml-accel'
+
+def dimensionalize(Y: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
+    """
+    Transform neural network outputs to fluxes in physical units.
+
+    Parameters
+    ----------
+    Y
+        Coarse ray volume properties as to be passed to `_get_flux_scale`.
+    Z
+        Dimensionless flux profiles (with amplitudes close to unity) as
+        output by `forward` of a `SurrogateNet`.
+
+    Returns
+    -------
+    torch.Tensor
+        Two-dimensional tensor of flux profiles with physical units whose
+        second dimension ranges over vertical grid points.
+
+    """
+
+    return Z * _get_flux_scale(Y)[:, None]
 
 def integrate_batch(
     wind: torch.Tensor,
@@ -74,25 +100,68 @@ def integrate_batch(
 
     return torch.stack(solver.snapshots).transpose(0, 1)
 
-def root_transform(a: torch.Tensor, root: int) -> torch.Tensor:
+def nondimensionalize(Y: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
     """
-    Transform data by taking a sign-aware root.
+    Transform physical data to profiles with amplitudes close to unity more
+    suitable for training and comparing neural networks.
 
     Parameters
     ----------
-    a
-        Data to be transformed.
-    root
-        Order of the root to take. For example, `root=3` takes a cube root.
+    Y
+        Coarse ray volume properties as to be passed to `_get_flux_scale`.
+    Z
+        Flux profiles with physical units.
 
     Returns
     -------
     torch.Tensor
-        Transformed data.
+        Two-dimensional tensor of nondimensional flux profiles second
+        dimension ranges over vertical grid points.
 
     """
 
-    return torch.sign(a) * (abs(a) ** (1 / root))
+    return Z / _get_flux_scale(Y)[:, None]
+
+def xavier_init(layer: nn.Module) -> None:
+    """
+    Apply Xavier initialization to a layer if it is an `nn.Linear`.
+
+    Parameters
+    ----------
+    layer
+        Module to potentially initialize.
+
+    """
+
+    if isinstance(layer, nn.Linear):
+        gain = nn.init.calculate_gain('relu')
+        nn.init.xavier_uniform_(layer.weight, gain=gain)
+
+def _get_flux_scale(Y: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the scale factors for each profile used to (non)dimensionalize.
+
+    Parameters
+    ----------
+    Y
+        Two-dimensional tensor of coarse ray volume properties whose first
+        dimension ranges over individual rays and whose second dimension ranges
+        over ray volume properties.
+
+    Returns
+    -------
+    torch.Tensor
+        One-dimensional tensor of factors, one for each in row in `Y`, that
+        scale transform the corresponding flux profiles to have amplitudes
+        close to unity. Some functional forms might work better than others.
+
+    """
+
+    T = config.n_t_max * config.dt
+    _, dr, k, _, _, dk, dl, dm, dens = Y.T
+    action = dens * dk * dl * dm
+    
+    return abs(k) * action * dr / T
 
 def _get_snapshot(
     mean: MeanState,
@@ -120,7 +189,7 @@ def _get_snapshot(
 
     pmf = (rays.k * rays.action * rays.cg_r())
     pmf = pmf.reshape(-1, config.n_chromatic)
-    profiles = mean.project(rays, pmf, 'centers')
+    profiles = mean.project(rays, pmf, 'faces')
 
     if config.shapiro_filter:
         profiles[1:-1] = shapiro_filter(profiles)

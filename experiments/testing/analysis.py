@@ -1,5 +1,7 @@
 import sys
 
+from typing import Iterator
+
 import cftime
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
@@ -13,16 +15,27 @@ from msgwam.plotting import plot_time_series
 from msgwam.utils import open_dataset
 
 PLOT_DIR = 'plots'
-RESAMPLING = '12H'
+RESAMPLING = '6H'
 SPINUP = 2
 
+INCLUDE = {
+    'inf' : ['hyperfine', 'fine', 'coarse'],
+    'many' : ['fine', 'coarse'],
+    'few' : ['fine', 'coarse', 'intermittent'],
+}
+
 COLORS = {
-    'many-fine' : 'k',
-    'few-fine' : 'gold',
-    'many-coarse' : 'forestgreen',
-    'few-coarse' : 'royalblue',
-    'few-network' : 'tab:red',
+    'fine' : 'royalblue',
+    'coarse' : 'tab:red',
+    'network' : 'forestgreen',
     'intermittent' : 'darkviolet'
+}
+
+STYLES = {
+    'fine' : 'dotted',
+    'coarse' : 'dashed',
+    'network' : 'dashed',
+    'intermittent' : 'dotted',
 }
 
 FACTORS = {'u' : 1, 'pmf_u' : 1000}
@@ -40,7 +53,9 @@ def plot_fluxes(mode: str) -> None:
 
     """
 
-    n_plots = len(COLORS) + 1
+    strategies = list(_get_strategies())
+    n_plots = len(strategies)
+
     n_cols = int(n_plots // 2)
     n_cols = n_cols + n_plots % 2
     n_rows = 2
@@ -60,13 +75,12 @@ def plot_fluxes(mode: str) -> None:
         i, j = k // n_cols, k % n_cols
         axes.append(fig.add_subplot(grid[i, j]))
 
-    strategies = ['reference'] + list(COLORS.keys())
-    for i, (strategy, ax) in enumerate(zip(strategies, axes)):
-        path = f'data/{config.name}/{strategy}-{mode}.nc'
+    for i, ((resources, resolution), ax) in enumerate(zip(strategies, axes)):
+        path = f'data/{config.name}/{resources}-{resolution}-{mode}.nc'
 
         with open_dataset(path) as ds:
             img, _ = plot_time_series(ds['pmf_u'] * 1000, amax=2, axes=[ax])
-            ax.set_title(_format(strategy))
+            ax.set_title(_format(resources, resolution))
 
         if i < n_cols:
             ax.set_xlabel('')
@@ -147,70 +161,67 @@ def plot_scores(mode: str, name: str) -> None:
 
     """
 
-    fig, axes = plt.subplots(ncols=2)
-    fig.set_size_inches(1.25 * 6, 1.25 * 4.5)
+    fig, axes = plt.subplots(ncols=3)
+    fig.set_size_inches(9, 4.5)
 
-    with _open_partial(f'data/{config.name}/reference-{mode}.nc') as ds:
+    with _open_partial(f'data/{config.name}/inf-hyperfine-{mode}.nc') as ds:
         ds = ds.resample(time=RESAMPLING).mean('time')
 
         ref = ds[name]
-        scale = _get_rmse(ref, 0)
         z = ds['z'] / 1000
 
-    for strategy, color in COLORS.items():
-        path = f'data/{config.name}/{strategy}-{mode}.nc'
-        label = _format(strategy)
+    strategies = list(_get_strategies())
+    for resources, resolution in strategies:
+        path = f'data/{config.name}/{resources}-{resolution}-{mode}.nc'
+        if resources == 'inf' and resolution == 'hyperfine':
+            continue
+
+        kwargs = {
+            'color' : COLORS[resolution],
+            'ls' : STYLES[resolution],
+            'label' : resolution
+        }
 
         with _open_partial(path) as ds:
             ds = ds.resample(time=RESAMPLING).mean('time')
 
             rmse = _get_rmse(ref, ds[name])
-            bias = _get_rmse(ds[name], 0) - scale
-            axes[0].plot(FACTORS[name] * rmse, z, color=color, label=label)
-            axes[1].plot(FACTORS[name] * bias, z, color=color)
+            ax = axes[['inf', 'many', 'few'].index(resources)]
+            ax.plot(FACTORS[name] * rmse, z, **kwargs)
 
-    label = 'RMS ' + LONG_NAMES[name]
-    axes[0].plot(
-        FACTORS[name] * scale, z,
-        color='gray',
-        ls='dashed',
-        label=label
-    )
+        ax.set_title(resources)
 
     xmax = {'u' : 40, 'pmf_u' : 0.6}[name]
     xticks = np.linspace(0, xmax, 5)
-    axes[0].set_xlim(0, xmax)
-    axes[0].set_xticks(xticks)
-
-    xmax = {'u' : 20, 'pmf_u' : 0.2}[name]
-    xticks = np.linspace(-xmax, xmax, 5)
-    axes[1].set_xlim(-xmax, xmax)
-    axes[1].set_xticks(xticks)
 
     yticks = np.linspace(z.min(), z.max(), 7)
     ylabels = (10 * np.round((yticks / 10))).astype(int)
-
+    
     for ax in axes:
+        ax.set_xlim(0, xmax)
+        ax.set_xticks(xticks)
+        ax.set_xlabel(f'RMS {LONG_NAMES[name]} error ({UNITS[name]})')
+
         ax.set_ylim(z.min(), z.max())
         ax.set_yticks(yticks, labels=ylabels)
         ax.set_ylabel('height (km)')
         ax.grid(color='lightgray')
 
-    axes[0].set_xlabel(f'RMS {LONG_NAMES[name]} error ({UNITS[name]})')
-    axes[1].set_xlabel(f'difference in RMS {LONG_NAMES[name]} ({UNITS[name]})')
-    axes[0].legend()
+    axes[2].legend(loc='lower right')
 
     plt.tight_layout()
     plt.savefig(f'{PLOT_DIR}/{config.name}/scores-{mode}-{name}.png', dpi=400)
-
-def _format(strategy: str) -> str:
+        
+def _format(resources: str, resolution: str) -> str:
     """
     Format the name of a strategy to appear in plots.
     
     Parameters
     ----------
-    strategy
-        Name of the strategy being plotted.
+    resources
+        Resource specification.
+    resolution
+        Resolution specification.
 
     Returns
     -------
@@ -219,12 +230,21 @@ def _format(strategy: str) -> str:
 
     """
 
-    output = strategy.replace('-', ', ')
+    output = f'{resources}, {resolution}'
     if output == 'many, fine':
         output = output + ' ("ICON")'
 
     return output
 
+def _get_strategies() -> Iterator[str]:
+    """
+    
+    """
+
+    for resources, resolutions in INCLUDE.items():
+        for resolution in resolutions:
+            yield resources, resolution
+            
 def _get_rmse(a: xr.DataArray, b: xr.DataArray) -> xr.DataArray:
     """
     Calculate the RMSE in time between two arrays.

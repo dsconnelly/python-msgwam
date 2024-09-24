@@ -6,13 +6,26 @@ from msgwam.constants import EPOCH
 from msgwam.spectra import get_spectrum
 from msgwam.utils import open_dataset
 
-from utils import integrate_batch
+from utils import DATA_DIR, integrate_batch
 
 FIXED_WIND = False
+N_BATCHES = 100
+PACKETS_PER_BATCH = 512
+RAYS_PER_PACKET = 1
 
-N_BATCHES = 5
-PACKETS_PER_BATCH = 32
-RAYS_PER_PACKET = 9
+def save_indices() -> None:
+    """
+    Save indices for training, validation, and test sets. Assumes that training
+    will occur freely across all batches and packets.
+    """
+
+    n_samples = N_BATCHES * PACKETS_PER_BATCH
+    a, b = int(0.7 * n_samples), int(0.85 * n_samples)
+    idx = torch.randperm(n_samples)
+
+    torch.save(idx[:a], f'{DATA_DIR}/idx-tr.pkl')
+    torch.save(idx[a:b], f'{DATA_DIR}/idx-va.pkl')
+    torch.save(idx[b:], f'{DATA_DIR}/idx-te.pkl')
 
 def save_training_data() -> None:
     """
@@ -28,12 +41,12 @@ def save_training_data() -> None:
     Z = _integrate_packets(wind, X, RAYS_PER_PACKET)
     Z_coarse = _integrate_packets(wind, Y, 1)
 
-    torch.save(wind, 'data/coarsenet/wind.pkl')
-    torch.save(X, 'data/coarsenet/X.pkl')
-    torch.save(Y, 'data/coarsenet/Y.pkl')
+    torch.save(wind, f'{DATA_DIR}/wind.pkl')
+    torch.save(X, f'{DATA_DIR}/X.pkl')
+    torch.save(Y, f'{DATA_DIR}/Y.pkl')
 
-    torch.save(Z, 'data/coarsenet/Z.pkl')
-    torch.save(Z_coarse, 'data/coarsenet/Z_coarse.pkl')
+    torch.save(Z, f'{DATA_DIR}/Z.pkl')
+    torch.save(Z_coarse, f'{DATA_DIR}/Z-coarse.pkl')
     
 def _integrate_packets(
     wind: torch.Tensor,
@@ -57,21 +70,25 @@ def _integrate_packets(
     Returns
     -------
     torch.Tensor
-        Tensor of shape `(N_BATCHES, PACKETS_PER_BATCH, n_snapshots, n_z)` whose
-        first dimension ranges over batches, whose second dimension ranges over
-        wave packets within a batch, whose third dimension ranges over time
-        steps in the integration, and whose fourth dimension ranges over
-        vertical grid points.
+        Tensor of shape `(N_BATCHES, PACKETS_PER_BATCH, n_z)` whose first
+        dimension ranges over batches, whose second dimension ranges over wave
+        packets within a batch, and whose third dimension ranges over vertical
+        grid points. Saved fluxes are averaged in time.
 
     """
 
-    n_z = config.n_grid - 1
-    n_snapshots = (config.n_t_max - 1) // config.n_skip + 1
-    Z = torch.zeros((N_BATCHES, PACKETS_PER_BATCH, n_snapshots, n_z))
+    n_batches = X.shape[0]
+    n_z = config.n_grid - 1 + 1
+    Z = torch.zeros((n_batches, PACKETS_PER_BATCH, n_z))
 
-    for i in range(N_BATCHES):
+    for i in range(n_batches):
         spectrum = X[i].reshape(9, -1)
-        Z[i] = integrate_batch(wind[i], spectrum, rays_per_packet)
+        Z[i] = integrate_batch(
+            wind[i],
+            spectrum, 
+            rays_per_packet,
+            smoothing=None
+        ).mean(1)
 
     return Z
 
@@ -125,10 +142,11 @@ def _randomize_spectrum() -> None:
     """
     
     bounds = {
-        'bc_mom_flux' : [1e-3, 5e-3],
+        'bc_mom_flux' : [2e-3, 6e-3],
         'wvl_hor_char' : [80e3, 120e3],
-        'c_center' : [0, 15],
-        'c_width' : [8, 16]
+        'c_center' : [0, 30],
+        'c_width' : [8, 24],
+        'c_max' : [45, 50]
     }
 
     for name, (lo, hi) in bounds.items():

@@ -5,7 +5,7 @@ import torch
 
 from . import config, sources
 from .constants import PROP_NAMES
-from .dispersion import cg_r, omega_hat
+from .dispersion import cg_r, cp_x, omega_hat
 from .utils import interp, get_fracs, put
 
 if TYPE_CHECKING:
@@ -22,19 +22,27 @@ class RayCollection:
 
     indices = {prop : i for i, prop in enumerate(PROP_NAMES)}
 
-    def __init__(self) -> None:
-        """Initialize the collection of ray volumes."""
+    def __init__(self, mean: MeanState) -> None:
+        """
+        Initialize the collection of ray volumes.
+
+        Parameters
+        ----------
+        mean
+            Current mean state. Only need to pass to `add_ray`.
+        
+        """
 
         shape = (len(PROP_NAMES), config.n_ray_max)
         self.data = torch.nan * torch.zeros(shape)
-        self.next_meta = -1
+        self.next_meta = 0
 
         cls_name = config.source_type.capitalize() + 'Source'
         self.source: sources.Source = getattr(sources, cls_name)()
 
         self.ghosts = torch.zeros(self.source.n_slots).int()
         for slot, data in enumerate(self.source.data[:, 0].T):
-            self.ghosts[slot] = self.add_ray(data)
+            self.ghosts[slot] = self.add_ray(data, mean)
 
     def __getattr__(self, prop: str) -> Any:
         """
@@ -129,7 +137,7 @@ class RayCollection:
 
         return self.data.shape[1]
     
-    def add_ray(self, data: torch.Tensor) -> int:
+    def add_ray(self, data: torch.Tensor, mean: MeanState) -> int:
         """
         Add a ray to the collection, storing its data in the first available
         column. Raises an error if the collection is already at the maximum
@@ -139,6 +147,10 @@ class RayCollection:
         ----------
         data
             Vector of ray properties (r, dr, k, l, m, dk, dl, dm, dens).
+        mean
+            Current mean state. Used so that the sign of the meta attribute can
+            reflect that sign of the difference between phase speed and mean
+            flow at launch time, to be checked later.
 
         Returns
         -------
@@ -163,9 +175,11 @@ class RayCollection:
 
         self.next_meta = self.next_meta + 1
         j = int(torch.argmin(self.valid.int()))
+        u_source = interp(data[0:1], mean.z_centers, mean.u)
+        sign = cp_x(*data[2:5]) - u_source
 
         self.data[:-2, j] = data
-        self.data[-2:, j] = torch.tensor([0, self.next_meta])
+        self.data[-2:, j] = torch.tensor([0, sign * self.next_meta])
         
         return j
     
@@ -263,7 +277,7 @@ class RayCollection:
 
         self.purge(excess)
         for j, data in enumerate(datas.T):
-            self.ghosts[crossed[j]] = self.add_ray(data)
+            self.ghosts[crossed[j]] = self.add_ray(data, mean)
 
     def cg_r(self) -> torch.Tensor:
         """
@@ -348,6 +362,12 @@ class RayCollection:
             Current mean state of the system.
 
         """
+        
+        if config.check_sign_changes:
+            cs = cp_x(self.k, self.l, self.m)
+            us = interp(self.r, mean.z_centers, mean.u)
+            changed = torch.sign(cs - us) != torch.sign(self.meta)
+            self.delete_rays(changed)
 
         omega_hat = self.omega_hat()
         wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2

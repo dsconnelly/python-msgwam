@@ -133,9 +133,9 @@ def open_dataset(*args, **kwargs) -> xr.Dataset:
 
 def pad_ends(data: torch.Tensor) -> torch.Tensor:
     """
-    Pad both ends of a one-dimensional tensor by repeating the start and end
-    values. This function exists because the syntax for torch.nn.functional.pad
-    is somewhat complicated for one-dimensional tensors.
+    Pad the first dimension of a one- or two-dimensional tensor by repeating the
+    start and end values. This function exists because torch.nn.functional.pad
+    has a somewhat complicated syntax for one-dimensional tensors.
 
     Parameters
     ----------
@@ -145,9 +145,12 @@ def pad_ends(data: torch.Tensor) -> torch.Tensor:
     Returns
     -------
     torch.Tensor
-        Padded tensor. Has two more elements than the tensor passed in.
+        Padded tensor. Has a first dimension two longer than `data`.
 
     """
+
+    if data.dim() > 1:
+        return pad(data.T, (1, 1), mode='replicate').T
 
     return pad(data.view(1, -1), (1, 1), mode='replicate').flatten()
 
