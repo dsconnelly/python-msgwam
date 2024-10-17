@@ -15,20 +15,25 @@ from msgwam.plotting import plot_time_series
 from msgwam.utils import open_dataset
 
 PLOT_DIR = 'plots'
-RESAMPLING = '6H'
+RESAMPLING = '3H'
 SPINUP = 2
 
 INCLUDE = {
-    'inf' : ['hyperfine', 'fine', 'coarse'],
+    # 'inf' : ['hyperfine', 'fine', 'coarse'],
     'many' : ['fine', 'coarse'],
-    'few' : ['fine', 'coarse', 'intermittent'],
+    'few' : ['fine', 'coarse']
+    # 'few' : ['fine', 'coarse', 'stochastic-25', 'emulation', 'network']
+    # 'few' : ['fine', 'coarse', 'intermittent', 'stochastic-1', 'stochastic-25']
+    # 'few' : ['fine', 'coarse', 'stochastic-25', 'emulation', 'network']
 }
 
 COLORS = {
-    'fine' : 'royalblue',
-    'coarse' : 'tab:red',
-    'network' : 'forestgreen',
-    'intermittent' : 'darkviolet'
+    'fine' : 'k',
+    'coarse' : 'royalblue',
+    'network' : 'tab:red',
+    'intermittent' : 'darkviolet',
+    'stochastic' : 'gold',
+    'emulation' : 'forestgreen'
 }
 
 STYLES = {
@@ -36,6 +41,8 @@ STYLES = {
     'coarse' : 'dashed',
     'network' : 'dashed',
     'intermittent' : 'dotted',
+    'stochastic' : 'dotted',
+    'emulation' : 'dotted'
 }
 
 FACTORS = {'u' : 1, 'pmf_u' : 1000}
@@ -161,43 +168,71 @@ def plot_scores(mode: str, name: str) -> None:
 
     """
 
-    fig, axes = plt.subplots(ncols=3)
-    fig.set_size_inches(9, 4.5)
+    fig, axes = plt.subplots(ncols=len(INCLUDE), squeeze=False)
+    fig.set_size_inches(3 * len(INCLUDE), 4.5)
+    axes = axes[0]
 
+    # with _open_partial(f'data/{config.name}/many-fine-{mode}.nc') as ds:
     with _open_partial(f'data/{config.name}/inf-hyperfine-{mode}.nc') as ds:
         ds = ds.resample(time=RESAMPLING).mean('time')
 
         ref = ds[name]
         z = ds['z'] / 1000
+        rms = _get_rmse(ref, 0)
 
     strategies = list(_get_strategies())
     for resources, resolution in strategies:
+        label = resolution
+        ls = 'solid'
+
+        if resolution.startswith('stochastic'):
+            resolution, n_samples = resolution.split('-')
+            n_samples = int(n_samples)
+
+            label = f'stochastic, x{n_samples}'
+            if n_samples == 1:
+                ls = 'dashed'
+
+        if resolution == 'emulation':
+            label = 'NN emulator'
+
+        if resolution == 'network':
+            label = 'NN adjuster'
+
         path = f'data/{config.name}/{resources}-{resolution}-{mode}.nc'
         if resources == 'inf' and resolution == 'hyperfine':
             continue
 
         kwargs = {
             'color' : COLORS[resolution],
-            'ls' : STYLES[resolution],
-            'label' : resolution
+            'ls' : ls,
+            # 'ls' : STYLES[resolution],
+            'label' : label
         }
 
         with _open_partial(path) as ds:
             ds = ds.resample(time=RESAMPLING).mean('time')
 
+            if resolution == 'stochastic':
+                ds = ds.isel(sample=slice(None, n_samples)).mean('sample')
+
             rmse = _get_rmse(ref, ds[name])
-            ax = axes[['inf', 'many', 'few'].index(resources)]
+            ax = axes[list(INCLUDE.keys()).index(resources)]
             ax.plot(FACTORS[name] * rmse, z, **kwargs)
 
-        ax.set_title(resources)
+        Nmax = {'many' : 2502, 'few' : 278}[resources]
+        ax.set_title(f'$N_\\mathrm{{max}} = {Nmax}$')
 
-    xmax = {'u' : 40, 'pmf_u' : 0.6}[name]
+    xmax = {'u' : 40, 'pmf_u' : 1}[name]
     xticks = np.linspace(0, xmax, 5)
 
     yticks = np.linspace(z.min(), z.max(), 7)
     ylabels = (10 * np.round((yticks / 10))).astype(int)
     
     for ax in axes:
+        label = 'RMS flux'
+        ax.plot(FACTORS[name] * rms, z, color='gray', ls='dashed', label=label)
+
         ax.set_xlim(0, xmax)
         ax.set_xticks(xticks)
         ax.set_xlabel(f'RMS {LONG_NAMES[name]} error ({UNITS[name]})')
@@ -207,7 +242,7 @@ def plot_scores(mode: str, name: str) -> None:
         ax.set_ylabel('height (km)')
         ax.grid(color='lightgray')
 
-    axes[2].legend(loc='lower right')
+    axes[-1].legend(loc='lower right')
 
     plt.tight_layout()
     plt.savefig(f'{PLOT_DIR}/{config.name}/scores-{mode}-{name}.png', dpi=400)

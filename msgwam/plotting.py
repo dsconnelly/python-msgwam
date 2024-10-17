@@ -26,8 +26,8 @@ plt.rcParams['font.family'] = 'sans-serif'
 plt.rcParams['font.sans-serif'] = _prop.get_name()
 plt.rcParams['figure.dpi'] = 400
 
-# plt.rcParams["xtick.direction"] = "in"
-# plt.rcParams["ytick.direction"] = "in"
+plt.rcParams["xtick.direction"] = "in"
+plt.rcParams["ytick.direction"] = "in"
 
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -91,8 +91,8 @@ def plot_source(ax: Optional[Axes]=None) -> Axes:
     ax.set_xlim(-config.c_max, config.c_max)
     ax.set_xticks(np.linspace(-config.c_max, config.c_max, 11))
 
-    ax.set_ylim(-0.1, 0.1)
-    ax.set_yticks(np.linspace(-0.1, 0.1, 9))
+    ax.set_ylim(-0.5, 0.5)
+    ax.set_yticks(np.linspace(-0.5, 0.5, 9))
 
     ax.set_xlabel('phase speed (m / s)')
     ax.set_ylabel('flux (mPa)')
@@ -150,19 +150,27 @@ def plot_time_series(
         cmap='RdBu_r'
     )
 
+    # levels = np.linspace(-amax, amax, 20)
+    # img = axes[0].contourf(
+    #     time, z, data.T,
+    #     levels=levels,
+    #     vmin=-amax, vmax=amax,
+    #     cmap='RdBu_r'
+    # )
+
     axes[0].set_xlabel('time (days)')
     axes[0].set_ylabel('height (km)')
 
     tmax = time.max()
     axes[0].set_xlim(0, tmax)
-    axes[0].set_xticks(np.linspace(0, tmax, 5))
+    axes[0].set_xticks(np.linspace(0, tmax, 4))
 
     axes[0].set_ylim(z.min(), z.max())
     axes[0].set_yticks(yticks, labels=ylabels)
     
     try:
         cbar = plt.colorbar(img, cax=axes[1], orientation='vertical')
-        cbar.set_ticks(np.linspace(-amax, amax, 7)) # type: ignore
+        cbar.set_ticks(np.linspace(-amax, amax, 5)) # type: ignore
 
     except IndexError:
         cbar = None

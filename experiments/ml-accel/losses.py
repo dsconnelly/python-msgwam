@@ -1,62 +1,58 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING, Callable, Optional
-
 import torch, torch.nn as nn
 
-if TYPE_CHECKING:
-    Surrogate = Callable[..., torch.Tensor]
+from msgwam.mean import MeanState
 
-class ProfileLoss(nn.Module):
+class DivergenceLoss(nn.Module):
     """
-    Module to compute losses between momentum flux profiles. Flexible enough to
-    handle both `SurrogateNet` and `CoarseNet` training.
+    Loss function to compute losses between flux divergence profiles using the
+    Earth mover's distance.
     """
 
-    def __init__(self, surrogate: Optional[Surrogate]=None) -> None:
+    def __init__(self) -> None:
         """
-        Save the surrogate, if there is one.
-
-        Parameters
-        ----------
-        surrogate
-            Map from zonal wind profiles and coarse ray volume properties to
-            momentum flux profiles, if training a `CoarseNet`, otherwise `None`.
-
+        `DivergenceLoss` ignores drag below a certain level, to avoid spurious
+        dependence on the launch level. At initialization, the module stores a
+        boolean tensor used to index only drags above that level.
         """
 
         super().__init__()
-        self.surrogate = surrogate
+        grid = MeanState().z_centers
+        self.keep = grid > 20e3
 
-    def forward(
-        self,
-        u: torch.Tensor,
-        output: torch.Tensor,
-        Z: torch.Tensor
-    ) -> torch.Tensor:
+    def forward(self, Z: torch.Tensor, output: torch.Tensor) -> torch.Tensor:
         """
-        Calculate mean squared error between (nondimensionalized) momentum flux
-        profiles, first propagating with the surrogate if necessary.
+        Calculate the flux divergence of each profile, and then return the loss
+        as the sum of the Earth mover's distance over all profiles.
 
         Parameters
         ----------
-        u
-            Two-dimensional tensor of zonal wind profiles.
-        output
-            Neural network output. If `self.surrogate` is not `None`, these will
-            be interpreted as coarse ray volume properties and converted to flux
-            profiles with the provided mapping. Otherwise, these will be treated
-            as the momentum flux profiles themselves and compared directly.
         Z
-            Two-dimensional tensor of true momentum flux profiles.
-
+            Two-dimensional tensor of target (nondimensional) flux profiles.
+        output
+            Two-dimensional tensor of output (nondimensional) flux profiles.
+        
         Returns
         -------
         torch.Tensor
-            Mean squared error across all samples and vertical levels.
- 
+            Total Earth mover's distance.
+
         """
 
-        if self.surrogate is not None:
-            output = self.surrogate(u, output)
+        # Z = torch.diff(Z, dim=1)[:, self.keep]
+        # output = torch.diff(output, dim=1)[:, self.keep]
 
-        return ((output - Z) ** 2).mean()
+        cdf_1 = self._get_cdf(Z)
+        cdf_2 = self._get_cdf(output)
+
+        return abs(cdf_1 - cdf_2).mean()
+    
+    def _get_cdf(self, a: torch.Tensor) -> torch.Tensor:
+        """
+        
+        """
+
+        scale = a.sum(dim=1)
+        scale[scale == 0] = 1
+        cdf = torch.cumsum(a, dim=1)
+
+        return cdf / scale[:, None]

@@ -8,9 +8,15 @@ from msgwam import config
 
 import hyperparameters as params
 
-from inversion import solve_inversion
+from emulation import emulate_fluxes
+from inversion import finalize_validation, invert_surrogate, validate_inversion
 from training import train_network
-from preprocessing import save_indices, save_training_data
+from preprocessing import (
+    save_indices,
+    save_training_inputs,
+    save_training_outputs,
+    stack_training_outputs
+)
 
 if __name__ == '__main__':
     config_path, hparam_path, *tasks = sys.argv[1:]

@@ -3,13 +3,13 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
+prescribed_wind = '../data/centered/mean-state-descending-jets.nc'
 
 # ==============================================================================
 # time stepping
 # ==============================================================================
 dt = 120
-dt_output = 1800
+dt_output = 120
 n_day = 30
 average_output = true
 check_sign_changes = true
@@ -54,7 +54,7 @@ dissipation = 1
 # ==============================================================================
 # ray volumes and propagation
 # ==============================================================================
-n_ray_max = 1
+n_ray_max = 2500
 min_pmf = 1e-8
 n_chromatic = -1
 
@@ -64,7 +64,7 @@ n_chromatic = -1
 # ==============================================================================
 source_type = 'simple'
 spectrum_type = 'gaussians'
-purge_mode = 'none'
+purge_mode = 'energy'
 n_increment = 0
 coarsen_by = 'flux'
 
@@ -72,7 +72,7 @@ rescale_fluxes = true
 dt_launch = 120
 
 r_launch = 15e3
-dr_init = 600
+dr_init = 1800
 
 dk_init = 1e-4
 dl_init = 1e-4
@@ -80,13 +80,13 @@ dl_init = 1e-4
 wvl_hor_char = 100e3
 direction = 0
 
-n_source = 54
+n_source = 18
 c_max = 50
 
 # ==============================================================================
 # 'gaussians' spectrum
 # ==============================================================================
-c_center = 0
+c_center = 20
 c_width = 25
 bc_mom_flux = 4e-3
 
@@ -98,7 +98,7 @@ bc_mom_flux = 4e-3
 # ==============================================================================
 # 'network' source
 # ==============================================================================
-model_path = 'data/ml-accel/tinkerer-Y-hat/model-best-r0.jit'
+# model_path = 'data/ml-accel/tinkerer/model-56-r0.jit'
 
 # ==============================================================================
 # 'stochastic' source

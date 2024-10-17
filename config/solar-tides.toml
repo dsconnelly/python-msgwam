@@ -3,14 +3,14 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
+prescribed_wind = 'data/solar-tides/mean-state-descending-jets.nc'
 
 # ==============================================================================
 # time stepping
 # ==============================================================================
 dt = 120
 dt_output = 1800
-n_day = 30
+n_day = 3
 average_output = true
 check_sign_changes = true
 
@@ -68,7 +68,7 @@ purge_mode = 'none'
 n_increment = 0
 coarsen_by = 'flux'
 
-rescale_fluxes = true
+rescale_fluxes = false
 dt_launch = 120
 
 r_launch = 15e3
@@ -86,14 +86,14 @@ c_max = 50
 # ==============================================================================
 # 'gaussians' spectrum
 # ==============================================================================
-c_center = 0
-c_width = 25
+c_center = 5
+c_width = 75
 bc_mom_flux = 4e-3
 
 # ==============================================================================
 # 'from_file' spectrum
 # ==============================================================================
-# spectrum_file = 'data/centered/random-gaussians.nc'
+spectrum_file = 'data/qbwo/random-gaussians.nc'
 
 # ==============================================================================
 # 'network' source

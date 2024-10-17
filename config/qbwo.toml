@@ -3,7 +3,7 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
+prescribed_wind = 'data/qbwo/mean-state-descending-jets.nc'
 
 # ==============================================================================
 # time stepping
@@ -63,7 +63,7 @@ n_chromatic = -1
 # than one source or spectrum type)
 # ==============================================================================
 source_type = 'simple'
-spectrum_type = 'gaussians'
+spectrum_type = 'from_file'
 purge_mode = 'none'
 n_increment = 0
 coarsen_by = 'flux'
@@ -93,7 +93,7 @@ bc_mom_flux = 4e-3
 # ==============================================================================
 # 'from_file' spectrum
 # ==============================================================================
-# spectrum_file = 'data/centered/random-gaussians.nc'
+spectrum_file = 'data/qbwo/random-gaussians.nc'
 
 # ==============================================================================
 # 'network' source

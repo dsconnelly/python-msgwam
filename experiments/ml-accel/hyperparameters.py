@@ -3,11 +3,13 @@ import tomllib
 import torch
 
 # global
+grid_path: str
 task_id: int
 
 # training
 batch_size: int
 learning_rate: float
+noise_level: float
 
 # architectures
 conservative: int
@@ -32,7 +34,9 @@ def load(path: str, i: int=0, verbose: bool=True) -> None:
 
     """
 
+    globals()['grid_path'] = path
     globals()['task_id'] = i
+
     with open(path, 'rb') as f:
         grid = tomllib.load(f)
 
@@ -43,9 +47,13 @@ def load(path: str, i: int=0, verbose: bool=True) -> None:
     show = print if verbose else lambda *_: None
     show(f'==== hyperparameters (task {i}) ====')
 
-    for name, value in zip(grid.keys(), params[:, i]):
-        caster = globals()['__annotations__'][name]
-        globals()[name] = caster(value.item())
-        show(f'{name} = {globals()[name]}')
+    try:
+        for name, value in zip(grid.keys(), params[:, i]):
+            caster = globals()['__annotations__'][name]
+            globals()[name] = caster(value.item())
+            show(f'{name} = {globals()[name]}')
     
+    except IndexError:
+        print('Warning: could not set non-global hyperparameters')
+
     show()

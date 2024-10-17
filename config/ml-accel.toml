@@ -10,7 +10,7 @@ prescribed_wind = 'data/ml-accel/mean-state-descending-jets.nc'
 # ==============================================================================
 dt = 30
 dt_output = 30
-n_day = 1
+n_day = 2
 average_output = true
 check_sign_changes = true
 
@@ -66,6 +66,7 @@ source_type = 'simple'
 spectrum_type = 'gaussians'
 purge_mode = 'none'
 n_increment = 0
+coarsen_by = 'flux'
 
 rescale_fluxes = false
 dt_launch = inf

@@ -3,7 +3,7 @@
 # ==============================================================================
 show_progress = true
 interactive_mean = false
-prescribed_wind = 'data/centered/mean-state-descending-jets.nc'
+prescribed_wind = 'data/lower/mean-state-descending-jets.nc'
 
 # ==============================================================================
 # time stepping

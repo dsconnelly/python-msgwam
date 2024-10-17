@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 import cftime
+import numpy as np
 import torch
 import xarray as xr
 
@@ -54,7 +55,7 @@ class Source(ABC):
         i: int,
         jdx: torch.Tensor,
         mean: MeanState
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Each spectrum is discretized into a fixed number of slots corresponding
         to the last dimension of `self.data`. This function takes in the current
@@ -67,6 +68,12 @@ class Source(ABC):
         For example, a neural network source might modify the source data before
         returning it. For this reason, this method also accepts the current mean
         state of the system in case subclasses use the mean wind fields.
+
+        In addition to the ray properties, implementations must return a tensor
+        describing which of the requested slots each returned ray volume ought
+        to replace. Most subclasses can just return `jdx` as is. However, some
+        stochastic sources might wish to replace only a subset of the requested
+        ray volumes and can indicate that with this return value.
         
         Parameters
         ----------
@@ -79,6 +86,9 @@ class Source(ABC):
         -------
         torch.Tensor
             Tensor of properties of the ray volumes that should be launched.
+        torch.Tensor
+            Subset of `jdx` indicating the replaced ray volumes. Should have the
+            same length as the second dimension of the first return value.
 
         """
         ...
@@ -157,10 +167,47 @@ class SimpleSource(Source):
         i: int,
         jdx: torch.Tensor,
         _: MeanState
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """A `SimpleSource` just returns the source slots indexed by `jdx`."""
 
-        return self.data[:, i * config.dt // config.dt_launch, jdx]
+        return self.data[:, i * config.dt // config.dt_launch, jdx], jdx
+
+class StochasticSource(SimpleSource):
+    def __init__(self) -> None:
+        """
+        
+        """
+
+        super().__init__()
+        self.cg_source = cg_r(*self.data[2:5])
+        times = torch.ceil(self.data[1] / (self.cg_source * config.dt))
+        self.launch_rate = config.epsilon * (1 / times).sum(dim=-1)
+
+    def launch(
+        self,
+        i: int,
+        jdx: torch.Tensor,
+        _: MeanState
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        
+        """
+
+        weights = self.cg_source[i, jdx]
+        weights = weights / weights.sum()
+        weights = weights.numpy()
+
+        size = int(torch.floor(self.launch_rate[i]))
+        if torch.rand(1) < self.launch_rate[i] - size:
+            size = size + 1
+
+        size = min(size, len(jdx))
+        jdx = jdx[np.random.choice(len(jdx), size, False, weights)]
+
+        output, _ = super().launch(i, jdx, None)
+        output[-1] = output[-1] / config.epsilon
+
+        return output, jdx
 
 class NetworkSource(SimpleSource):
     def __init__(self) -> None:
@@ -177,14 +224,14 @@ class NetworkSource(SimpleSource):
         i: int,
         jdx: torch.Tensor,
         mean: MeanState
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         A `NetworkSource` uses the zonal mean profile included in `mean` to
         apply the `CoarseNet` to the desired ray volumes.
         """
 
-        Y = super().launch(i, jdx, None).T
+        Y = super().launch(i, jdx, None)[0].T
         u = mean.u[None].expand(Y.shape[0], -1)
 
         with torch.no_grad():
-            return self.model(u.double(), Y).T
+            return self.model(u.double(), Y).T, jdx

@@ -74,18 +74,22 @@ def _coarsen(ds: xr.Dataset) -> xr.Dataset:
 
     if len(ds['cp_x']) <= config.n_source:
         return ds
-
-    targets = get_flux(ds)
+    
+    get_targets = {
+        'momentum' : lambda ds: ds['k'] * ds['dens'] * ds['dm'],
+        'flux' : get_flux
+    }[config.coarsen_by]
+    
+    targets = get_targets(ds)
     cs = _get_phase_speeds(config.n_source)
     kwargs = {'fill_value' : 'extrapolate'}
     ds = ds.interp(cp_x=cs, kwargs=kwargs)
 
     k = torch.as_tensor(ds['k'].values)
     l = torch.as_tensor(ds['l'].values)
-    dc = cs[1] - cs[0]
 
     m = m_from(k, l, cs)
-    dm = abs(k * dc / cg_r(k, l, m))
+    dm = _get_dms(k, m, cs)
     ds['m'] = xr.DataArray(m, ds.coords)
     ds['dm'] = xr.DataArray(dm, ds.coords)
 
@@ -93,7 +97,7 @@ def _coarsen(ds: xr.Dataset) -> xr.Dataset:
     bins = bins.assign_coords(cp_x=targets['cp_x'])
     targets = targets.groupby(bins).sum()
 
-    factors = targets / get_flux(ds)
+    factors = targets / get_targets(ds)
     ds['dens'] = ds['dens'] * factors
 
     return ds
@@ -116,13 +120,14 @@ def _gaussians() -> xr.Dataset:
     k, l = wvn_hor * phi.cos(), wvn_hor * phi.sin()
     cs = _get_phase_speeds(int(1e5))
 
-    dc = abs(cs[1] - cs[0])
     k = k * torch.sign(cs)
     ms = m_from(k, l, cs)
 
     dk, dl = config.dk_init, config.dl_init
-    dms = abs(k * dc / cg_r(k, l, ms))
+    dms = _get_dms(k, ms, cs)
+    cg = cg_r(k, l, ms)
 
+    # fluxes = (-0.5 * ((cs - config.c_center) / config.c_width) ** 2).exp()
     fluxes = (-0.5 * ((abs(cs) - config.c_center) / config.c_width) ** 2).exp()
     fluxes = fluxes * config.bc_mom_flux / fluxes.sum()
     ones = torch.ones(len(cs))
@@ -130,7 +135,7 @@ def _gaussians() -> xr.Dataset:
     spectrum = torch.vstack((
         k, l * ones, ms,
         dk * ones, dl * ones, dms,
-        fluxes / (k ** 2 * dk * dl * dc)
+        fluxes / abs(k * dk * dl * dms * cg)
     ))
 
     data = {'cp_x' : cs}
@@ -157,3 +162,20 @@ def _get_phase_speeds(n: int) -> torch.Tensor:
 
     bounds = torch.linspace(-config.c_max, config.c_max, n + 1)
     return (bounds[:-1] + bounds[1:]) / 2
+
+def _get_dms(
+    ks: torch.Tensor,
+    ms: torch.Tensor,
+    cs: torch.Tensor,
+    hydrostatic: bool=True
+) -> torch.Tensor:
+    """
+    
+    """
+
+    dc = abs(cs[1] - cs[0])
+
+    if hydrostatic:
+        return dc * ms ** 2 / config.N0
+    
+    return abs(dc * (ks ** 2 + ms ** 2) / (cs * ms))

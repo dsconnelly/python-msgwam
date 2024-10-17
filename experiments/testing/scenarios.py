@@ -136,18 +136,20 @@ def _descending_jets() -> xr.Dataset:
     faces = np.linspace(*config.grid_bounds, config.n_grid)
     centers = (faces[:-1] + faces[1:]) / 2
 
-    k = 2 * np.pi / (14 * 86400)
+    k = 2 * np.pi / (10 * 86400)
+    # k = 2 * np.pi / (14 * 86400)
     ell = 2 * np.pi / 25e3
 
     x, y = np.meshgrid(seconds, centers)
     wave = np.exp(1j * (k * x + ell * y)).real.T
     env = np.exp(-((centers - 45e3) / 10e3) ** 2)
+    # env = np.exp(-((centers - 35e3) / 10e3) ** 2)
 
-    args = [config.n_t_max, config.n_grid - 1, 5 / 2]
-    noise_1 = _make_colored_noise(*args)
-    noise_2 = _make_colored_noise(*args)
-
-    u = env * 40 * (wave + noise_1) + 5 * noise_2
+    args = [config.n_t_max, config.n_grid - 1]
+    noise_1 = _make_colored_noise(*args, 5 / 2) #* 0
+    noise_2 = _make_colored_noise(*args, 5 / 2) #* 0
+    
+    u = env * 40 * (wave + noise_1) + 5 * noise_2    
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

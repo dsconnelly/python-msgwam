@@ -170,7 +170,7 @@ def put(a: torch.Tensor, i: int, values: torch.Tensor):
 
     """
 
-    return a.index_put((torch.tensor(i),), values)
+    return a.index_put((torch.as_tensor(i),), values)
 
 def shapiro_filter(data: torch.Tensor) -> torch.Tensor:
     """

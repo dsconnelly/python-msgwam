@@ -1,5 +1,8 @@
 import sys
 
+import numpy as np
+import xarray as xr
+
 sys.path.insert(0, '.')
 from msgwam import config
 from msgwam.integration import SBDF2Integrator
@@ -38,6 +41,22 @@ def integrate(resources: str, resolution: str, mode: str) -> None:
 
     config.refresh()
     ds = SBDF2Integrator().integrate()
+
+    if resolution == 'stochastic':
+        n_samples = 25
+        new_dim = {'sample' : np.arange(n_samples)}
+        profiles = ['u', 'v', 'pmf_u', 'pmf_v']
+
+        data = {
+            profile: ds[profile].expand_dims(new_dim) for profile in profiles
+        }
+
+        ds = xr.merge([ds, xr.Dataset(data)])
+        for i in range(1, n_samples):
+            _ds = SBDF2Integrator().integrate()
+
+            for profile in profiles:
+                ds[profile][..., i] = _ds[profile]
 
     name = '-'.join([resources, resolution, mode])
     ds.to_netcdf(f'data/{config.name}/{name}.nc')
@@ -81,6 +100,10 @@ def _set_resolution(resolution: str) -> None:
     elif resolution == 'intermittent':
         config.dt_launch = 3 * 60 * 60
 
+    elif resolution == 'stochastic':
+        config.source_type = 'stochastic'
+        config.epsilon = 1 / SPEEDUP
+
     else:
         raise ValueError(f'Unknown resolution specification {resolution}')
     
@@ -98,7 +121,7 @@ def _set_resources(resources: str) -> None:
     """
 
     if resources == 'inf':
-        config.n_ray_max = 80000
+        config.n_ray_max = 20000
         config.n_increment = 10000
 
     elif resources == 'many':

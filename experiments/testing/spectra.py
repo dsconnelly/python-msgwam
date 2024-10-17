@@ -1,11 +1,12 @@
+import cftime
 import numpy as np
 import torch
 import xarray as xr
 
 from msgwam import config
-from msgwam.constants import PROP_NAMES
+from msgwam.constants import EPOCH, PROP_NAMES
 from msgwam.dispersion import cg_r, m_from
-from msgwam.spectra import _gaussians
+from msgwam.spectra import _coarsen, _gaussians
 from msgwam.utils import open_dataset, shapiro_filter
 
 from scenarios import _REGIMES
@@ -14,6 +15,45 @@ CONV_WIDTH = 15
 EPSILON = 0.05
 DELTA_H = 5e3
 DELTA_T = 20 * 60
+
+def save_random_gaussians() -> None:
+    """
+    
+    """
+
+    config.n_source *= 5
+    config.refresh()
+
+    n_hours = 12
+    n_per_day = int(24 // n_hours)
+
+    hours = n_hours * torch.arange(n_per_day * config.n_day + 1)
+    time = cftime.num2date(hours, f'hours since {EPOCH}')
+    spectrum = np.zeros((7, len(time), config.n_source))
+
+    for k in range(len(time)):
+        bounds = {
+            'bc_mom_flux' : [2e-3, 6e-3],
+            'wvl_hor_char' : [90e3, 110e3],
+            'c_center' : [-35, 35],
+            'c_width' : [10, 25],
+        }
+
+        for name, (lo, hi) in bounds.items():
+            sample = (hi - lo) * torch.rand(1) + lo
+            setattr(config, name, sample.item())
+            
+        with _coarsen(_gaussians()) as ds:
+            spectrum[:, k] = ds.sortby('cp_x').to_array().values
+            cs = ds['cp_x'].values
+
+    data = {'time' : time, 'cp_x' : cs}
+    for i, prop in enumerate(PROP_NAMES[2:-2]):
+        data[prop] = (('time', 'cp_x'), spectrum[i])
+
+    path = f'../data/{config.name}/random-gaussians.nc'
+    xr.Dataset(data).to_netcdf(path)
+    config.reset()
 
 def save_ICON_spectra() -> None:
     """

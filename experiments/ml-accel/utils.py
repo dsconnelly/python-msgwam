@@ -17,8 +17,13 @@ if TYPE_CHECKING:
 
 _REPO_DIR = parent(parent(parent(__file__)))
 DATA_DIR = f'{_REPO_DIR}/data/ml-accel'
+LOG_DIR = f'{_REPO_DIR}/logs/ml-accel'
 
-def dimensionalize(Y: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
+def dimensionalize(
+    Y: torch.Tensor,
+    Z: torch.Tensor,
+    T: Optional[float]=None
+) -> torch.Tensor:
     """
     Transform neural network outputs to fluxes in physical units.
 
@@ -29,6 +34,8 @@ def dimensionalize(Y: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
     Z
         Dimensionless flux profiles (with amplitudes close to unity) as
         output by `forward` of a `SurrogateNet`.
+    T
+        Time horizon over which the profile should be interpreted as an average.
 
     Returns
     -------
@@ -38,7 +45,7 @@ def dimensionalize(Y: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
 
     """
 
-    return Z * _get_flux_scale(Y)[:, None]
+    return Z * _get_flux_scale(Y, T)[:, None]
 
 def integrate_batch(
     wind: torch.Tensor,
@@ -100,6 +107,62 @@ def integrate_batch(
 
     return torch.stack(solver.snapshots).transpose(0, 1)
 
+def load_data(
+    target_type: str,
+    nondimensional: bool=True
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Load input and output data and perform some useful reshaping.
+
+    Parameters
+    ----------
+    target_type
+        Whether to load momentum flux profiles associated with `'fine'` or
+        `'coarse'` ray volumes, or ray volume properties `'Y_hat'` obtained by
+        inverting a trained surrogate model.
+
+    Returns
+    -------
+    tuple[Tensor, Tensor, Tensor]
+        Triples of two-dimensional (u, Y, target) target tensors.
+            
+    """
+
+    u = torch.load(f'{DATA_DIR}/wind.pkl')[:, 0, 0]
+    X = torch.load(f'{DATA_DIR}/X.pkl').transpose(1, 2)
+    Y = torch.load(f'{DATA_DIR}/Y.pkl').transpose(1, 2)
+
+    u = u[:, None].expand(-1, Y.shape[1], -1).flatten(0, 1)
+    X, Y = X.flatten(0, 1), Y.flatten(0, 1)
+
+    if target_type in ['fine', 'coarse']:
+        targets = torch.load(f'{DATA_DIR}/Z-{target_type}.pkl').flatten(0, 1)
+
+        if nondimensional:
+            spectrum = {'fine' : X, 'coarse' : Y}[target_type]
+            targets = nondimensionalize(spectrum, targets)
+
+    elif target_type == 'Y-hat':        
+        mask = torch.load(f'{DATA_DIR}/mask-candidates.pkl')
+        Y_hat = torch.load(f'{DATA_DIR}/Y-hat.pkl').transpose(1, 2)
+        mask, Y_hat = mask.flatten(), Y_hat.flatten(0, 1)
+
+        idx_new = torch.nonzero(mask).flatten()
+        idx_old = torch.nonzero(~mask).flatten()
+        idx_old = idx_old[torch.randperm(len(idx_old))[:len(idx_new)]]
+        idx_all = torch.cat((idx_new, idx_old))
+
+        # targets = torch.vstack((Y_hat[idx_new], Y[idx_old]))
+        # u, Y = u[idx_all], Y[idx_all]
+
+        targets = Y_hat[idx_new]
+        u, Y = u[idx_new], Y[idx_new]
+
+    else:
+        raise ValueError(f'Unknown target type: {target_type}')
+    
+    return u, Y, targets
+
 def nondimensionalize(Y: torch.Tensor, Z: torch.Tensor) -> torch.Tensor:
     """
     Transform physical data to profiles with amplitudes close to unity more
@@ -137,31 +200,43 @@ def xavier_init(layer: nn.Module) -> None:
         gain = nn.init.calculate_gain('relu')
         nn.init.xavier_uniform_(layer.weight, gain=gain)
 
-def _get_flux_scale(Y: torch.Tensor) -> torch.Tensor:
+def _get_flux_scale(
+    spectrum: torch.Tensor,
+    T: Optional[float]=None
+) -> torch.Tensor:
     """
     Compute the scale factors for each profile used to (non)dimensionalize.
 
     Parameters
     ----------
-    Y
-        Two-dimensional tensor of coarse ray volume properties whose first
-        dimension ranges over individual rays and whose second dimension ranges
-        over ray volume properties.
+    spectrum
+        Two- or three-dimensional tensor of coarse ray volume properties. The
+        first dimension should range over batches, and the second dimension
+        should range over ray volume properties. The third dimension, if it is
+        present, should range over rays within each batch.
+    T
+        Time horizon over which the profile should be interpreted as an average.
+        If `None`, uses the integration length in the current config file.
 
     Returns
     -------
     torch.Tensor
-        One-dimensional tensor of factors, one for each in row in `Y`, that
-        scale transform the corresponding flux profiles to have amplitudes
+        One-dimensional tensor of factors, one for each in row in `spectrum`,
+        that scale transform the corresponding flux profiles to have amplitudes
         close to unity. Some functional forms might work better than others.
 
     """
 
-    T = config.n_t_max * config.dt
-    _, dr, k, _, _, dk, dl, dm, dens = Y.T
-    action = dens * dk * dl * dm
-    
-    return abs(k) * action * dr / T
+    if T is None:
+        T = config.n_t_max * config.dt
+
+    _, dr, k, *_, dk, dl, dm, dens = spectrum.transpose(0, 1)
+    scale = abs(k) * (dens * dk * dl * dm) * dr / T
+
+    if scale.dim() > 1:
+        scale = scale.sum(dim=1)
+
+    return scale
 
 def _get_snapshot(
     mean: MeanState,

@@ -103,6 +103,9 @@ purge_mode: str # Criterion to use when purging rays to enforce the bottom
     # will be raised if the boundary condition cannot be enforced.
 n_increment: int # If nonzero, then n_ray_max will be increased by this amount
     # whenever necessary to allow the boundary condition to be enforced.
+coarsen_by: str # Whether to hold 'flux' (k * action * cg_r) or 'momentum'
+    # (k * action) constant when coarsening a source. 'flux' should be used for
+    # integrations, but 'momentum' is useful for machine learning applications.
 
 rescale_fluxes: bool # Whether to correct amplitudes for intermittency.
 dt_launch: int # Time step between calls to the source. If inf, new ray volumes
@@ -131,6 +134,11 @@ bc_mom_flux: float # Total momentum flux across lower boundary (Pa).
 # 'from_file' spectrum
 # ==============================================================================
 spectrum_file: str # Path to saved spectrum.
+
+# ==============================================================================
+# 'stochastic' source
+# ==============================================================================
+epsilon: float # Factor in (0, 1] determining how often rays are launched.
 
 # ==============================================================================
 # 'network' source
