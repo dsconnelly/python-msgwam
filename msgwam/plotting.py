@@ -1,75 +1,122 @@
 from __future__ import annotations
-from os.path import dirname as parent
 from typing import TYPE_CHECKING, Optional
 
 import cftime
-import matplotlib.font_manager as fm
+import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
-from . import config, sources
+from . import config
 from .constants import EPOCH
-from .dispersion import cg_r, cp_x
+from .sources import get_spectrum
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.collections import QuadMesh
     from matplotlib.colorbar import Colorbar
 
-_REPO_DIR = parent(parent(__file__))
-_font_path = f'{_REPO_DIR}/data/fonts/Lato-Regular.ttf'
-_prop = fm.FontProperties(fname=_font_path)
-fm.fontManager.addfont(_font_path)
-
-plt.rcParams['font.family'] = 'sans-serif'
-plt.rcParams['font.sans-serif'] = _prop.get_name()
-plt.rcParams['figure.dpi'] = 400
-
-plt.rcParams["xtick.direction"] = "in"
-plt.rcParams["ytick.direction"] = "in"
-
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
-    Plot the mean zonal wind and pseudomomentum flux from an integration.
+    Make a summary plot of an integration, including the mean wind and total,
+    westerly, and easterly momentum flux time series.
 
     Parameters
     ----------
     ds
-        Open `xr.Dataset` containing integration output to plot.
+        Dataset containing the integration output.
     output_path
-        Where to save the output image.
+        Where to save the image.
 
     """
 
-    widths = [4.5, 0.2]
-    fig, axes = plt.subplots(nrows=2, ncols=2, width_ratios=widths)
+    widths = [4.5, 4.5, 0.2]
+    fig = plt.figure(constrained_layout=True)
     fig.set_size_inches(sum(widths), 6)
 
-    _, u_cbar = plot_time_series(ds['u'], 25, axes[0])
-    _, pmf_cbar = plot_time_series(ds['pmf_u'] * 1000, 30, axes[1])
+    spec = gs.GridSpec(
+        nrows=2, ncols=len(widths),
+        width_ratios=widths,
+        figure=fig
+    )
 
-    u_cbar.set_label('$\\bar{u}$ (m s$^{-1}$)') # type: ignore
-    pmf_cbar.set_label('PMF (mPa)') # type: ignore
+    axes = [fig.add_subplot(spec[j // 2, j % 2]) for j in range(4)]
+    caxes = [fig.add_subplot(spec[i, 2]) for i in range(2)]
+
+    _, u_cbar = plot_time_series(ds['u'], 50, [axes[0], caxes[0]], 'PuOr_r')
+    u_cbar.set_label('$\\bar{u}$ (m / s)') # type: ignore
+    axes[0].set_title('mean zonal wind')
+
+    names = ['total', 'westerly', 'easterly']
+    pmfs = [ds['pmf_e'] + ds['pmf_w'], ds['pmf_e'], ds['pmf_w']]
+
+    for name, pmf, ax in zip(names, pmfs, axes[1:]):
+        _, cbar = plot_time_series(1000 * pmf, 2, [ax, caxes[1]])
+        cbar.set_label('flux (mPa)') # type: ignore
+        ax.set_title(f'{name} gravity wave flux')
+        
+    for ax in axes[:2]:
+        ax.set_xlabel('')
+
+    axes[1].set_ylabel('')
+    axes[3].set_ylabel('')
+
+    plt.savefig(output_path, dpi=400)
+
+def plot_ray_count(ds: xr.Dataset, output_path: str) -> None:
+    """
+    Plot the number of active rays in an integration as a function of time.
+
+    Parameters
+    ----------
+    ds
+        Dataset containing the integration output.
+    output_path
+        Where to save the image.
+
+    """
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(4.5, 3)
+
+    time = cftime.date2num(ds['time'], f'days since {EPOCH}')
+    ax.plot(time, ds['n_rays'], color='k')
+
+    line = config.n_max * np.ones_like(time)
+    ax.plot(time, line, color='gray', ls='dashed')
+
+    tmax = time.max()
+    ax.set_xlim(0, tmax)
+    ax.set_xticks(np.linspace(0, tmax, 4))
+
+    if config.n_increment == 0:
+        ax.set_ylim(0, 1.1 * config.n_max)
+
+    ax.set_xlabel('time (days)')
+    ax.set_ylabel('active rays')
+
+    ax.set_axisbelow(True)
+    ax.grid(color='lightgray')
+    ax.tick_params('both', direction='in')
 
     plt.tight_layout()
-    plt.savefig(output_path)
+    plt.savefig(output_path, dpi=400)
 
 def plot_source(ax: Optional[Axes]=None) -> Axes:
     """
-    Plot the source spectrum specified by the current config settings.
+    Make a bar plot of momentum flux as a function of phase speed for the source
+    spectrum indicated by the loaded configuration settings.
 
     Parameters
     ----------
     ax
-        `Axes` object to plot with. If `None`, a new axis will be created and
-        the size of the figure will be specified.
+        Axis on which to plot. If `None`, a new axis will be created.
 
     Returns
     -------
     Axes
-        `Axes` object used to plot. If `ax` is provided as an argument, the same
-        object is returned.
+        Axis containing the source plot. If the `ax` parameter was not `None`,
+        this is simply the same `Axes` as was provided.
 
     """
 
@@ -77,57 +124,61 @@ def plot_source(ax: Optional[Axes]=None) -> Axes:
         fig, ax = plt.subplots()
         fig.set_size_inches(4.5, 3)
 
-    cls_name = config.source_type.capitalize() + 'Source'
-    source: sources.Source = getattr(sources, cls_name)()
-    k, l, m, dk, dl, dm, dens = source.data[2:, 0]
+    ds = get_spectrum()
+    cp_x = ds['cp_x'].values
+    dc = abs(cp_x[1] - cp_x[0])
+    
+    flux = 1000 * ds['flux'].values
+    ax.bar(cp_x, flux, width=dc, ec='k', fc='lightgray')
 
-    cp = cp_x(k, l, m)
-    cg = cg_r(k, l, m)
-    dc = abs(dm * cg / k)
+    xticks = np.linspace(-config.c_max, config.c_max, 5)
+    ax.set_xlim(xticks.min(), xticks.max())
+    ax.set_xticks(xticks)
 
-    flux = k * cg * dens * abs(dk * dl * dm) * 1000
-    ax.bar(cp, flux, dc, ec='k', fc='lightgray', zorder=2)
+    yticks = np.linspace(0, 0.3, 5)
+    ax.set_ylim(yticks.min(), yticks.max())
+    ax.set_yticks(yticks)
 
-    ax.set_xlim(-config.c_max, config.c_max)
-    ax.set_xticks(np.linspace(-config.c_max, config.c_max, 11))
-
-    ax.set_ylim(-0.5, 0.5)
-    ax.set_yticks(np.linspace(-0.5, 0.5, 9))
-
+    total = abs(flux).sum()
+    ax.set_title(f'total flux = {total:.2f} mPa')
     ax.set_xlabel('phase speed (m / s)')
     ax.set_ylabel('flux (mPa)')
 
-    total = abs(flux).sum()
-    ax.set_title(f'total flux: {total:.2f} mPa')
-    ax.grid(color='lightgray', zorder=1)
+    ax.set_axisbelow(True)
+    ax.grid(color='lightgray')
+    ax.tick_params('both', direction='in')
 
     return ax
 
 def plot_time_series(
     data: xr.DataArray,
     amax: float,
-    axes: Optional[list[Axes]] = None
+    axes: Optional[list[Axes]]=None,
+    cmap: str='RdBu_r'
 ) -> tuple[QuadMesh, Optional[Colorbar]]:
     """
-    Make a `pcolormesh` of data with time and height coordinates.
+    Plot data with time and height coordinates.
 
     Parameters
     ----------
     data
-        Data to plot, along with `'z'` and `'time'` coordinates.
+        Data to plot. Must have a `'time'` coordinate and a height coordinate
+        starting with `'z_'`.
     amax
         Maximum absolute value to use in the symmetric norm.
     axes
-        List containing the `Axes` object that should contain the color plot
-        and, if a colorbar is to be added, the `Axes` that will contain the
-        colorbar. If `len(axes) == 1`, no colorbar will be created. If `axes` is
-        `None`, then a new figure will be created with two axes.
+        List containing the `Axes` object that should contain the mesh plot and,
+        if a colorbar is to eb added, the `Axes` that will contain that as well.
+        If `len(axes) == 1`, no colorbar will be created. If `axes` is not
+        provided, then a new figure with two axes will be created.
+    cmap
+        Colormap to use in the mesh plot.
 
     Returns
     -------
     QuadMesh, Colorbar
-        Result from pcolormesh and associated colorbar. If cax was None, then
-        the second return value will be None as well.
+        Result from `pcolormesh` and associated colorbar. If no colorbar axis
+        was provided, then the second return value will instead be `None`.
 
     """
 
@@ -136,38 +187,31 @@ def plot_time_series(
         fig, axes = plt.subplots(ncols=2, width_ratios=widths)
         fig.set_size_inches(sum(widths), 3)
 
-    z = data['z'].values / 1000
     time = cftime.date2num(data['time'], f'days since {EPOCH}')
-
-    yticks = np.linspace(z.min(), z.max(), 7)
-    ylabels = 10 * np.round((yticks - yticks.min()) / 10)
-    ylabels = (ylabels + yticks.min()).astype(int)
+    name = [s for s in data.coords if str(s).startswith('z_')][0]
+    z = data[name].values / 1000
 
     img = axes[0].pcolormesh(
         time, z, data.T,
         vmin=-amax, vmax=amax,
         shading='nearest',
-        cmap='RdBu_r'
+        cmap=cmap
     )
 
-    # levels = np.linspace(-amax, amax, 20)
-    # img = axes[0].contourf(
-    #     time, z, data.T,
-    #     levels=levels,
-    #     vmin=-amax, vmax=amax,
-    #     cmap='RdBu_r'
-    # )
+    tmax = time.max()
+    axes[0].set_xlim(0, tmax)
+    axes[0].set_xticks(np.linspace(0, tmax, 6))
+
+    yticks = np.linspace(z.min(), z.max(), 7)
+    ylabels = 10 * np.round((yticks - yticks.min()) / 10)
+    ylabels = (ylabels + yticks.min()).astype(int)
+
+    axes[0].set_ylim(z.min(), z.max())
+    axes[0].set_yticks(yticks, labels=ylabels)
 
     axes[0].set_xlabel('time (days)')
     axes[0].set_ylabel('height (km)')
 
-    tmax = time.max()
-    axes[0].set_xlim(0, tmax)
-    axes[0].set_xticks(np.linspace(0, tmax, 4))
-
-    axes[0].set_ylim(z.min(), z.max())
-    axes[0].set_yticks(yticks, labels=ylabels)
-    
     try:
         cbar = plt.colorbar(img, cax=axes[1], orientation='vertical')
         cbar.set_ticks(np.linspace(-amax, amax, 5)) # type: ignore

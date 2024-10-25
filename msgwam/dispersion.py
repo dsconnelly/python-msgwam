@@ -1,120 +1,145 @@
-import torch
+import numpy as np
 
 from . import config
 
-def cg_r(
-    k: torch.Tensor,
-    l: torch.Tensor,
-    m: torch.Tensor
-) -> torch.Tensor:
+def get_cg_r(
+    k: np.ndarray,
+    l: np.ndarray,
+    m: np.ndarray,
+    N: float | np.ndarray
+) -> np.ndarray:
     """
-    Calculate the vertical group velocity of internal gravity waves.
+    Calculate the vertical group velocities of internal gravity waves.
 
     Parameters
     ----------
-    k
-        Tensor of zonal wavenumbers.
-    l
-        Tensor of meridional wavenumbers.
-    m
-        Tensor of vertical wavenumbers.
+    k, l, m
+        Arrays of zonal, meridional, and vertical wavenumbers, respectively.
+    N
+        Buoyancy frequency or array of buoyancy frequencies.
 
     Returns
     -------
-    torch.Tensor
-        Tensor of vertical group velocities.
-        
+    np.ndarray
+        Array of vertical group velocities.
+
     """
 
     wvn_sq = k ** 2 + l ** 2 + m ** 2
-    _omega_hat = omega_hat(k, l, m)
+    omega_hat = get_omega_hat(k, l, m, N)
 
-    return -m * (
-        (_omega_hat ** 2 - config.f0 ** 2) /
-        (_omega_hat * wvn_sq)
-    )
+    return -m * (omega_hat ** 2 - config.f ** 2) / omega_hat / wvn_sq
 
-def cp_x(
-    k: torch.Tensor,
-    l: torch.Tensor,
-    m: torch.Tensor
-) -> torch.Tensor:
+def get_cp_x(
+    k: np.ndarray,
+    l: np.ndarray,
+    m: np.ndarray,
+    N: float | np.ndarray
+) -> np.ndarray:
     """
-    Calculate the zonal phase velocity of internal gravity waves.
+    Calculate the zonal phase velocities of internal gravity waves.
 
     Parameters
     ----------
-    k
-        Tensor of zonal wavenumbers.
-    l
-        Tensor of meridional wavenumbers.
+    k, l, m
+        Arrays of zonal, meridional, and vertical wavenumbers, respectively.
+    N
+        Buoyancy frequency or array of buoyancy frequencies.
+
+    Returns
+    -------
+    np.ndarray
+        Array of zonal phase velocities.
+
+    """
+
+    return get_omega_hat(k, l, m, N) / k
+
+def get_dm(
+    m: np.ndarray,
+    cp_x: np.ndarray,
+    N: float | np.ndarray
+) -> np.ndarray:
+    """
+    Get the vertical wavenumber extent given the zonal phase velocities and the
+    vertical wavenumbers themselves. Makes the hydrostatic approximation.
+
+    Parameters
+    ----------
     m
-        Tensor of vertical wavenumbers.
+        Array of vertical wavenumbers.
+    cp_x
+        Array of zonal phase velocities.
+    N
+        Buoyancy frequency or array of buoyancy frequencies.
 
     Returns
     -------
-    torch.Tensor
-        Tensor of zonal phase velocities.
-        
+    np.ndarray
+        Array of vertical wavenumber extents.
+
     """
 
-    return omega_hat(k, l, m) / k
+    dc = abs(cp_x[1] - cp_x[0])
+    return dc * m ** 2 / N
 
-def m_from(
-    k: torch.Tensor,
-    l: torch.Tensor,
-    cp_x: torch.Tensor
-) -> torch.Tensor:
+def get_m(
+    k: np.ndarray,
+    l: np.ndarray,
+    cp_x: np.ndarray,
+    N: float | np.ndarray
+) -> np.ndarray:
     """
-    Calculate the vertical wavenumber of internal gravity waves if the zonal
-    phase velocity is known.
+    Calculate the vertical wavenumber of internal gravity waves, assuming the
+    horizontal wavenumbers and the zonal phase velocity are known.
 
     Parameters
     ----------
-    k
-        Tensor of zonal wavenumbers.
-    l
-        Tensor of meridional wavenumbers.
+    k, l
+        Arrays of zonal and meridional wavenumbers, respectively.
     cp_x
-        Tensor of zonal phase velocities.
+        Array of zonal phase velocities.
+    N
+        Buoyancy frequency or array of buoyancy frequencies.
 
     Returns
     -------
-    torch.Tensor
-        Tensor of intrinsic frequencies.
-        
+    np.ndarray
+        Array of vertical wavenumbers
+    
     """
 
-    return -torch.sqrt(
-        (k ** 2 + l ** 2) * (config.N0 ** 2 - cp_x ** 2 * k ** 2) /
-        (cp_x ** 2 * k ** 2 - config.f0 ** 2)
+    omega_hat_sq = cp_x ** 2 * k ** 2
+
+    return -np.sqrt(
+        (k ** 2 + l ** 2) * (N ** 2 - omega_hat_sq) /
+        (omega_hat_sq - config.f ** 2)
     )
 
-def omega_hat(
-    k: torch.Tensor,
-    l: torch.Tensor,
-    m: torch.Tensor
-) -> torch.Tensor:
+def get_omega_hat(
+    k: np.ndarray,
+    l: np.ndarray,
+    m: np.ndarray,
+    N: float | np.ndarray
+) -> np.ndarray:
     """
     Calculate the intrinsic frequency of internal gravity waves.
 
     Parameters
     ----------
-    k
-        Tensor of zonal wavenumbers.
-    l
-        Tensor of meridional wavenumbers.
-    m
-        Tensor of vertical wavenumbers.
+    k, l, m
+        Arrays of zonal, meridional, and vertical wavenumbers, respectively.
+    N
+        Buoyancy frequency or array of buoyancy frequencies.
 
     Returns
     -------
-    torch.Tensor
-        Tensor of intrinsic frequencies.
-        
+    np.ndarray
+        Array of intrinsic frequencies.
+
     """
 
-    return torch.sqrt(
-        (config.N0 ** 2 * (k ** 2 + l ** 2) + config.f0 ** 2 * m ** 2) /
+    return np.sqrt(
+        (N ** 2 * (k ** 2 + l ** 2) + config.f ** 2 * m ** 2) /
         (k ** 2 + l ** 2 + m ** 2)
     )

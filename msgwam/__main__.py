@@ -1,14 +1,13 @@
-import argparse
+import sys
 
 from . import config
-from .integration import SBDF2Integrator
-from .plotting import plot_integration
+from .integration import integrate
+from .plotting import plot_integration, plot_ray_count
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('config_path', type=str, help='path to config file')
-    args = parser.parse_args()
+    config.load(sys.argv[1])
 
-    config.load(args.config_path)
-    ds = SBDF2Integrator().integrate()
+    ds = integrate()
     ds.to_netcdf(f'data/{config.name}/integration.nc')
+    plot_integration(ds, f'plots/{config.name}/integration.png')
+    plot_ray_count(ds, f'plots/{config.name}/ray-count.png')
