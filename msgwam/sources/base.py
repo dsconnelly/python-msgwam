@@ -30,6 +30,7 @@ class Source(FactoryABC):
             ds = ds.sel(time=get_time(), method='ffill')
 
         self._cp_x = ds['cp_x'].values
+        self.dc = self._cp_x[1] - self._cp_x[0]
         data = ds.to_array().values
 
         if data.ndim < 3:
@@ -90,11 +91,10 @@ class Source(FactoryABC):
             cdx = np.arange(config.n_source)
 
         (k, l, dk, dl, flux), cdx = self._launch(mean, n_step, cdx)
-
         m = get_m(k, l, self._cp_x[cdx], mean.N[0])
-        dm = get_dm(m, self._cp_x[cdx], mean.N[0])
-        cg_r = get_cg_r(k, l, m, mean.N[0])
+        dm = get_dm(m, self.dc, mean.N[0])
 
+        cg_r = get_cg_r(k, l, m, mean.N[0])
         dens = flux / abs(k * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))
 

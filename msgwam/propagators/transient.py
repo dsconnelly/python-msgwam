@@ -282,7 +282,7 @@ class TransientPropagator(Propagator):
 
         crossed = self.r[self._ghosts] > config.z_min
         cdx, *_ = np.where(crossed)
-        
+
         if crossed.sum() == 0:
             return
         

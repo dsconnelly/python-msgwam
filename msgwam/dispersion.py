@@ -57,7 +57,7 @@ def get_cp_x(
 
 def get_dm(
     m: np.ndarray,
-    cp_x: np.ndarray,
+    dc: float | np.ndarray,
     N: float | np.ndarray
 ) -> np.ndarray:
     """
@@ -68,8 +68,8 @@ def get_dm(
     ----------
     m
         Array of vertical wavenumbers.
-    cp_x
-        Array of zonal phase velocities.
+    dc
+        Extent or array of extents in phase velocity.
     N
         Buoyancy frequency or array of buoyancy frequencies.
 
@@ -80,7 +80,6 @@ def get_dm(
 
     """
 
-    dc = abs(cp_x[1] - cp_x[0])
     return dc * m ** 2 / N
 
 def get_m(
