@@ -401,8 +401,11 @@ class TransientPropagator(Propagator):
         rows = np.arange(len(edges) - 1)[:, None]
         fracs = ((starts + 1 <= rows) & (rows < ends)).astype(float)
 
-        jdx = np.arange(len(starts))
-        for idx, spillover in zip([starts, ends], [1 - p, q]):
+        jdx, = np.where(self._valid)
+        starts, ends = starts[jdx], ends[jdx]
+        p, q = (1 - p)[jdx], q[jdx]
+
+        for idx, spillover in zip([starts, ends], [p, q]):
             invalid = (idx < 0) | (fracs.shape[0] <= idx)
             idx[invalid], spillover[invalid] = 0, 0
             np.add.at(fracs, (idx, jdx), spillover)
@@ -503,7 +506,8 @@ class TransientPropagator(Propagator):
             dimension, then the projection is done in batches and returns a
             profile for each batch.
         fracs
-            Fraction of each grid cell intersected by each ray.
+            Fraction of each grid cell intersected by each ray. Must be computed
+            in advance using `_get_fracs`.
 
         Returns
         -------
@@ -515,7 +519,7 @@ class TransientPropagator(Propagator):
         """
 
         fracs = fracs.reshape(-1, *data.shape)
-        return np.nansum(fracs * data, axis=-1)
+        return (fracs * np.nan_to_num(data)).sum(axis=-1)
 
     def _prune(self, excess: int, mean: MeanState) -> None:
         """
