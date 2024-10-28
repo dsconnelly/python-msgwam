@@ -229,10 +229,8 @@ class TransientPropagator(Propagator):
         
         threshold = mean.rho * mean.N ** 2 / 2
         S = self.m ** 2 * omega_hat * self.action
-
         fracs = self._get_fracs(mean.z_faces)
-        intersects = fracs.copy()
-        intersects[fracs > 0] = 1
+        intersects = fracs > 0
 
         if config.n_chromatic != -1:
             S = S.reshape(-1, config.n_chromatic)
@@ -391,12 +389,25 @@ class TransientPropagator(Propagator):
 
         r_lo = self.r - 0.5 * self.dr
         r_hi = self.r + 0.5 * self.dr
-        
-        r_mins = np.maximum(r_lo, edges[:-1, None])
-        r_maxs = np.minimum(r_hi, edges[1:, None])
-        dz = edges[1:, None] - edges[:-1, None]
 
-        return np.maximum(r_maxs - r_mins, 0) / dz
+        dz = edges[1] - edges[0]
+        starts, p = np.divmod((r_lo - edges[0]) / dz, 1)
+        ends, q = np.divmod((r_hi - edges[0]) / dz, 1)
+
+        with np.errstate(invalid='ignore'):
+            starts = starts.astype(int)
+            ends = ends.astype(int)
+
+        rows = np.arange(len(edges) - 1)[:, None]
+        fracs = ((starts + 1 <= rows) & (rows < ends)).astype(float)
+
+        jdx = np.arange(len(starts))
+        for idx, spillover in zip([starts, ends], [1 - p, q]):
+            invalid = (idx < 0) | (fracs.shape[0] <= idx)
+            idx[invalid], spillover[invalid] = 0, 0
+            np.add.at(fracs, (idx, jdx), spillover)
+
+        return fracs
 
     def _get_drays_dt(self, mean: MeanState) -> np.ndarray:
         """
