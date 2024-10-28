@@ -112,8 +112,9 @@ class TransientPropagator(Propagator):
                 np.maximum(self.l, 0), np.minimum(self.l, 0)
             ]
 
+        fracs = self._get_fracs(mean.z_padded)
         action_flux = self.action * self._get_cg_r(mean)
-        func = lambda wvn: self._project(wvn * action_flux, mean.z_padded)
+        func = lambda wvn: self._project(wvn * action_flux, fracs)
         fluxes = np.vstack([func(wvn) for wvn in wvns])
 
         if config.shapiro_filter:
@@ -228,8 +229,10 @@ class TransientPropagator(Propagator):
         
         threshold = mean.rho * mean.N ** 2 / 2
         S = self.m ** 2 * omega_hat * self.action
-        intersects = self._get_fracs(mean.z_faces)
-        intersects[intersects > 0] = 1
+
+        fracs = self._get_fracs(mean.z_faces)
+        intersects = fracs.copy()
+        intersects[fracs > 0] = 1
 
         if config.n_chromatic != -1:
             S = S.reshape(-1, config.n_chromatic)
@@ -237,8 +240,8 @@ class TransientPropagator(Propagator):
             intersects = intersects.reshape(intersects.shape[0], *S.shape)
             threshold = threshold[:, None]
 
-        P = self._project(S, mean.z_faces) - threshold
-        Q = self._project(S * wvn_sq, mean.z_faces)
+        P = self._project(S, fracs) - threshold
+        Q = self._project(S * wvn_sq, fracs)
 
         idx = Q != 0
         kappa = np.zeros(P.shape)
@@ -477,7 +480,7 @@ class TransientPropagator(Propagator):
 
         return self._data.shape[1]
     
-    def _project(self, data: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    def _project(self, data: np.ndarray, fracs: np.ndarray) -> np.ndarray:
         """
         Project data corresponding to each ray volume onto the vertical grid.
 
@@ -488,8 +491,8 @@ class TransientPropagator(Propagator):
             Should have `self._n_max` elements. If `data` has more than one
             dimension, then the projection is done in batches and returns a
             profile for each batch.
-        edges
-            Edges of the regions to project onto, to be passed to `_get_fracs`.
+        fracs
+            Fraction of each grid cell intersected by each ray.
 
         Returns
         -------
@@ -500,7 +503,7 @@ class TransientPropagator(Propagator):
 
         """
 
-        fracs = self._get_fracs(edges).reshape(-1, *data.shape)
+        fracs = fracs.reshape(-1, *data.shape)
         return np.nansum(fracs * data, axis=-1)
 
     def _prune(self, excess: int, mean: MeanState) -> None:
