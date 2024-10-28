@@ -113,7 +113,7 @@ class TransientPropagator(Propagator):
             ]
 
         action_flux = self.action * self._get_cg_r(mean)
-        func = lambda wvn: self._project(wvn * action_flux, mean.z_ext)
+        func = lambda wvn: self._project(wvn * action_flux, mean.z_padded)
         fluxes = np.vstack([func(wvn) for wvn in wvns])
 
         if config.shapiro_filter:
