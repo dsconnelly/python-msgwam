@@ -37,7 +37,7 @@ def _descending_jets() -> xr.Dataset:
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     z = InteractiveWind().z_centers
 
-    k = 2 * np.pi / (0.5 * 86400)
+    k = 2 * np.pi / (14 * 86400)
     ell = 2 * np.pi / 25e3
 
     x, y = np.meshgrid(seconds, z)
