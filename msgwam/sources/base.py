@@ -91,7 +91,7 @@ class Source(FactoryABC):
             cdx = np.arange(config.n_source)
 
         (k, l, dk, dl, flux), cdx = self._launch(mean, n_step, cdx)
-        m = get_m(k, l, self._cp_x[cdx], mean.N[0])
+        m = get_m(k, l, self._cp_x[cdx] - mean.u[0], mean.N[0])
         dm = get_dm(m, self.dc, mean.N[0])
 
         cg_r = get_cg_r(k, l, m, mean.N[0])
