@@ -23,9 +23,6 @@ class MeanState(FactoryABC):
         self.z_centers = (self.z_faces[1:] + self.z_faces[:-1]) / 2
         self.dz: float = self.z_faces[1] - self.z_faces[0]
 
-        exts = self.z_centers[0] - self.dz, self.z_centers[-1] + self.dz
-        self.z_padded = np.pad(self.z_centers, 1, constant_values=exts)
-
         self.N = self._init_N()
         self.rho = self._init_rho()
         self.wind = self._init_wind()

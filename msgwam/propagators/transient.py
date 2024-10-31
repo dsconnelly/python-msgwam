@@ -39,6 +39,9 @@ class TransientPropagator(Propagator):
         super().__init__(mean)
         self._indices = {name : i for i, name in enumerate(PROP_NAMES)}
 
+        exts = (mean.z_faces[0], mean.z_centers[-1] + mean.dz)
+        self._z_padded = np.pad(mean.z_centers, 1, constant_values=exts)
+
         shape = (len(PROP_NAMES), config.n_max)
         self._data = np.nan * np.zeros(shape)
         self._next_meta = 0
@@ -112,7 +115,7 @@ class TransientPropagator(Propagator):
                 np.maximum(self.l, 0), np.minimum(self.l, 0)
             ]
 
-        fracs = self._get_fracs(mean.z_padded)
+        fracs = self._get_fracs(self._z_padded)
         action_flux = self.action * self._get_cg_r(mean)
         func = lambda wvn: self._project(wvn * action_flux, fracs)
         fluxes = np.vstack([func(wvn) for wvn in wvns])
@@ -366,52 +369,6 @@ class TransientPropagator(Propagator):
         N = np.interp(self.r, mean.z_centers, mean.N)
         return get_cp_x(self.k, self.l, self.m, N)
 
-    def _get_fracs(self, edges: np.ndarray) -> np.ndarray:
-        """
-        Given the edges of arbitrary regions in the vertical grid, find the
-        fraction of each region that is intersected by each ray volume.
-
-        Parameters
-        ----------
-        edges
-            Edges of regions of the vertical grid. Likely either the cell faces
-            (for projection onto cell centers) or the padded set of cell centers
-            (for projection onto cell faces).
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape (len(faces) - 1, self._n_max), where the value at
-            index `[i, j]` corresponds to the fraction of region `i` that is
-            intersected by ray volume `j`.
-
-        """
-
-        r_lo = self.r - 0.5 * self.dr
-        r_hi = self.r + 0.5 * self.dr
-
-        dz = edges[1] - edges[0]
-        starts, p = np.divmod((r_lo - edges[0]) / dz, 1)
-        ends, q = np.divmod((r_hi - edges[0]) / dz, 1)
-
-        with np.errstate(invalid='ignore'):
-            starts = starts.astype(int)
-            ends = ends.astype(int)
-
-        rows = np.arange(len(edges) - 1)[:, None]
-        fracs = ((starts + 1 <= rows) & (rows < ends)).astype(float)
-
-        jdx, = np.where(self._valid)
-        starts, ends = starts[jdx], ends[jdx]
-        p, q = (1 - p)[jdx], q[jdx]
-
-        for idx, spillover in zip([starts, ends], [p, q]):
-            invalid = (idx < 0) | (fracs.shape[0] <= idx)
-            idx[invalid], spillover[invalid] = 0, 0
-            np.add.at(fracs, (idx, jdx), spillover)
-
-        return fracs
-
     def _get_drays_dt(self, mean: MeanState) -> np.ndarray:
         """
         Calculate the time tendecy of each ray property. Note that no tendencies
@@ -456,6 +413,37 @@ class TransientPropagator(Propagator):
             dk_dt, dl_dt, dm_dt,
             ddk_dt, ddl_dt, ddm_dt
         ))
+
+    def _get_fracs(self, edges: np.ndarray) -> np.ndarray:
+        """
+        Given the edges of arbitrary regions in the vertical grid, find the
+        fraction of each region that is intersected by each ray volume.
+
+        Parameters
+        ----------
+        edges
+            Edges of regions of the vertical grid. Likely either the cell faces
+            (for projection onto cell centers) or the padded set of cell centers
+            (for projection onto cell faces).
+
+        Returns
+        -------
+        np.ndarray
+            Array of shape (len(faces) - 1, self._n_max), where the value at
+            index `[i, j]` corresponds to the fraction of region `i` that is
+            intersected by ray volume `j`.
+
+        """
+
+        r_lo = self.r - 0.5 * self.dr
+        r_hi = self.r + 0.5 * self.dr
+
+        r_mins = np.maximum(r_lo, edges[:-1, None])
+        r_maxs = np.minimum(r_hi, edges[1:, None])
+        dz = edges[1:, None] - edges[:-1, None]
+
+        fracs = np.maximum(r_maxs - r_mins, 0) / dz
+        return np.nan_to_num(fracs)
 
     def _get_omega_hat(self, mean: MeanState) -> np.ndarray:
         """
