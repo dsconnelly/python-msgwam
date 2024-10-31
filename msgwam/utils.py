@@ -43,7 +43,7 @@ class FactoryABC(ABC):
         subs = {handle(sub.__name__) : sub for sub in cls.__subclasses__()}
 
         return subs[name](*args, **kwargs)
-    
+
 def get_iterator() -> Iterator[int]:
     """
     Return a `tqdm` object configured to show useful integration output.

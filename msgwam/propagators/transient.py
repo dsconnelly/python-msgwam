@@ -3,6 +3,8 @@ from typing import TYPE_CHECKING, Any, Optional, Self, cast
 
 import numpy as np
 
+from numba import jit
+
 from msgwam.means import MeanState
 
 from .. import config
@@ -249,7 +251,7 @@ class TransientPropagator(Propagator):
         kappa[idx] = np.maximum(P[idx], 0) / Q[idx]
 
         factor = 1 - wvn_sq * (intersects * kappa[:, None]).max(axis=0)
-        self._data[8] = self.dens * factor.flatten()
+        self._data[8] = self.dens * factor
 
     def _check_boundaries(self, mean: MeanState) -> None:
         """
@@ -438,12 +440,36 @@ class TransientPropagator(Propagator):
         r_lo = self.r - 0.5 * self.dr
         r_hi = self.r + 0.5 * self.dr
 
-        r_mins = np.maximum(r_lo, edges[:-1, None])
-        r_maxs = np.minimum(r_hi, edges[1:, None])
-        dz = edges[1:, None] - edges[:-1, None]
+        return self._get_fracs_jit(edges, r_lo, r_hi)
+    
+    @staticmethod
+    @jit
+    def _get_fracs_jit(
+        edges: np.ndarray,
+        r_lo: np.ndarray,
+        r_hi: np.ndarray
+    ) -> np.ndarray:
+        """
+        JITted function to perform the logic of `_get_fracs`. Profiling shows
+        that writing the loop explicitly and compiling with numba is faster than
+        using array operations. See the docstring of `_get_fracs` for details. 
+        """
 
-        fracs = np.maximum(r_maxs - r_mins, 0) / dz
-        return np.nan_to_num(fracs)
+        fracs = np.zeros((len(r_lo), len(edges) - 1))
+        for i, (a, b) in enumerate(zip(r_lo, r_hi)):
+            if np.isnan(a):
+                continue
+
+            for j, (z_lo, z_hi) in enumerate(zip(edges[:-1], edges[1:])):
+                if b < z_lo:
+                    break
+
+                if z_hi < a:
+                    continue
+
+                fracs[i, j] = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
+
+        return fracs.T
 
     def _get_omega_hat(self, mean: MeanState) -> np.ndarray:
         """
