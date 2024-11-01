@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Optional, Self, cast
+from typing import TYPE_CHECKING, Any, Iterator, Optional, Self, cast
 
 import numpy as np
 
@@ -13,6 +13,7 @@ from ..dispersion import get_cg_r, get_cp_x, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
+from .utils import get_fracs, project
 
 if TYPE_CHECKING:
     from ..means import MeanState
@@ -117,9 +118,8 @@ class TransientPropagator(Propagator):
                 np.maximum(self.l, 0), np.minimum(self.l, 0)
             ]
 
-        fracs = self._get_fracs(self._z_padded)
         action_flux = self.action * self._get_cg_r(mean)
-        func = lambda wvn: self._project(wvn * action_flux, fracs)
+        func = lambda wvn: self._project(wvn * action_flux, self._z_padded)
         fluxes = np.vstack([func(wvn) for wvn in wvns])
 
         if config.shapiro_filter:
@@ -234,8 +234,7 @@ class TransientPropagator(Propagator):
         
         threshold = mean.rho * mean.N ** 2 / 2
         S = self.m ** 2 * omega_hat * self.action
-        fracs = self._get_fracs(mean.z_faces)
-        intersects = fracs > 0
+        intersects = self._get_fracs(mean.z_faces) > 0
 
         if config.n_chromatic != -1:
             S = S.reshape(-1, config.n_chromatic)
@@ -243,8 +242,8 @@ class TransientPropagator(Propagator):
             intersects = intersects.reshape(intersects.shape[0], *S.shape)
             threshold = threshold[:, None]
 
-        P = self._project(S, fracs) - threshold
-        Q = self._project(S * wvn_sq, fracs)
+        P = self._project(S, mean.z_faces) - threshold
+        Q = self._project(S * wvn_sq, mean.z_faces)
 
         idx = Q != 0
         kappa = np.zeros(P.shape)
@@ -418,8 +417,9 @@ class TransientPropagator(Propagator):
 
     def _get_fracs(self, edges: np.ndarray) -> np.ndarray:
         """
-        Given the edges of arbitrary regions in the vertical grid, find the
-        fraction of each region that is intersected by each ray volume.
+        Compute the fraction of each grid cell intersected by each ray. This
+        function is mainly a wrapper around `get_fracs`, which cannot be an
+        instance method as it is JIT-compiled.
 
         Parameters
         ----------
@@ -431,45 +431,13 @@ class TransientPropagator(Propagator):
         Returns
         -------
         np.ndarray
-            Array of shape (len(faces) - 1, self._n_max), where the value at
+            Array of shape `(len(edges) - 1, self._n_max)`, where the value at
             index `[i, j]` corresponds to the fraction of region `i` that is
             intersected by ray volume `j`.
 
         """
 
-        r_lo = self.r - 0.5 * self.dr
-        r_hi = self.r + 0.5 * self.dr
-
-        return self._get_fracs_jit(edges, r_lo, r_hi)
-    
-    @staticmethod
-    @jit
-    def _get_fracs_jit(
-        edges: np.ndarray,
-        r_lo: np.ndarray,
-        r_hi: np.ndarray
-    ) -> np.ndarray:
-        """
-        JITted function to perform the logic of `_get_fracs`. Profiling shows
-        that writing the loop explicitly and compiling with numba is faster than
-        using array operations. See the docstring of `_get_fracs` for details. 
-        """
-
-        fracs = np.zeros((len(r_lo), len(edges) - 1))
-        for i, (a, b) in enumerate(zip(r_lo, r_hi)):
-            if np.isnan(a):
-                continue
-
-            for j, (z_lo, z_hi) in enumerate(zip(edges[:-1], edges[1:])):
-                if b < z_lo:
-                    break
-
-                if z_hi < a:
-                    continue
-
-                fracs[i, j] = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
-
-        return fracs.T
+        return get_fracs(self.r, self.dr, edges)
 
     def _get_omega_hat(self, mean: MeanState) -> np.ndarray:
         """
@@ -508,9 +476,11 @@ class TransientPropagator(Propagator):
 
         return self._data.shape[1]
     
-    def _project(self, data: np.ndarray, fracs: np.ndarray) -> np.ndarray:
+    def _project(self, data: np.ndarray, edges: np.ndarray) -> np.ndarray:
         """
         Project data corresponding to each ray volume onto the vertical grid.
+        This function is mainly a wrapper around `project`, which cannot be an
+        instance method as it is JIT-compiled.
 
         Parameters
         ----------
@@ -519,9 +489,10 @@ class TransientPropagator(Propagator):
             Should have `self._n_max` elements. If `data` has more than one
             dimension, then the projection is done in batches and returns a
             profile for each batch.
-        fracs
-            Fraction of each grid cell intersected by each ray. Must be computed
-            in advance using `_get_fracs`.
+        edges
+            Edges of regions of the vertical grid. Likely either the cell faces
+            (for projection onto cell centers) or the padded set of cell centers
+            (for projection onto cell faces).
 
         Returns
         -------
@@ -532,8 +503,8 @@ class TransientPropagator(Propagator):
 
         """
 
-        fracs = fracs.reshape(-1, *data.shape)
-        return (fracs * np.nan_to_num(data)).sum(axis=-1)
+        # TODO: re-implement the batch projection option
+        return project(self.r, self.dr, edges, data)
 
     def _prune(self, excess: int, mean: MeanState) -> None:
         """
