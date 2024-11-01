@@ -1,9 +1,7 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any, Iterator, Optional, Self, cast
+from typing import TYPE_CHECKING, Any, Optional, Self, cast
 
 import numpy as np
-
-from numba import jit
 
 from msgwam.means import MeanState
 
