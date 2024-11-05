@@ -3,7 +3,8 @@ import sys
 sys.path.insert(0, '.')
 from msgwam import config
 
-from scenarios import save_mean_state
+from coarsening import *
+from reference import *
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]
