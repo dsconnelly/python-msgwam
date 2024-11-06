@@ -104,19 +104,22 @@ def project(
     edges
         Edges of the vertical grid regions to project onto.
     data
-        Data associated with each ray (e.g. momentum flux) to project.
+        Data variables associated with each ray (e.g. momentum flux) to project.
 
     Returns
     -------
     np.ndarray
-        Array with `len(edges) - 1` elements containing the projected profile.
+        Array of shape `(data.shape[0], len(edges) - 1)` of the projected values
+        of at each grid point of each variable passed as a row of `data`.
 
     """
 
     r_lo = r - 0.5 * dr
     r_hi = r + 0.5 * dr
 
-    proj = np.zeros((len(edges) - 1))
+    shape = (data.shape[0], len(edges) - 1)
+    proj = np.zeros(shape)
+
     for i, (a, b) in enumerate(zip(r_lo, r_hi)):
         if np.isnan(a):
             continue
@@ -129,6 +132,7 @@ def project(
                 continue
 
             frac = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
-            proj[j] = proj[j] + frac * data[i]
+            for k in range(data.shape[0]):
+                proj[k, j] = proj[k, j] + frac * data[k, i]
 
     return proj

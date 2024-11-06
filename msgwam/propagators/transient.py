@@ -117,8 +117,8 @@ class TransientPropagator(Propagator):
             ]
 
         action_flux = self.action * self._get_cg_r(mean)
-        func = lambda wvn: self._project(wvn * action_flux, self._z_padded)
-        fluxes = np.vstack([func(wvn) for wvn in wvns])
+        data = np.vstack([wvn * action_flux for wvn in wvns])
+        fluxes = self._project(data, self._z_padded)
 
         if config.shapiro_filter:
             fluxes[:, 1:-1] = shapiro_filter(fluxes.T).T
@@ -238,8 +238,9 @@ class TransientPropagator(Propagator):
             wvn_sq = wvn_sq.reshape(-1, config.n_chromatic)
             threshold = threshold[:, None]
 
-        P = self._project(S, mean.z_faces) - threshold
-        Q = self._project(S * wvn_sq, mean.z_faces)
+        data = np.vstack((S, S * wvn_sq))
+        P, Q = self._project(data, mean.z_faces)
+        P = P - threshold
 
         idx = Q != 0
         kappa = np.zeros(P.shape)
@@ -457,10 +458,10 @@ class TransientPropagator(Propagator):
         Parameters
         ----------
         data
-            Data to project (e.g. momentum fluxes or buoyancy perturbations).
-            Should have `self._n_max` elements. If `data` has more than one
-            dimension, then the projection is done in batches and returns a
-            profile for each batch.
+            Variables to project (e.g. momentum fluxes). To save computation,
+            multiple variables are projected at once, so that `data` should have
+            two dimensions, the first of which ranges over variables to project
+            and the second of which ranges over ray volumes.
         edges
             Edges of regions of the vertical grid. Likely either the cell faces
             (for projection onto cell centers) or the padded set of cell centers
@@ -469,9 +470,8 @@ class TransientPropagator(Propagator):
         Returns
         -------
         np.ndarray
-            Projected values at each vertical grid point. If `data` had more
-            than one dimension, the first dimension of this array will range
-            over vertical profiles corresponding to each batch.
+            Projected values at each vertical grid point for each variable
+            passed in as a row of `data`.
 
         """
 
