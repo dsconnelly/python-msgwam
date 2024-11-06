@@ -73,7 +73,7 @@ def interp(r: np.ndarray, z: np.ndarray, profile: np.ndarray) -> np.ndarray:
     """
 
     dz = z[1] - z[0]
-    r = np.clip(r, z[0], z[-1])
+    r = np.nan_to_num(np.clip(r, z[0], z[-1]))
     jdx = np.floor((r - z[0]) / dz).astype(np.int32)
     jdx = np.minimum(jdx, len(z) - 2)
 
