@@ -2,35 +2,37 @@ import numba as nb
 import numpy as np
 
 @nb.njit
-def get_fracs(
+def get_max_intersects(
     r: np.ndarray,
     dr: np.ndarray,
-    edges: np.ndarray
+    edges: np.ndarray,
+    profile: np.ndarray
 ) -> np.ndarray:
     """
-    Compute the fraction of each grid cell intersected by each ray.
+    Find the maximum value in a vertical profile intersected by each ray.
 
     Parameters
     ----------
     r
-        Position of ray volume centers.
+        Positions of ray volume centers.
     dr
         Ray volume extents.
     edges
-        Edges of the vertical grid regions to project onto.
+        Edges of the vertical grid regions where the profile is stored.
+    profile
+        Vertical profile (e.g. dissipation constants) to search.
 
     Returns
     -------
     np.ndarray
-        Array of fractions with shape `(len(edges) - 1, len(r))` such that the
-        value at [i, j] is the fraction of cell i intersected by ray j.
+        Array with `len(r)` elements containing the maximum value for each ray.
 
     """
 
     r_lo = r - 0.5 * dr
     r_hi = r + 0.5 * dr
 
-    fracs = np.zeros((len(r), len(edges) - 1))
+    maxes = np.zeros(len(r))
     for i, (a, b) in enumerate(zip(r_lo, r_hi)):
         if np.isnan(a):
             continue
@@ -42,9 +44,10 @@ def get_fracs(
             if z_hi < a:
                 continue
 
-            fracs[i, j] = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
+            if profile[j] > maxes[i]:
+                maxes[i] = profile[j]
 
-    return fracs.T
+    return maxes
 
 @nb.njit
 def project(

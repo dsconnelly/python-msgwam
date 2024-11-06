@@ -11,7 +11,7 @@ from ..dispersion import get_cg_r, get_cp_x, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
-from .utils import get_fracs, project
+from .utils import get_max_intersects, project
 
 if TYPE_CHECKING:
     from ..means import MeanState
@@ -232,12 +232,10 @@ class TransientPropagator(Propagator):
         
         threshold = mean.rho * mean.N ** 2 / 2
         S = self.m ** 2 * omega_hat * self.action
-        intersects = self._get_fracs(mean.z_faces) > 0
 
         if config.n_chromatic != -1:
             S = S.reshape(-1, config.n_chromatic)
             wvn_sq = wvn_sq.reshape(-1, config.n_chromatic)
-            intersects = intersects.reshape(intersects.shape[0], *S.shape)
             threshold = threshold[:, None]
 
         P = self._project(S, mean.z_faces) - threshold
@@ -247,8 +245,8 @@ class TransientPropagator(Propagator):
         kappa = np.zeros(P.shape)
         kappa[idx] = np.maximum(P[idx], 0) / Q[idx]
 
-        factor = 1 - wvn_sq * (intersects * kappa[:, None]).max(axis=0)
-        self._data[8] = self.dens * factor
+        maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa)
+        self._data[8] = self.dens * (1 - wvn_sq * maxes)
 
     def _check_boundaries(self, mean: MeanState) -> None:
         """
@@ -412,30 +410,6 @@ class TransientPropagator(Propagator):
             dk_dt, dl_dt, dm_dt,
             ddk_dt, ddl_dt, ddm_dt
         ))
-
-    def _get_fracs(self, edges: np.ndarray) -> np.ndarray:
-        """
-        Compute the fraction of each grid cell intersected by each ray. This
-        function is mainly a wrapper around `get_fracs`, which cannot be an
-        instance method as it is JIT-compiled.
-
-        Parameters
-        ----------
-        edges
-            Edges of regions of the vertical grid. Likely either the cell faces
-            (for projection onto cell centers) or the padded set of cell centers
-            (for projection onto cell faces).
-
-        Returns
-        -------
-        np.ndarray
-            Array of shape `(len(edges) - 1, self._n_max)`, where the value at
-            index `[i, j]` corresponds to the fraction of region `i` that is
-            intersected by ray volume `j`.
-
-        """
-
-        return get_fracs(self.r, self.dr, edges)
 
     def _get_omega_hat(self, mean: MeanState) -> np.ndarray:
         """
