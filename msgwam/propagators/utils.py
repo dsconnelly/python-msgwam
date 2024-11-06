@@ -50,6 +50,50 @@ def get_max_intersects(
     return maxes
 
 @nb.njit
+def interp(r: np.ndarray, z: np.ndarray, profile: np.ndarray) -> np.ndarray:
+    """
+    Interpolate data from the mean state to the ray volume positions. This
+    function is still experimental, and may be abandoned if sufficient gains in
+    performance over `np.interp` cannot be achieved.
+
+    Parameters
+    ----------
+    r
+        Ray volume vertical positions.
+    z
+        Vertical grid to interpolate from.
+    profile
+        Mean state data to interpolate.
+
+    Returns
+    -------
+    np.ndarray
+        Data from `profile` interpolated to ray volume vertical positions.
+
+    """
+
+    dz = z[1] - z[0]
+    out = np.zeros_like(r)
+    slopes = (profile[1:] - profile[:-1]) / dz
+
+    for i in nb.prange(len(r)):
+        if np.isnan(r[i]):
+            continue
+
+        if r[i] < z[0]:
+            out[i] = profile[0]
+            continue
+
+        if r[i] > z[-1]:
+            out[i] = profile[-1]
+            continue
+
+        j = int((r[i] - z[0]) / dz)
+        out[i] = profile[j] + slopes[j] * (r[i] - z[j])
+
+    return out
+
+@nb.njit
 def project(
     r: np.ndarray,
     dr: np.ndarray,

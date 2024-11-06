@@ -11,7 +11,7 @@ from ..dispersion import get_cg_r, get_cp_x, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
-from .utils import get_max_intersects, project
+from .utils import get_max_intersects, interp, project
 
 if TYPE_CHECKING:
     from ..means import MeanState
@@ -218,13 +218,13 @@ class TransientPropagator(Propagator):
         omega_hat = self._get_omega_hat(mean)
         wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
 
-        nu = config.dissipation * np.interp(self.r, mean.z_faces, mean.nu)
+        nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f ** 2 / (omega_hat ** 2))
         self._data[8] = self.dens * np.exp(-config.dt * damping)
 
         if config.check_sign_changes:
             cp_x = self._get_cp_x(mean)
-            u = np.interp(self.r, mean.z_centers, mean.u)
+            u = interp(self.r, mean.z_centers, mean.u)
             self._delete_rays(np.sign(cp_x - u) != np.sign(self.meta))
 
         if config.n_chromatic == 0:
@@ -342,7 +342,7 @@ class TransientPropagator(Propagator):
         if r is None:
             r = self.r
 
-        N = np.interp(r, mean.z_centers, mean.N)
+        N = interp(r, mean.z_centers, mean.N)
         return get_cg_r(self.k, self.l, self.m, N)
     
     def _get_cp_x(self, mean: MeanState) -> np.ndarray:
@@ -363,7 +363,7 @@ class TransientPropagator(Propagator):
 
         """
 
-        N = np.interp(self.r, mean.z_centers, mean.N)
+        N = interp(self.r, mean.z_centers, mean.N)
         return get_cp_x(self.k, self.l, self.m, N)
 
     def _get_drays_dt(self, mean: MeanState) -> np.ndarray:
@@ -389,10 +389,10 @@ class TransientPropagator(Propagator):
         dr_dt = 0.5 * (cg_lo + cg_hi)
         ddr_dt = cg_hi - cg_lo
 
-        N = np.interp(self.r, mean.z_centers, mean.N)
-        du_dr = np.interp(self.r, mean.z_faces[1:-1], np.diff(mean.u) / mean.dz)
-        dv_dr = np.interp(self.r, mean.z_faces[1:-1], np.diff(mean.v) / mean.dz)
-        dN_dr = np.interp(self.r, mean.z_faces[1:-1], np.diff(mean.N) / mean.dz)
+        N = interp(self.r, mean.z_centers, mean.N)
+        du_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.u) / mean.dz)
+        dv_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.v) / mean.dz)
+        dN_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.N) / mean.dz)
 
         omega_hat = self._get_omega_hat(mean)
         wvn_hor_sq = self.k ** 2 + self.l ** 2
@@ -429,7 +429,7 @@ class TransientPropagator(Propagator):
 
         """
 
-        N = np.interp(self.r, mean.z_centers, mean.N)
+        N = interp(self.r, mean.z_centers, mean.N)
         return get_omega_hat(self.k, self.l, self.m, N)
 
     @property
