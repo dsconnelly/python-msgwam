@@ -73,24 +73,13 @@ def interp(r: np.ndarray, z: np.ndarray, profile: np.ndarray) -> np.ndarray:
     """
 
     dz = z[1] - z[0]
-    out = np.zeros_like(r)
+    r = np.clip(r, z[0], z[-1])
+    jdx = np.floor((r - z[0]) / dz).astype(np.int32)
+    jdx = np.minimum(jdx, len(z) - 2)
+
     slopes = (profile[1:] - profile[:-1]) / dz
-
-    for i in nb.prange(len(r)):
-        if np.isnan(r[i]):
-            continue
-
-        if r[i] < z[0]:
-            out[i] = profile[0]
-            continue
-
-        if r[i] > z[-1]:
-            out[i] = profile[-1]
-            continue
-
-        j = int((r[i] - z[0]) / dz)
-        out[i] = profile[j] + slopes[j] * (r[i] - z[j])
-
+    out = profile[jdx] + slopes[jdx] * (r - z[jdx])
+    
     return out
 
 @nb.njit
