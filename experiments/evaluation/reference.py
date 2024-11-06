@@ -16,7 +16,9 @@ _OVERRIDES = {
     'dt' : 10,
     'n_grid' : 201,
     'n_source' : 200,
-    'n_max' : 30000
+    'n_max' : 50000,
+    'n_increment' : 1000,
+    'prune_by' : 'none'
 }
 
 def save_mean_state(seed: int=1234) -> None:
@@ -65,7 +67,7 @@ def _get_descending_jets() -> xr.Dataset:
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     z = InteractiveWind().z_centers
 
-    k = 2 * np.pi / (0.5 * 86400)
+    k = 2 * np.pi / (3 * 86400)
     ell = 2 * np.pi / 25e3
 
     x, y = np.meshgrid(seconds, z)
