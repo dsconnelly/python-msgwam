@@ -1,5 +1,4 @@
 import cftime
-import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
@@ -8,9 +7,9 @@ from msgwam.constants import EPOCH
 from msgwam.integration import integrate
 from msgwam.means import InteractiveWind
 from msgwam.plotting import plot_integration
-from msgwam.utils import shapiro_filter
+from msgwam.utils import make_colored_noise, shapiro_filter
 
-from utils import get_min_dr, make_colored_noise
+from utils import get_min_dr
 
 _OVERRIDES = {
     'dt' : 10,

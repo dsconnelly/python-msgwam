@@ -15,7 +15,7 @@ _DEFAULTS = {}
 mean_state_type: Literal['interactive', 'prescribed']
 propagator_type: Literal['instantaneous', 'network', 'transient']
 source_type: Literal['deterministic', 'network', 'stochastic']
-spectrum_type: Literal['custom', 'gaussians']
+spectrum_type: Literal['convective', 'custom', 'gaussians']
 
 ################################################################################
 # input and output
@@ -74,7 +74,7 @@ c_width: float
 dk_init: float
 direction: float
 dl_init: float
-wvl_hor: float
+period_hours: float
 
 ################################################################################
 # derived settings

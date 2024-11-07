@@ -9,7 +9,8 @@ import xarray as xr
 
 from . import config
 from .constants import EPOCH
-from .sources import get_spectrum
+from .dispersion import get_cg_r, get_m
+from .sources import DeterministicSource
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -49,9 +50,10 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
     names = ['total', 'westerly', 'easterly']
     pmfs = [ds['pmf_e'] + ds['pmf_w'], ds['pmf_e'], ds['pmf_w']]
+    amax = np.ceil(1000 * pmfs[1].max())
 
     for name, pmf, ax in zip(names, pmfs, axes[1:]):
-        _, cbar = plot_time_series(1000 * pmf, 2, [ax, caxes[1]])
+        _, cbar = plot_time_series(1000 * pmf, amax, [ax, caxes[1]])
         cbar.set_label('flux (mPa)') # type: ignore
         ax.set_title(f'{name} gravity wave flux')
         
@@ -102,53 +104,71 @@ def plot_ray_count(ds: xr.Dataset, output_path: str) -> None:
     plt.tight_layout()
     plt.savefig(output_path, dpi=400)
 
-def plot_source(ax: Optional[Axes]=None) -> Axes:
+def plot_source(output_path: str) -> None:
     """
-    Make a bar plot of momentum flux as a function of phase speed for the source
-    spectrum indicated by the loaded configuration settings.
+    Make Hovmöller plots of source momentum flux and vertical group velocity.
 
     Parameters
     ----------
-    ax
-        Axis on which to plot. If `None`, a new axis will be created.
-
-    Returns
-    -------
-    Axes
-        Axis containing the source plot. If the `ax` parameter was not `None`,
-        this is simply the same `Axes` as was provided.
+    output_path
+        Where to save the image.
 
     """
 
-    if ax is None:
-        fig, ax = plt.subplots()
-        fig.set_size_inches(4.5, 3)
+    source = DeterministicSource()
+    k, l, *_, flux = source._data.transpose(1, 0, 2)
+    days = config.dt * np.arange(config.n_steps) / 86400
+    cp_x = source._cp_x
 
-    ds = get_spectrum()
-    cp_x = ds['cp_x'].values
-    dc = abs(cp_x[1] - cp_x[0])
-    
-    flux = 1000 * ds['flux'].values
-    ax.bar(cp_x, flux, width=dc, ec='k', fc='lightgray')
+    m = get_m(k, l, cp_x, config.N_ref)
+    cg_r = get_cg_r(k, l, m, config.N_ref)
 
-    xticks = np.linspace(-config.c_max, config.c_max, 5)
-    ax.set_xlim(xticks.min(), xticks.max())
-    ax.set_xticks(xticks)
+    widths = [4.5, 0.2]
+    fig, axes = plt.subplots(nrows=2, ncols=2, width_ratios=widths)
+    fig.set_size_inches(sum(widths), 6)
+    axes, caxes = axes.T
 
-    yticks = np.linspace(0, 0.3, 5)
-    ax.set_ylim(yticks.min(), yticks.max())
-    ax.set_yticks(yticks)
+    vmax = 1000 * flux.max()
+    vmax = np.ceil(vmax / 0.1) * 0.1
 
-    total = abs(flux).sum()
-    ax.set_title(f'total flux = {total:.2f} mPa')
-    ax.set_xlabel('phase speed (m / s)')
-    ax.set_ylabel('flux (mPa)')
+    img = axes[0].pcolormesh(
+        days, cp_x,
+        1000 * flux.T,
+        vmin=0, vmax=vmax,
+        shading='nearest',
+        cmap='Reds'
+    )
 
-    ax.set_axisbelow(True)
-    ax.grid(color='lightgray')
-    ax.tick_params('both', direction='in')
+    cbar = plt.colorbar(img, cax=caxes[0])
+    cbar.set_ticks(np.linspace(0, vmax, 5))
+    cbar.set_label('flux (mPa)')
 
-    return ax
+    vmax = 3.6 * flux.max()
+    vmax = np.ceil(vmax / 10) * 10
+
+    img = axes[1].pcolormesh(
+        days, cp_x,
+        3.6 * cg_r.T,
+        vmin=0, vmax=vmax,
+        shading='nearest',
+        cmap='Blues'
+    )
+
+    cbar = plt.colorbar(img, cax=caxes[1])
+    cbar.set_ticks(np.linspace(0, vmax, 5))
+    cbar.set_label('$c_{\\mathrm{g}}$ (km / h)')
+
+    for ax in axes:
+        ax.set_xlim(0, days.max())
+
+        ax.set_ylim(-config.c_max, config.c_max)
+        ax.set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
+        ax.set_yticks(np.linspace(-config.c_max, config.c_max, 5))
+
+    axes[0].set_xlabel('time (days)')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=400)
 
 def plot_time_series(
     data: xr.DataArray,

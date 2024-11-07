@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 from .. import config
+from ..utils import get_time, make_colored_noise
 
 def get_spectrum() -> xr.Dataset:
     """
@@ -60,6 +61,39 @@ def _coarsen(ds: xr.Dataset) -> xr.Dataset:
 
     return ds
 
+def _convective() -> xr.Dataset:
+    """
+    Spectrum consisting of a single Gaussian peak that meanders is phase speed
+    space over time. Other spectral properties also have some noise imposed.
+    """
+    
+    args = [config.n_steps, 1, 5 / 3]
+    noise = 1 + 0.25 * make_colored_noise(config.n_steps, 1)
+    omega_hat = 2 * np.pi / (config.period_hours * 3600) * noise
+    cp_x = _get_phase_velocities(int(1e4))
+
+    wvn_hor = omega_hat / cp_x
+    phi = np.deg2rad(config.direction)
+    k, l = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
+    dk, dl = config.dk_init, config.dl_init
+
+    center = config.c_center * make_colored_noise(*args)
+    width = config.c_width * (1 + 0.5 * make_colored_noise(*args))
+    arg = (make_colored_noise(*args) + 1) / 2
+    flux_bc = config.flux_bc * 3 ** arg
+
+    flux = np.exp(-0.5 * ((cp_x - center) / width) ** 2)
+    flux = flux_bc * flux / flux.sum(axis=1)[:, None]
+
+    ones = np.ones_like(k)
+    spectrum = np.stack((k, l * ones, dk * ones, dl * ones, flux), axis=0)
+
+    data: dict[str, Any] = {'time' : get_time(), 'cp_x' : cp_x}
+    for i, name in enumerate(['k', 'l', 'dk', 'dl', 'flux']):
+        data[name] = (('time', 'cp_x'), spectrum[i])
+
+    return xr.Dataset(data)
+
 def _gaussians() -> xr.Dataset:
     """
     Constant-in-time source spectrum consisting of two Gaussian peaks, symmetric
@@ -67,17 +101,13 @@ def _gaussians() -> xr.Dataset:
     coincide with one another.
     """
 
-    phi = np.deg2rad(config.direction)
-    wvn_hor = 2 * np.pi / config.wvl_hor
-    k, l = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
+    omega_hat = 2 * np.pi / (config.period_hours * 3600)
     cp_x = _get_phase_velocities(int(1e5))
+    wvn_hor = omega_hat / cp_x
 
-    omega_hat_sq = cp_x ** 2 * k ** 2
-    cp_x = cp_x[omega_hat_sq > config.f ** 2]
-
-    k = k * np.sign(cp_x)
-    dk = config.dk_init
-    dl = config.dl_init
+    phi = np.deg2rad(config.direction)
+    k, l = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
+    dk, dl = config.dk_init, config.dl_init
 
     shift = abs(cp_x) - config.c_center
     flux = np.exp(-0.5 * (shift / config.c_width) ** 2)

@@ -64,4 +64,4 @@ c_width = 25
 dk_init = 1e-4
 direction = 0
 dl_init = 1e-4
-wvl_hor = 100e3
+period_hours = 6

@@ -37,6 +37,9 @@ class Source(FactoryABC):
             shape = (config.n_steps, *data.shape)
             data = np.broadcast_to(data, shape)
 
+        else:
+            data = data.transpose(1, 0, 2)
+
         self._data = data
 
     def launch(
