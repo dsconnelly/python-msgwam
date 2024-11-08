@@ -17,6 +17,45 @@ if TYPE_CHECKING:
     from matplotlib.collections import QuadMesh
     from matplotlib.colorbar import Colorbar
 
+def plot_boundary(ds: xr.Dataset, output_path: str) -> None:
+    """
+    Plot the flux at the bottom boundary over time.
+
+    Parameters
+    ----------
+    Parameters
+    ----------
+    ds
+        Dataset containing the integration output.
+    output_path
+        Where to save the image.
+
+    """
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(4.5, 3)
+
+    days = config.dt * np.arange(config.n_steps) / 86400
+    pmf = 1000 * (ds['pmf_e'] - ds['pmf_w']).isel(z_faces=0)
+    line = 1000 * config.flux_bc * np.ones_like(days)
+
+    ax.plot(days, pmf, color='k')
+    ax.plot(days, line, color='gray', ls='dashed')
+
+    ax.set_xlim(0, days.max())
+    ax.set_ylim(0, 5)
+
+    ax.set_xlabel('time (days)')
+    ax.set_ylabel('boundary flux (mPa)')
+    ax.set_title(f'mean flux = {pmf.mean():.2f} mPa')
+    
+    ax.set_axisbelow(True)
+    ax.grid(color='lightgray')
+    ax.tick_params('both', direction='in')
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=400)
+
 def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     """
     Make a summary plot of an integration, including the mean wind and total,
@@ -50,7 +89,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
     names = ['total', 'westerly', 'easterly']
     pmfs = [ds['pmf_e'] + ds['pmf_w'], ds['pmf_e'], ds['pmf_w']]
-    amax = np.ceil(1000 * pmfs[1].max())
+    amax = np.ceil(1000 * (pmfs[1].max() + 2 * pmfs[1].std()))
 
     for name, pmf, ax in zip(names, pmfs, axes[1:]):
         _, cbar = plot_time_series(1000 * pmf, amax, [ax, caxes[1]])
@@ -143,7 +182,7 @@ def plot_source(output_path: str) -> None:
     cbar.set_ticks(np.linspace(0, vmax, 5))
     cbar.set_label('flux (mPa)')
 
-    vmax = 3.6 * flux.max()
+    vmax = 3.6 * cg_r.max()
     vmax = np.ceil(vmax / 5) * 5
 
     img = axes[1].pcolormesh(

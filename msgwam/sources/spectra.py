@@ -114,7 +114,7 @@ def _gaussians() -> xr.Dataset:
     flux = config.flux_bc * flux / flux.sum()
 
     ones = np.ones_like(cp_x)
-    spectrum = np.vstack((k, l * ones, dk * ones, dl * ones, flux))
+    spectrum = np.vstack((k, l, dk * ones, dl * ones, flux))
 
     data: dict[str, Any] = {'cp_x' : cp_x}
     for i, name in enumerate(['k', 'l', 'dk', 'dl', 'flux']):

@@ -56,18 +56,18 @@ class Source(FactoryABC):
         waves that should be launched.
 
         Even constant-in-time spectra may have vertical wavenumbers, extents,
-        and spectral densities that vary in time if the buoyancy frequency is
-        not constant. This function therefore also calculates those properties
-        and includes them in the returned data.
+        and spectral densities that vary in time if the mean wind or buoyancy
+        frequency are not constant. This function therefore also calculates
+        those properties and includes them in the returned data.
 
         Because some sources (e.g. stochastic ones) might not return as many
         waves as were requested, we also return an array indicating which
         requested wave each returned wave corresponds to.
 
-        This is the public method meant to be called by propagators. This method
-        relies on the `_launch` method implemented by subclasses, which handles
-        the actual launch logic particular to each source. This method than
-        calculates the additional wave properties mentioned above.
+        This is the public method meant to be called by propagators, and here we
+        derive the time-varying wave properties mentioned above. We then rely on
+        the `_postprocess` method implemented by subclasses to handle the launch
+        logic particular to each source type.
 
         Parameters
         ----------
@@ -93,7 +93,7 @@ class Source(FactoryABC):
         if cdx is None:
             cdx = np.arange(config.n_source)
 
-        (k, l, dk, dl, flux), cdx = self._launch(mean, n_step, cdx)
+        k, l, dk, dl, flux = self._data[n_step][:, cdx]
         m = get_m(k, l, self._cp_x[cdx] - mean.u[0], mean.N[0])
         dm = get_dm(m, self.dc, mean.N[0])
 
@@ -101,18 +101,18 @@ class Source(FactoryABC):
         dens = flux / abs(k * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))
 
-        return data, cdx
+        return self._postprocess(mean, cg_r, data, cdx)
 
     @abstractmethod
-    def _launch(
+    def _postprocess(
         self,
         mean: MeanState,
-        n_step: int,
-        cdx: np.ndarray
+        cg_r: np.ndarray,
+        data: np.ndarray,
+        cdx: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        Subclass-specific source logic called by `launch`. See the docstring for
-        that method for more details on parameters and return values.
+        Apply any source-specific logic to the selected wave properties. See the
+        docstring for `launch` for more details on the return values.
         """
         ...
-
