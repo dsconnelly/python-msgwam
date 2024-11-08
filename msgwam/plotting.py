@@ -144,7 +144,7 @@ def plot_source(output_path: str) -> None:
     cbar.set_label('flux (mPa)')
 
     vmax = 3.6 * flux.max()
-    vmax = np.ceil(vmax / 10) * 10
+    vmax = np.ceil(vmax / 5) * 5
 
     img = axes[1].pcolormesh(
         days, cp_x,

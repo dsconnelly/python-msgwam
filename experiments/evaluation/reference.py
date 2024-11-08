@@ -6,7 +6,7 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.integration import integrate
 from msgwam.means import InteractiveWind
-from msgwam.plotting import plot_integration
+from msgwam.plotting import plot_integration, plot_ray_count
 from msgwam.utils import make_colored_noise, shapiro_filter
 
 from utils import get_min_dr
@@ -16,7 +16,7 @@ _OVERRIDES = {
     'n_grid' : 201,
     'n_source' : 200,
     'n_max' : 50000,
-    'n_increment' : 1000,
+    'n_increment' : 5000,
     'prune_by' : 'none'
 }
 
@@ -44,12 +44,13 @@ def save_reference() -> None:
     allowable given the time step.
     """
 
-    dr = get_min_dr(**_OVERRIDES)
+    dr = max(get_min_dr(**_OVERRIDES), 50)
     with config.override(dr_init=dr, **_OVERRIDES):
         ds = integrate()
 
-    ds.to_netcdf(f'data/{config.name}/reference.nc')
-    plot_integration(ds, f'plots/{config.name}/reference.png')
+        plot_integration(ds, f'plots/{config.name}/reference-integration.png')
+        plot_ray_count(ds, f'plots/{config.name}/reference-ray-count')
+        ds.to_netcdf(f'data/{config.name}/reference.nc')
 
 def _get_descending_jets() -> xr.Dataset:
     """

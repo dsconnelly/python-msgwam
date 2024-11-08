@@ -17,7 +17,7 @@ prescribed_wind_file = 'data/gaussians/mean-state.nc'
 ################################################################################
 dt = 120
 dt_output = 120
-n_day = 5
+n_day = 10
 
 ################################################################################
 # mean state
@@ -64,4 +64,4 @@ c_width = 12
 dk_init = 1e-4
 direction = 0
 dl_init = 1e-4
-period_hours = 6
+period_hours = 3
