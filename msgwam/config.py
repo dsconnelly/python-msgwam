@@ -13,7 +13,7 @@ _DEFAULTS = {}
 # global integration settings
 ################################################################################
 mean_state_type: Literal['interactive', 'prescribed']
-propagator_type: Literal['instantaneous', 'network', 'transient']
+propagator_type: Literal['network', 'steady', 'transient']
 source_type: Literal['deterministic', 'network', 'stochastic']
 spectrum_type: Literal['convective', 'custom', 'gaussians']
 

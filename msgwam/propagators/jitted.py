@@ -1,6 +1,8 @@
 import numba as nb
 import numpy as np
 
+from .. import config
+
 @nb.njit
 def get_max_intersects(
     r: np.ndarray,
@@ -48,6 +50,83 @@ def get_max_intersects(
                 maxes[i] = profile[j]
 
     return maxes
+
+@nb.njit
+def get_steady_action_fluxes(
+    k: np.ndarray,
+    l: np.ndarray,
+    u: np.ndarray,
+    v: np.ndarray,
+    N: np.ndarray,
+    rho: np.ndarray,
+    omega: np.ndarray,
+    source_flux: np.ndarray
+) -> np.ndarray:
+    """
+    Propagate the waves launched at the source according to the steady-state
+    monochromatic scheme described in Bölöni et al.
+
+    Parameters
+    ----------
+    k, l
+        Arrays of zonal and meridional wavenumbers, respectively.
+    u, v
+        Arrays of zonal and meridional mean wind, respectively, interpolated to
+        vertical grid cell faces.
+    N
+        Array of buoyancy frequencies at vertical grid cell faces.
+    rho
+        Array of mean state densities at vertical grid cell faces.
+    omega
+        Extrinsic frequency of each wave. In the steady-state approximation, it
+        is assumed that omega is conserved.
+    source_flux
+        Group velocity times action associated with each wave at the source. In
+        the steady-state approximation, this quantity is conserved except in the
+        presence of wave saturation.
+
+    Returns
+    -------
+    np.ndarray
+        Array of shape `(len(u), len(k))` whose entry at [j, i] gives the group
+        velocity times action associated with the ith ray at the jth vertical
+        grid face. Can be multiplied by the appropriate wavenumber and summed
+        over the second dimension to obtain a momentum flux profile.
+    
+    """
+
+    n_faces, n_waves = len(u), len(k)
+    out = np.zeros((n_waves, n_faces))
+    out[:, 0] = source_flux
+
+    for i in range(n_waves):
+        wvn_hor_sq = k[i] ** 2 + l[i] ** 2
+
+        for j in range(1, n_faces):
+            omega_hat = omega[i] - k[i] * u[j] - l[i] * v[j]
+            if omega_hat <= abs(config.f):
+                break
+
+            if omega_hat >= N[j]:
+                for p in range(j):
+                    out[i, p] -= out[i, j - 1]
+
+                break
+
+            m = -np.sqrt(
+                wvn_hor_sq * (N[j] ** 2 - omega_hat ** 2) /
+                (omega_hat ** 2 - config.f ** 2)
+            )
+
+            cg_r = -m * (
+                (omega_hat ** 2 - config.f ** 2) /
+                omega_hat / (wvn_hor_sq + m ** 2)
+            )
+
+            threshold = rho[j] * omega_hat * (1 / m ** 2 + 1 / wvn_hor_sq) / 2
+            out[i, j] = min(out[i, j - 1] / cg_r, threshold) * cg_r
+
+    return out.T
 
 @nb.njit
 def interp(r: np.ndarray, z: np.ndarray, profile: np.ndarray) -> np.ndarray:

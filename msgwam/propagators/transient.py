@@ -3,15 +3,13 @@ from typing import TYPE_CHECKING, Any, Optional, Self, cast
 
 import numpy as np
 
-from msgwam.means import MeanState
-
 from .. import config
 from ..constants import PROP_NAMES
 from ..dispersion import get_cg_r, get_cp_x, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
-from .utils import get_max_intersects, interp, project
+from .jitted import get_max_intersects, interp, project
 
 if TYPE_CHECKING:
     from ..means import MeanState

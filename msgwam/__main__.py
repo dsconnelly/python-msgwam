@@ -10,5 +10,7 @@ if __name__ == '__main__':
     ds = integrate()
     ds.to_netcdf(f'data/{config.name}/integration.nc')
     plot_integration(ds, f'plots/{config.name}/integration.png')
-    plot_ray_count(ds, f'plots/{config.name}/ray-count.png')
     plot_source(f'plots/{config.name}/source.png')
+
+    if config.propagator_type == 'transient':
+        plot_ray_count(ds, f'plots/{config.name}/ray-count.png')
