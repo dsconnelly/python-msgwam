@@ -6,7 +6,7 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.integration import integrate
 from msgwam.means import InteractiveWind
-from msgwam.plotting import plot_integration, plot_ray_count
+from msgwam.plotting import plot_boundary, plot_integration, plot_ray_count
 from msgwam.utils import make_colored_noise, shapiro_filter
 
 from utils import get_min_dr
@@ -49,7 +49,8 @@ def save_reference() -> None:
         ds = integrate()
 
         plot_integration(ds, f'plots/{config.name}/reference-integration.png')
-        plot_ray_count(ds, f'plots/{config.name}/reference-ray-count')
+        plot_ray_count(ds, f'plots/{config.name}/reference-ray-count.png')
+        plot_boundary(ds, f'plots/{config.name}/reference-boundary.png')
         ds.to_netcdf(f'data/{config.name}/reference.nc')
 
 def _get_descending_jets() -> xr.Dataset:

@@ -35,7 +35,7 @@ def plot_boundary(ds: xr.Dataset, output_path: str) -> None:
     fig, ax = plt.subplots()
     fig.set_size_inches(4.5, 3)
 
-    days = config.dt * np.arange(config.n_steps) / 86400
+    days = cftime.date2num(ds['time'], f'days since {EPOCH}')
     pmf = 1000 * (ds['pmf_e'] - ds['pmf_w']).isel(z_faces=0)
     line = 1000 * config.flux_bc * np.ones_like(days)
 
