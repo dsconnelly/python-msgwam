@@ -81,38 +81,53 @@ def get_time() -> np.ndarray:
     seconds = config.dt * np.arange(config.n_steps)
     return cftime.num2date(seconds, f'seconds since {EPOCH}')
 
-def make_colored_noise(n_t: int, n_z: int, p: float=(5 / 3)) -> np.ndarray:
+def make_colored_noise(
+    time: np.ndarray,
+    z: np.ndarray,
+    T: float,
+    H: float,
+    beta: float=2
+) -> np.ndarray:
     """
-    Generate power law noise in time and height. The grid need not have the same
-    number of points in each dimension.
+    Generate power law noise in time and height.
 
     Parameters
     ----------
-    n_t
-        Number of time steps.
-    n_z
-        Number of vertical levels.
-    p
-        Power governing amplitude decay.
+    time
+        Grid of time steps.
+    z
+        Grid of vertical grid levels.
+    T
+        Period of the dominant mode in time. The e-folding time of the temporal
+        autocorrelation will be `T / (2 * pi)`.
+    H
+        Length scale of the dominant mode in the vertical. The e-folding time of
+        the height autocorrelation will be `H / (2 * pi)`.
+    beta
+        Decay rate of frequencies above the critical frequency. This parameter
+        will describe the power spectrum along cross-sections in time or height,
+        so that e.g. `beta=2` gives classical red noise.
 
     Returns
     -------
     np.ndarray
-        Two-dimensional array of noise. Normalized to lie between -1 and 1.
-
+        Two-dimensional array of noise, normalized ot lie between -1 and 1.
+    
     """
 
-    ell = n_z * np.fft.fftfreq(n_z)
-    k = n_t * np.fft.fftfreq(n_t)[:, None]
-    wvn_sq = (k ** 2 + ell ** 2) / (n_t ** 2 + n_z ** 2)
+    dt = time[1] - time[0]
+    dz = z[1] - z[0]
 
-    idx = wvn_sq != 0
-    A = np.zeros_like(wvn_sq)
-    A[idx] = 1 / wvn_sq[idx]
-    A = A ** (p / 2)
+    k = np.fft.fftfreq(len(time), dt)[:, None]
+    ell = np.fft.fftfreq(len(z), dz)
 
-    phase = 2 * np.pi * np.random.rand(*A.shape)
-    noise_hat = A * (np.cos(phase) + 1j * np.sin(phase))
+    k_cutoff = 1 / T
+    ell_cutoff = 1 / H
+    decay = (k / k_cutoff) ** 2 + (ell / ell_cutoff) ** 2
+    power = 1 / (1 + 0.5 * np.sqrt(decay) ** (2 * beta - 1))
+
+    phase = 2 * np.pi * np.random.rand(*power.shape)
+    noise_hat = np.sqrt(power) * (np.cos(phase) + 1j * np.sin(phase))
     noise = np.fft.ifft2(noise_hat).real
 
     return 2 * (noise - noise.min()) / (noise.max() - noise.min()) - 1
