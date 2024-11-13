@@ -42,15 +42,16 @@ class TransientPropagator(Propagator):
         self._data = np.nan * np.zeros(shape)
         self._next_meta = 0
 
-        self._r_init = config.z_min - 0.5 * config.dr_init
+        self._r_init = config.z_min - config.dr_init
+        self._r_ghost = config.z_min - 0.5 * config.dr_init
         self._ghosts = np.zeros(config.n_source).astype(int)
         datas, cdx = self._source.launch(mean, 0)
 
         for k, data in zip(cdx, datas.T):
             self._ghosts[k] = self._add_ray(data, mean)
 
-        exts = (self._r_init, mean.z_centers[-1] + mean.dz)
-        self._z_padded = np.pad(mean.z_centers, 1, constant_values=exts)
+        padding = (self._r_ghost, mean.z_centers[-1] + mean.dz)
+        self._z_padded = np.pad(mean.z_centers, 1, constant_values=padding)
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -295,8 +296,8 @@ class TransientPropagator(Propagator):
         jdx = self._ghosts[cdx]
         if config.source_type != 'stochastic':
             r_hi = self.r[jdx] + 0.5 * self.dr[jdx]
-            self._data[0, jdx] = (config.z_min + r_hi) / 2
-            self._data[1, jdx] = r_hi - config.z_min
+            self._data[0, jdx] = (self._r_ghost + r_hi) / 2
+            self._data[1, jdx] = r_hi - self._r_ghost
 
         self._prune(excess, mean)
         for k, data in zip(cdx, datas.T):

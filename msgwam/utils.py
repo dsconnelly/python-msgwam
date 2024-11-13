@@ -1,6 +1,6 @@
 from abc import ABC
 from itertools import takewhile
-from typing import Iterator, Self
+from typing import Iterator, Optional, Self
 
 import cftime
 import numpy as np
@@ -82,55 +82,56 @@ def get_time() -> np.ndarray:
     return cftime.num2date(seconds, f'seconds since {EPOCH}')
 
 def make_colored_noise(
-    time: np.ndarray,
-    z: np.ndarray,
-    T: float,
-    H: float,
-    beta: float=2
+    xs: list[np.ndarray],
+    scales: list[float],
+    n_min: float=-1,
+    n_max: float=1
 ) -> np.ndarray:
     """
-    Generate power law noise in time and height.
+    Generate power law noise in one or two dimensions.
 
     Parameters
     ----------
-    time
-        Grid of time steps.
-    z
-        Grid of vertical grid levels.
-    T
-        Period of the dominant mode in time. The e-folding time of the temporal
-        autocorrelation will be `T / (2 * pi)`.
-    H
-        Length scale of the dominant mode in the vertical. The e-folding time of
-        the height autocorrelation will be `H / (2 * pi)`.
-    beta
-        Decay rate of frequencies above the critical frequency. This parameter
-        will describe the power spectrum along cross-sections in time or height,
-        so that e.g. `beta=2` gives classical red noise.
+    xs
+        Coordinate arrays. Should contain one or two arrays.
+    scales
+        Cutoff scale for each coordinate array in `xs`, beyond which power law
+        decay begins. The spectrum is more or less flat for larger scales.
+    n_min
+        Minimum value in returned noise.
+    n_max
+        Maximum value in returned noise.
 
     Returns
     -------
     np.ndarray
-        Two-dimensional array of noise, normalized ot lie between -1 and 1.
-    
+        One- or two-dimensional array of noise.
+
     """
 
-    dt = time[1] - time[0]
-    dz = z[1] - z[0]
+    if len(xs) != len(scales) or len(xs) > 2:
+        raise ValueError('Only one- or two-dimensional noise can be generated')
+    
+    dx = xs[0][1] - xs[0][0]
+    k = np.fft.fftfreq(len(xs[0]), dx)
+    decay = (k * scales[0]) ** 2
 
-    k = np.fft.fftfreq(len(time), dt)[:, None]
-    ell = np.fft.fftfreq(len(z), dz)
+    if len(xs) > 1:
+        dy = xs[1][1] - xs[1][0]
+        ell = np.fft.fftfreq(len(xs[1]), dy)
+        decay = decay[:, None] + (ell * scales[1]) ** 2
 
-    k_cutoff = 1 / T
-    ell_cutoff = 1 / H
-    decay = (k / k_cutoff) ** 2 + (ell / ell_cutoff) ** 2
-    power = 1 / (1 + 0.5 * np.sqrt(decay) ** (2 * beta - 1))
+    beta = 2 if len(xs) == 1 else 3
+    alpha = 1 if len(xs) == 1 else 1 / 2
+    func = np.fft.ifft if len(xs) == 1 else np.fft.ifft2
 
+    power = 1 / (1 + alpha * np.sqrt(decay) ** beta)
     phase = 2 * np.pi * np.random.rand(*power.shape)
-    noise_hat = np.sqrt(power) * (np.cos(phase) + 1j * np.sin(phase))
-    noise = np.fft.ifft2(noise_hat).real
+    noise_hat = np.sqrt(power) * np.exp(1j * phase)
+    noise = func(noise_hat).real
 
-    return 2 * (noise - noise.min()) / (noise.max() - noise.min()) - 1
+    noise = (noise - noise.min()) / (noise.max() - noise.min())
+    return n_min + noise * (n_max - n_min)
 
 def open_dataset(*args, **kwargs) -> xr.Dataset:
     """
