@@ -5,6 +5,7 @@ from msgwam import config
 
 from coarsening import *
 from reference import *
+from strategies import *
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]

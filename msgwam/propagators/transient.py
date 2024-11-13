@@ -38,9 +38,6 @@ class TransientPropagator(Propagator):
         super().__init__(mean)
         self._indices = {name : i for i, name in enumerate(PROP_NAMES)}
 
-        exts = (mean.z_faces[0], mean.z_centers[-1] + mean.dz)
-        self._z_padded = np.pad(mean.z_centers, 1, constant_values=exts)
-
         shape = (len(PROP_NAMES), config.n_max)
         self._data = np.nan * np.zeros(shape)
         self._next_meta = 0
@@ -51,6 +48,9 @@ class TransientPropagator(Propagator):
 
         for k, data in zip(cdx, datas.T):
             self._ghosts[k] = self._add_ray(data, mean)
+
+        exts = (self._r_init, mean.z_centers[-1] + mean.dz)
+        self._z_padded = np.pad(mean.z_centers, 1, constant_values=exts)
 
     def __getattr__(self, name: str) -> Any:
         """

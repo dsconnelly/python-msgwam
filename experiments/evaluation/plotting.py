@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from matplotlib.colors import LinearSegmentedColormap
+
 from msgwam import config
 
 if TYPE_CHECKING:
@@ -53,13 +55,16 @@ def plot_error_grid(
         fig, axes = plt.subplots(ncols=2, width_ratios=widths)
         fig.set_size_inches(sum(widths), 4.5)
 
+    colors = ['darkgreen', 'w', 'darkred']
+    cmap = LinearSegmentedColormap.from_list('custom', colors, 256)
+
     ax, cax = axes
     img = ax.imshow(
         errors.T,
-        vmin=0, vmax=3,
+        vmin=0, vmax=2,
         origin='lower',
         aspect='auto',
-        cmap='Reds'
+        cmap=cmap
     )
 
     dcs = [round(_get_dc(n), 2) for n in n_sources]
@@ -70,7 +75,7 @@ def plot_error_grid(
     ax.set_ylabel('$\\delta c_{\mathrm{p}}$ (m / s)')
 
     cbar = plt.colorbar(img, cax=cax)
-    cbar.set_ticks(np.linspace(0, 3, 4))
+    cbar.set_ticks(np.linspace(0, 2, 5))
     cbar.set_label('normalized error')
 
     return ax, cax

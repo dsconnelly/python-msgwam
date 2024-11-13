@@ -89,10 +89,9 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
 
     names = ['total', 'westerly', 'easterly']
     pmfs = [ds['pmf_e'] + ds['pmf_w'], ds['pmf_e'], ds['pmf_w']]
-    amax = np.ceil(1000 * (pmfs[1].max() + 2 * pmfs[1].std()))
 
     for name, pmf, ax in zip(names, pmfs, axes[1:]):
-        _, cbar = plot_time_series(1000 * pmf, amax, [ax, caxes[1]])
+        _, cbar = plot_time_series(1000 * pmf, 2, [ax, caxes[1]])
         cbar.set_label('flux (mPa)') # type: ignore
         ax.set_title(f'{name} gravity wave flux')
         

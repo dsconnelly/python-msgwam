@@ -12,29 +12,30 @@ from msgwam.utils import make_colored_noise, shapiro_filter
 from utils import get_min_dr
 
 _OVERRIDES = {
-    'dt' : 10,
+    'dt' : 30,
     'n_grid' : 201,
-    'n_source' : 200,
-    'n_max' : 50000,
-    'n_increment' : 5000,
+    'n_source' : 100,
+    'n_max' : 500000,
+    'n_increment' : 10000,
     'prune_by' : 'none'
 }
 
-def save_mean_state(seed: int=1234) -> None:
+def save_mean_state(*args) -> None:
     """
     Save the mean wind to be used for this configuration. The wind is saved at
     the reference resolution, from which it can be coarsened later.
 
     Parameters
     ----------
-    seed
-        Integer to use as the random seed.
+    args
+        Arguments to pass to the function that generates the wind.
 
     """
 
-    np.random.seed(seed)
+    np.random.seed(1234)
     with config.override(**_OVERRIDES):
-        _get_descending_jets().to_netcdf(f'data/{config.name}/mean-state.nc')
+        ds = _get_descending_jets(*args)
+        ds.to_netcdf(f'data/{config.name}/mean-state.nc')
 
 def save_reference() -> None:
     """
@@ -44,7 +45,10 @@ def save_reference() -> None:
     allowable given the time step.
     """
 
-    dr = max(get_min_dr(**_OVERRIDES), 50)
+    with config.override(**_OVERRIDES):
+        dr = max(get_min_dr(), 50)
+        print(f'Reference integration will take dr = {dr}')
+
     with config.override(dr_init=dr, **_OVERRIDES):
         ds = integrate()
 
@@ -53,9 +57,15 @@ def save_reference() -> None:
         plot_boundary(ds, f'plots/{config.name}/reference-boundary.png')
         ds.to_netcdf(f'data/{config.name}/reference.nc')
 
-def _get_descending_jets() -> xr.Dataset:
+def _get_descending_jets(period_days: str='2') -> xr.Dataset:
     """
     Generate a mean flow scenario with descending jets approximating the QBO.
+
+    Parameters
+    ----------
+    period_days
+        Period of the oscillation, in days. Because this parameter is passed in
+        from the command line, we have to accept it as a string.
 
     Returns
     -------
@@ -68,17 +78,19 @@ def _get_descending_jets() -> xr.Dataset:
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     z = InteractiveWind().z_centers
 
-    k = 2 * np.pi / (3 * 86400)
+    period = float(period_days) * 86400
+    k = 2 * np.pi / period
     ell = 2 * np.pi / 25e3
 
     x, y = np.meshgrid(seconds, z)
     wave = np.exp(1j * (k * x + ell * y)).real.T
-    env = np.exp(-((z - 45e3) / 10e3) ** 2)
+    env_1 = np.exp(-((z - 45e3) / 10e3) ** 2)
 
-    noise_1 = make_colored_noise(config.n_steps, config.n_grid - 1)
-    noise_2 = make_colored_noise(config.n_steps, config.n_grid - 1)
+    T = 9 * 3600
+    noise = make_colored_noise(seconds, z, T, 5e3)
+    env_2 = np.exp(-((z - 40e3) / 20e3) ** 2)
 
-    u = 30 * env * (wave + noise_1) + 5 * noise_2
+    u = 40 * env_1 * wave + 10 * env_2 * noise
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

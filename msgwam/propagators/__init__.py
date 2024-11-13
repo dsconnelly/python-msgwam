@@ -1,5 +1,5 @@
 from .base import Propagator
-from .steady import SteadyPropagator
+from .instantaneous import InstantaneousPropagator
 from .transient import TransientPropagator
 
 __all__ = ['Propagator', 'TransientPropagator']

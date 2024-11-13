@@ -13,7 +13,7 @@ from .jitted import get_steady_action_fluxes
 if TYPE_CHECKING:
     from ..means import MeanState
 
-class SteadyPropagator(Propagator):
+class InstantaneousPropagator(Propagator):
     """
     Class implementing the steady-state monochromatic gravity wave scheme from
     Section 3b of Bölöni et al. (2021).

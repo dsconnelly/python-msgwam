@@ -3,16 +3,14 @@ from itertools import product
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
-import xarray as xr
 
 from matplotlib.patches import Rectangle
 
 from msgwam import config
 from msgwam.integration import integrate
-from msgwam.utils import open_dataset
 
 from plotting import plot_error_grid, plot_rmse_profiles
-from utils import get_min_dr
+from utils import get_rmse, load_flux
 
 def plot_coarse_errors() -> None:
     """
@@ -32,11 +30,11 @@ def plot_coarse_errors() -> None:
     profiles, errors, rms = _get_errors(drs, n_sources)
     plot_error_grid(drs, n_sources, errors, (axes[1], cax))
     
-    to_plot = [rms]
-    colors = ['gray', 'forestgreen', 'royalblue']
-    linestyles = ['dashed'] + ['solid'] * 2
+    to_plot = []
+    colors = ['forestgreen', 'royalblue', 'gray']
+    linestyles = ['solid'] * 2 + ['dashed']
 
-    for func, color in zip([np.argmin, np.argmax], colors[1:]):
+    for func, color in zip([np.argmin, np.argmax], colors):
         i, j = np.unravel_index(func(errors), errors.shape)
         to_plot.append(profiles[i, j])
 
@@ -48,6 +46,7 @@ def plot_coarse_errors() -> None:
             zorder=10
         ))
 
+    to_plot.append(rms)
     z = np.linspace(config.z_min, config.z_max, config.n_grid) / 1000
     plot_rmse_profiles(z, to_plot, colors, linestyles, ax=axes[0])
 
@@ -103,8 +102,7 @@ def _get_grid() -> tuple[list[int], list[int]]:
 
     """
 
-    min_dr = get_min_dr()
-    drs = [int(min_dr + 500 * i) for i in range(10)]
+    drs = [1000 * i for i in range(1, 11)]
     n_sources = [10 * i for i in range(1, 11)]
 
     return drs, n_sources[::-1]
@@ -139,63 +137,16 @@ def _get_errors(
 
     
     z_faces = np.linspace(config.z_min, config.z_max, config.n_grid)
-    ref = _load_flux(f'data/{config.name}/reference.nc', z_faces)
+    ref = load_flux(f'data/{config.name}/reference.nc', z_faces)
     profiles = np.zeros((len(drs), len(n_sources), len(z_faces)))
 
     for i, dr in enumerate(drs):
         for j, n_source in enumerate(n_sources):
             fname = f'coarse_dr-{dr}_n-source-{n_source}'
-            flux = _load_flux(f'data/{config.name}/{fname}.nc', z_faces)
-            profiles[i, j] = _get_rmse(ref, flux)
+            flux = load_flux(f'data/{config.name}/{fname}.nc', z_faces)
+            profiles[i, j] = get_rmse(ref, flux)
 
-    rms = _get_rmse(ref).values
+    rms = get_rmse(ref).values
     errors = (profiles / rms).mean(axis=-1)
 
     return profiles, errors, rms
-
-def _get_rmse(a: xr.DataArray, b: xr.DataArray | float = 0) -> xr.DataArray:
-    """
-    Compute the root-mean-square error over time between two arrays. The second
-    argument can also be passed in as a constant float, so that this function
-    can be used to calculate the RMS value of the data by passing in zero.
-
-    Parameters
-    ----------
-    a, b
-        Data with which to compute RMS errors.
-
-    Returns
-    -------
-    xr.DataArray
-        Array of RMS errors, with the time dimension averaged out.
-
-    """
-
-    return np.sqrt(((a - b) ** 2).mean('time'))
-
-def _load_flux(path: str, z_faces: np.ndarray) -> xr.DataArray:
-    """
-    Load the zonal gravity wave momentum flux from a netCDF file. This function
-    adds the easterly and westerly components and ensures that the returned flux
-    is at the correct temporal and vertical resolution.
-
-    Parameters
-    ----------
-    path
-        Path to netCDF file containing flux data.
-    z_faces
-        Array of vertical grid faces to interpolate onto.
-
-    Returns
-    -------
-    xr.DataArray
-        Postprocessed flux time series.
-
-    """
-
-    with open_dataset(path) as ds:
-        ds = ds.interp(z_faces=z_faces)
-        ds = ds.resample(time='1h').mean('time')
-        flux = ds['pmf_e'] + ds['pmf_w']
-
-    return flux
