@@ -1,10 +1,14 @@
 from typing import Any
 
+import cftime
 import numpy as np
 import xarray as xr
 
 from .. import config
-from ..utils import get_time, make_colored_noise
+from ..constants import EPOCH
+from ..utils import make_colored_noise
+
+_N_LARGE = int(1e4)
 
 def get_spectrum() -> xr.Dataset:
     """
@@ -22,103 +26,69 @@ def get_spectrum() -> xr.Dataset:
     """
 
     func_name = '_' + config.spectrum_type
-    ds: xr.Dataset = globals()[func_name]()
+    return globals()[func_name]()
 
-    if config.spectrum_type != 'custom':
-        ds = _coarsen(ds)
-
-    return ds
-
-def _coarsen(ds: xr.Dataset) -> xr.Dataset:
+def _coarsen(c_new: np.ndarray, c: np.ndarray, flux: np.ndarray) -> np.ndarray:
     """
-    Regrid a dataset of source spectrum data to the phase velocity grid defined
-    by the loaded configuration file, ensuring that total flux is conserved.
-
-    Parameters
-    ----------
-    ds
-        Dataset of wave properties, presumably on a phase velocity grid with
-        more than `config.n_source` points.
-
-    Returns
-    -------
-    xr.Dataset
-        Coarsened dataset, unless the original dataset was already no finer than
-        the configuration grid, in which case the original dataset is returned.
-
+    Coarsen an array of fluxes calculated on a very fine phase speed grid (for
+    consistency across spectral resolutions) such that each flux on the coarse
+    grid is the sum of all nearby fluxes on the fine grid.
     """
 
-    if len(ds['cp_x']) <= config.n_source:
-        return ds
-    
-    flux = ds['flux']
-    cp_x = _get_phase_velocities(config.n_source)
-    ds = ds.interp(cp_x=cp_x, kwargs={'fill_value' : 'extrapolate'})
+    p, = c_new.shape
+    n_steps, q = flux.shape
 
-    bins = ds['cp_x'].sel(cp_x=flux['cp_x'], method='nearest')
-    bins = bins.assign_coords(cp_x=flux['cp_x'])
-    ds['flux'] = flux.groupby(bins).sum()
+    idx = np.repeat(np.arange(n_steps), q)
+    jdx = np.argmin(abs(c_new - c[:, None]), axis=1)
+    jdx = np.tile(jdx, n_steps)
 
-    return ds
+    flux_new = np.zeros((n_steps, p))
+    np.add.at(flux_new, (idx, jdx), flux.flatten())
 
-def _convective() -> xr.Dataset:
-    """
-    Spectrum consisting of a single Gaussian peak that meanders is phase speed
-    space over time. Other spectral properties also have some noise imposed.
-    """
-    
-    args = [config.n_steps, 1, 5 / 3]
-    noise = 1 + 0.25 * make_colored_noise(config.n_steps, 1)
-    omega_hat = 2 * np.pi / (config.period_hours * 3600) * noise
-    cp_x = _get_phase_velocities(int(1e4))
-
-    wvn_hor = omega_hat / cp_x
-    phi = np.deg2rad(config.direction)
-    k, l = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
-    dk, dl = config.dk_init, config.dl_init
-
-    center = config.c_center * make_colored_noise(*args)
-    width = config.c_width * (1 + 0.5 * make_colored_noise(*args))
-    arg = (make_colored_noise(*args) + 1) / 2
-    flux_bc = config.flux_bc * 3 ** arg
-
-    flux = np.exp(-0.5 * ((cp_x - center) / width) ** 2)
-    flux = flux_bc * flux / flux.sum(axis=1)[:, None]
-
-    ones = np.ones_like(k)
-    spectrum = np.stack((k, l * ones, dk * ones, dl * ones, flux), axis=0)
-
-    data: dict[str, Any] = {'time' : get_time(), 'cp_x' : cp_x}
-    for i, name in enumerate(['k', 'l', 'dk', 'dl', 'flux']):
-        data[name] = (('time', 'cp_x'), spectrum[i])
-
-    return xr.Dataset(data)
+    return flux_new
 
 def _gaussians() -> xr.Dataset:
     """
-    Constant-in-time source spectrum consisting of two Gaussian peaks, symmetric
-    about the origin in phase space. If `config.c_center` is zero, the two peaks
-    coincide with one another.
+    Potentially variable-in-time source spectrum consisting of a Gaussian peak
+    that may wander in phase speed space. The intrinsic frequency is constant in
+    phase speed but may also evolve in time.
     """
 
-    omega_hat = 2 * np.pi / (config.period_hours * 3600)
-    cp_x = _get_phase_velocities(int(1e5))
-    wvn_hor = omega_hat / cp_x
+    np.random.seed(config.seed)
+
+    seconds = config.dt * np.arange(config.n_steps)
+    decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
+    args = [seconds, decay_scale, 3600 * config.tau_cutoff_hours]
+    
+    cp_fine = _get_phase_velocities(_N_LARGE)
+    cp = _get_phase_velocities(config.n_source)
+    flux = np.zeros((len(seconds), _N_LARGE))
+
+    for c_lo, c_hi in zip(config.c_los, config.c_his):
+        center = make_colored_noise(*args, n_min=c_lo, n_max=c_hi)[:, None]
+        flux = flux + np.exp(-0.5 * ((cp_fine - center) / config.c_width) ** 2)
+
+    flux = config.flux_bc * flux / flux.sum(axis=1)[:, None]
+    flux = _coarsen(cp, cp_fine, flux)
+
+    wvn_hor = 2 * np.pi / make_colored_noise(
+        *args,
+        n_min=(3600 * config.T_hat_lo),
+        n_max=(3600 * config.T_hat_hi)
+    )[:, None] / cp
 
     phi = np.deg2rad(config.direction)
     k, l = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
     dk, dl = config.dk_init, config.dl_init
 
-    shift = abs(cp_x) - config.c_center
-    flux = np.exp(-0.5 * (shift / config.c_width) ** 2)
-    flux = config.flux_bc * flux / flux.sum()
+    ones = np.ones_like(k)
+    spectrum = np.stack((k, l, dk * ones, dl * ones, flux), axis=0)
 
-    ones = np.ones_like(cp_x)
-    spectrum = np.vstack((k, l, dk * ones, dl * ones, flux))
+    time = cftime.num2date(seconds, f'seconds since {EPOCH}')
+    data: dict[str, Any] = {'time' : time, 'cp_x' : cp}
 
-    data: dict[str, Any] = {'cp_x' : cp_x}
     for i, name in enumerate(['k', 'l', 'dk', 'dl', 'flux']):
-        data[name] = ('cp_x', spectrum[i])
+        data[name] = (('time', 'cp_x'), spectrum[i])
 
     return xr.Dataset(data)
 

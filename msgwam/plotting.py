@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
+from warnings import catch_warnings
 
 import cftime
+import matplotlib.font_manager as fm
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +18,17 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.collections import QuadMesh
     from matplotlib.colorbar import Colorbar
+
+def init_plotting() -> None:
+    """
+    Set some aesthetically pleasing defaults for plots.
+    """
+
+    path = 'data/fonts/Lato-Regular.ttf'
+    fm.fontManager.addfont(path)
+    
+    prop = fm.FontProperties(fname=path)
+    plt.rcParams['font.sans-serif'] = prop.get_name()
 
 def plot_boundary(ds: xr.Dataset, output_path: str) -> None:
     """
@@ -91,7 +104,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     pmfs = [ds['pmf_e'] + ds['pmf_w'], ds['pmf_e'], ds['pmf_w']]
 
     for name, pmf, ax in zip(names, pmfs, axes[1:]):
-        _, cbar = plot_time_series(1000 * pmf, 2, [ax, caxes[1]])
+        _, cbar = plot_time_series(1000 * pmf, 3, [ax, caxes[1]])
         cbar.set_label('flux (mPa)') # type: ignore
         ax.set_title(f'{name} gravity wave flux')
         
@@ -161,51 +174,69 @@ def plot_source(output_path: str) -> None:
     m = get_m(k, l, cp_x, config.N_ref)
     cg_r = get_cg_r(k, l, m, config.N_ref)
 
-    widths = [4.5, 0.2]
-    fig, axes = plt.subplots(nrows=2, ncols=2, width_ratios=widths)
-    fig.set_size_inches(sum(widths), 6)
-    axes, caxes = axes.T
+    widths = [4.5, 4.3, 0.2]
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(1.25 * sum(widths), 1.25 * 3)
+
+    spec = gs.GridSpec(
+        nrows=3, ncols=3,
+        width_ratios=widths,
+        figure=fig
+    )
+
+    idxs = [(slice(None, None), 1), (0, 0), (1, 0), (2, 0)]
+    axes = [fig.add_subplot(spec[*idx]) for idx in idxs]
+    cax = fig.add_subplot(spec[:, 2])
+
+    for ax in axes[1:]:
+        ax.grid(color='lightgray')
+        ax.set_axisbelow(True)
 
     vmax = 1000 * flux.max()
     vmax = np.ceil(vmax / 0.1) * 0.1
 
     img = axes[0].pcolormesh(
-        days, cp_x,
-        1000 * flux.T,
+        days, cp_x, 1000 * flux.T,
         vmin=0, vmax=vmax,
         shading='nearest',
         cmap='Reds'
     )
 
-    cbar = plt.colorbar(img, cax=caxes[0])
-    cbar.set_ticks(np.linspace(0, vmax, 5))
-    cbar.set_label('flux (mPa)')
-
-    vmax = 3.6 * cg_r.max()
-    vmax = np.ceil(vmax / 5) * 5
-
-    img = axes[1].pcolormesh(
-        days, cp_x,
-        3.6 * cg_r.T,
-        vmin=0, vmax=vmax,
-        shading='nearest',
-        cmap='Blues'
-    )
-
-    cbar = plt.colorbar(img, cax=caxes[1])
-    cbar.set_ticks(np.linspace(0, vmax, 5))
-    cbar.set_label('$c_{\\mathrm{g}}$ (km / h)')
-
-    for ax in axes:
-        ax.set_xlim(0, days.max())
-
-        ax.set_ylim(-config.c_max, config.c_max)
-        ax.set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
-        ax.set_yticks(np.linspace(-config.c_max, config.c_max, 5))
-
+    axes[0].set_xlim(0, config.n_day)
+    axes[0].set_xticks(np.linspace(0, config.n_day, 6))
     axes[0].set_xlabel('time (days)')
 
-    plt.tight_layout()
+    axes[0].set_ylim(-config.c_max, config.c_max)
+    axes[0].set_yticks(np.linspace(*axes[0].get_ylim(), 5))
+    axes[0].set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
+
+    cbar = plt.colorbar(img, cax=cax)
+    cbar.set_label('flux (mPa)')
+    
+    names = ['$c_{\\mathrm{g}}$', '$\\lambda_x$', '$\\lambda_z$']
+    fields = [cg_r, 2 * np.pi / abs(k) / 1000, 2 * np.pi / abs(m) / 1000]
+    bounds = [(0, 5), (0, 1500), (0, 16)]
+    units = ['m / s', 'km', 'km']
+
+    zipped = zip(names, fields, bounds, units, axes[1:])
+    for name, field, (a, b), unit, ax in zipped:
+        edges = np.linspace(a, b, 13)
+        x = (edges[:-1] + edges[1:]) / 2
+        width = edges[1] - edges[0]
+
+        h = 1e6 * _get_bin_averages(flux, field, edges)
+        ax.bar(x, h, width=width, ec='k', fc='gray')
+
+        ax.set_xlim(a, b)
+        n_ticks = 5 if b == 16 else 6
+        ax.set_xticks(np.linspace(a, b, n_ticks))
+        ax.set_title(f'{name} ({unit})')
+
+        ax.set_ylim(0, np.ceil(h.max() / 50) * 50)
+        ax.set_yticks([*ax.get_ylim()])
+        ax.set_ylabel('flux ($\mu$Pa)')
+
+    axes[0].set_title('source flux')
     plt.savefig(output_path, dpi=400)
 
 def plot_time_series(
@@ -278,3 +309,35 @@ def plot_time_series(
         cbar = None
 
     return img, cbar
+
+def _get_bin_averages(
+    data: np.ndarray,
+    coord: np.ndarray,
+    edges: np.ndarray
+) -> np.ndarray:
+    """
+    Given a data array and an array giving a coordinate value for each data
+    point, get the average data value for each of a series of coordinate bins.
+
+    Parameters
+    ----------
+    data
+        Data to average over.
+    coord
+        Coordinate values for each data point.
+    edges
+        Bin edges in coordinate space.
+
+    Returns
+    -------
+    np.ndarray
+        Array with `len(edges) - 1` elements of the average bin values.
+
+    """
+
+    out = np.zeros(len(edges) - 1)
+    with catch_warnings(action='ignore', category=RuntimeWarning):
+        for i, (lo, hi) in enumerate(zip(edges[:-1], edges[1:])):
+            out[i] = data[(lo <= coord) & (coord < hi)].mean()
+
+    return np.nan_to_num(out)

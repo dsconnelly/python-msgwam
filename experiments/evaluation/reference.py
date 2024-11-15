@@ -77,20 +77,20 @@ def _get_descending_jets(period_days: str='2') -> xr.Dataset:
     seconds = config.dt * np.arange(config.n_steps)
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     z = InteractiveWind().z_centers
+    cutoff_scales = [30 * 60, 0]
 
     period = float(period_days) * 86400
-    k = 2 * np.pi / period
-    ell = 2 * np.pi / 25e3
-
+    k, ell = 2 * np.pi / period, 2 * np.pi / 25e3
     x, y = np.meshgrid(seconds, z)
-    wave = np.exp(1j * (k * x + ell * y)).real.T
+    
     env_1 = np.exp(-((z - 45e3) / 10e3) ** 2)
-
-    T = 9 * 3600
-    noise = make_colored_noise(seconds, z, T, 5e3)
     env_2 = np.exp(-((z - 40e3) / 20e3) ** 2)
+    wave = np.exp(1j * (k * x + ell * y)).real.T
 
-    u = 40 * env_1 * wave + 10 * env_2 * noise
+    noise_1 = make_colored_noise([seconds, z], [period, 15e3], cutoff_scales)
+    noise_2 = make_colored_noise([seconds, z], [9 * 3600, 5e3], cutoff_scales)
+
+    u = env_1 * (40 * wave + 20 * noise_1) + env_2 * 10 * noise_2
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

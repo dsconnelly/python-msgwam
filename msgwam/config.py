@@ -15,7 +15,7 @@ _DEFAULTS = {}
 mean_state_type: Literal['interactive', 'prescribed']
 propagator_type: Literal['instantaneous', 'network', 'transient']
 source_type: Literal['deterministic', 'network', 'stochastic']
-spectrum_type: Literal['convective', 'custom', 'gaussians']
+spectrum_type: Literal['custom', 'gaussians']
 
 ################################################################################
 # input and output
@@ -73,13 +73,18 @@ epsilon: float
 ################################################################################
 # 'gaussians' spectrum
 ################################################################################
-flux_bc: float
-c_center: float
+c_his: list[float]
+c_los: list[float]
 c_width: float
-dk_init: float
 direction: float
+dk_init: float
 dl_init: float
-period_hours: float
+flux_bc: float
+T_hat_lo: float
+T_hat_hi: float
+tau_corr_days: float
+tau_cutoff_hours: float
+seed: int
 
 ################################################################################
 # derived settings
@@ -153,7 +158,7 @@ def _add_derived(config: dict[str, Any]) -> None:
     latitude = np.deg2rad(config.pop('latitude'))
     config['f'] = 2 * ROT_EARTH * np.sin(latitude)
 
-def _is_valid(key: str, value: Any) -> bool:
+def _is_valid(value: Any, annotation: Any) -> bool:
     """
     Check if a config setting is given its type annotation. Usually, this just
     amounts to an `isinstance` check, but this function defines the appropriate
@@ -161,10 +166,11 @@ def _is_valid(key: str, value: Any) -> bool:
 
     Parameters
     ----------
-    key
-        Name of configuration setting to validate.
     value
         Configuration value loaded from a file or supplied by the user.
+    annotation
+        Type annotation for the variable as read from `__annotations__`. Taken
+        as a parameter directly so that the function can be used recursively.
 
     Returns
     -------
@@ -174,14 +180,16 @@ def _is_valid(key: str, value: Any) -> bool:
     
     """
 
-    annotation = __annotations__[key]
-
     if 'Literal' in str(annotation):
         return value in annotation.__args__
-    
+
     if annotation is float:
         return isinstance(value, (int, float))
-    
+
+    if 'list' in str(annotation):
+        cls = annotation.__args__[0]
+        return all(_is_valid(x, cls) for x in value)
+
     return isinstance(value, annotation)
 
 def _update(config: dict[str, Any]) -> None:
@@ -201,7 +209,7 @@ def _update(config: dict[str, Any]) -> None:
     _add_derived(config)
 
     for key, value in config.items():
-        if not _is_valid(key, value):
+        if not _is_valid(value, __annotations__[key]):
             raise ValueError(f'Invalid config setting: {key} = {value}')
         
     globals().update(config)

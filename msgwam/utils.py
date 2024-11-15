@@ -1,6 +1,6 @@
 from abc import ABC
 from itertools import takewhile
-from typing import Iterator, Optional, Self
+from typing import Iterator, Optional, Self, TypeVar
 
 import cftime
 import numpy as np
@@ -10,6 +10,8 @@ from tqdm import trange
 
 from . import config
 from .constants import EPOCH
+
+_T = TypeVar('T')
 
 class FactoryABC(ABC):
     """
@@ -82,50 +84,68 @@ def get_time() -> np.ndarray:
     return cftime.num2date(seconds, f'seconds since {EPOCH}')
 
 def make_colored_noise(
-    xs: list[np.ndarray],
-    scales: list[float],
+    xs: np.ndarray | list[np.ndarray],
+    decay_scales: float | list[float],
+    cutoff_scales: Optional[float | list[float]]=None,
     n_min: float=-1,
     n_max: float=1
 ) -> np.ndarray:
     """
-    Generate power law noise in one or two dimensions.
+    Generate power law noise in one or two dimensions. The first three arguments
+    can be provided as lists or, if one-dimensional noise is to be generated, as 
+    single arguments (that is, floats or numpy arrays). If `n_min == n_max`, the
+    returned array will simply be constant with the appropriate shape.
 
     Parameters
     ----------
     xs
-        Coordinate arrays. Should contain one or two arrays.
-    scales
-        Cutoff scale for each coordinate array in `xs`, beyond which power law
-        decay begins. The spectrum is more or less flat for larger scales.
+        Coordinate arrays.
+    decay_scales
+        Scales for each coordinate beyond which power law decay begins. The
+        spectrum is more or less flat for larger scales.
+    cutoff_scales
+        Cutoff scales for each coordinate. Higher-frequency modes will have
+        their amplitudes zeroed out. If `None` or a list of zeros, the noise
+        will contain contributions from all resolvable modes.
     n_min
         Minimum value in returned noise.
     n_max
         Maximum value in returned noise.
-
-    Returns
-    -------
-    np.ndarray
-        One- or two-dimensional array of noise.
-
+    
     """
 
-    if len(xs) != len(scales) or len(xs) > 2:
+    xs = _as_list(xs)
+    decay_scales = _as_list(decay_scales)
+
+    if cutoff_scales is None:
+        cutoff_scales = [0] * len(xs)
+
+    cutoff_scales = _as_list(cutoff_scales)
+
+    if n_min == n_max:
+        shape = tuple(len(x) for x in xs)
+        return n_min * np.ones(shape)
+    
+    if len(xs) != len(decay_scales) != len(cutoff_scales) or len(xs) > 2:
         raise ValueError('Only one- or two-dimensional noise can be generated')
     
     dx = xs[0][1] - xs[0][0]
     k = np.fft.fftfreq(len(xs[0]), dx)
-    decay = (k * scales[0]) ** 2
+    decay = (k * decay_scales[0]) ** 2
+    idx = abs(k) * cutoff_scales[0] > 1
 
     if len(xs) > 1:
         dy = xs[1][1] - xs[1][0]
         ell = np.fft.fftfreq(len(xs[1]), dy)
-        decay = decay[:, None] + (ell * scales[1]) ** 2
+        decay = decay[:, None] + (ell * decay_scales[1]) ** 2
+        idx = idx[:, None] | (abs(ell) * cutoff_scales[1] > 1)
 
     beta = 2 if len(xs) == 1 else 3
     alpha = 1 if len(xs) == 1 else 1 / 2
-    func = np.fft.ifft if len(xs) == 1 else np.fft.ifft2
-
     power = 1 / (1 + alpha * np.sqrt(decay) ** beta)
+    power[idx] = 0
+
+    func = np.fft.ifft if len(xs) == 1 else np.fft.ifft2
     phase = 2 * np.pi * np.random.rand(*power.shape)
     noise_hat = np.sqrt(power) * np.exp(1j * phase)
     noise = func(noise_hat).real
@@ -169,3 +189,26 @@ def shapiro_filter(data: np.ndarray) -> np.ndarray:
     """
 
     return (data[:-2] + 2 * data[1:-1] + data[2:]) / 4
+
+def _as_list(a: _T | list[_T]) -> list[_T]:
+    """
+    Validate an argument that can be passed as a scalar or a list of scalars by
+    ensuring that it is a list.
+
+    Parameters
+    ----------
+    a
+        Argument to validate.
+
+    Returns
+    -------
+    list[_T]
+        If `a` was a list, it is returned as-is. Otherwise, a list containing
+        the passed scalar is returned.
+
+    """
+
+    if isinstance(a, list):
+        return a
+    
+    return [a]
