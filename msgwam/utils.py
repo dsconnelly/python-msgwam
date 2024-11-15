@@ -88,7 +88,8 @@ def make_colored_noise(
     decay_scales: float | list[float],
     cutoff_scales: Optional[float | list[float]]=None,
     n_min: float=-1,
-    n_max: float=1
+    n_max: float=1,
+    seed: Optional[int]=None
 ) -> np.ndarray:
     """
     Generate power law noise in one or two dimensions. The first three arguments
@@ -111,6 +112,14 @@ def make_colored_noise(
         Minimum value in returned noise.
     n_max
         Maximum value in returned noise.
+    seed
+        Optional seed to use in generating the random amplitudes, so that a call
+        to this function can be reproducible without altering the global seed.
+
+    Returns
+    -------
+    np.ndarray
+        Array of noise with the appropriate shape and amplitude.
     
     """
 
@@ -145,8 +154,10 @@ def make_colored_noise(
     power = 1 / (1 + alpha * np.sqrt(decay) ** beta)
     power[idx] = 0
 
+    rng = np.random.default_rng(seed)
     func = np.fft.ifft if len(xs) == 1 else np.fft.ifft2
-    phase = 2 * np.pi * np.random.rand(*power.shape)
+
+    phase = 2 * np.pi * rng.random(*power.shape)
     noise_hat = np.sqrt(power) * np.exp(1j * phase)
     noise = func(noise_hat).real
 

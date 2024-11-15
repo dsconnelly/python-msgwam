@@ -56,11 +56,13 @@ def plot_boundary(ds: xr.Dataset, output_path: str) -> None:
     ax.plot(days, line, color='gray', ls='dashed')
 
     ax.set_xlim(0, days.max())
-    ax.set_ylim(0, 5)
+    ax.set_ylim(0, 2000 * config.flux_bc)
 
     ax.set_xlabel('time (days)')
     ax.set_ylabel('boundary flux (mPa)')
-    ax.set_title(f'mean flux = {pmf.mean():.2f} mPa')
+
+    mean = pmf.isel(time=(days >= 1)).mean()
+    ax.set_title(f'mean flux = {mean:.2f} mPa')
     
     ax.set_axisbelow(True)
     ax.grid(color='lightgray')

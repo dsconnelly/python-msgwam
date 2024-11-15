@@ -54,8 +54,6 @@ def _gaussians() -> xr.Dataset:
     phase speed but may also evolve in time.
     """
 
-    np.random.seed(config.seed)
-
     seconds = config.dt * np.arange(config.n_steps)
     decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
     args = [seconds, decay_scale, 3600 * config.tau_cutoff_hours]
@@ -65,7 +63,13 @@ def _gaussians() -> xr.Dataset:
     flux = np.zeros((len(seconds), _N_LARGE))
 
     for c_lo, c_hi in zip(config.c_los, config.c_his):
-        center = make_colored_noise(*args, n_min=c_lo, n_max=c_hi)[:, None]
+        center = make_colored_noise(
+            *args,
+            n_min=c_lo,
+            n_max=c_hi,
+            seed=config.seed
+        )[:, None]
+
         flux = flux + np.exp(-0.5 * ((cp_fine - center) / config.c_width) ** 2)
 
     flux = config.flux_bc * flux / flux.sum(axis=1)[:, None]
@@ -74,7 +78,8 @@ def _gaussians() -> xr.Dataset:
     wvn_hor = 2 * np.pi / make_colored_noise(
         *args,
         n_min=(3600 * config.T_hat_lo),
-        n_max=(3600 * config.T_hat_hi)
+        n_max=(3600 * config.T_hat_hi),
+        seed=(config.seed + 1)
     )[:, None] / cp
 
     phi = np.deg2rad(config.direction)

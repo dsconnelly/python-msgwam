@@ -119,11 +119,11 @@ class TransientPropagator(Propagator):
         data = np.vstack([wvn * action_flux for wvn in wvns])
         fluxes = self._project(data, self._z_padded)
 
-        if config.source_type == 'stochastic':
-            fluxes = fluxes / config.epsilon
-
         if config.shapiro_filter:
             fluxes[:, 1:-1] = shapiro_filter(fluxes.T).T
+
+        if config.source_type == 'stochastic':
+            fluxes = fluxes / config.epsilon
 
         return fluxes
 
@@ -289,7 +289,7 @@ class TransientPropagator(Propagator):
 
         if crossed.sum() == 0:
             return
-        
+
         datas, cdx = self._source.launch(mean, n_step, cdx)
         excess = self.n_active + datas.shape[1] - self._n_max
 
