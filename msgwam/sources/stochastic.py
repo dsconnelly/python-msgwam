@@ -40,6 +40,6 @@ class StochasticSource(Source):
 
         factor = config.epsilon / (1 - config.epsilon)
         p = factor * cg_r * config.dt / config.dr_init
-        keep = np.random.rand() < p
+        keep = np.random.rand(data.shape[1]) < p
 
         return data[:, keep], cdx[keep]
