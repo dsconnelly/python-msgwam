@@ -38,8 +38,7 @@ class StochasticSource(Source):
             self.called = True
             return data, cdx
 
-        factor = config.epsilon / (1 - config.epsilon)
-        p = factor * cg_r * config.dt / config.dr_init
+        p = config.epsilon * cg_r * config.dt / config.dr_init
         keep = np.random.rand(data.shape[1]) < p
 
         return data[:, keep], cdx[keep]

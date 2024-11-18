@@ -284,17 +284,20 @@ class TransientPropagator(Propagator):
 
         """
 
-        crossed = self.r[self._ghosts] > config.z_min
-        cdx, *_ = np.where(crossed)
+        cdx: Optional[np.ndarray] = None
+        if config.source_type == 'constant':
+            crossed = self.r[self._ghosts] > config.z_min
+            cdx, *_ = np.where(crossed)
 
-        if crossed.sum() == 0:
-            return
+            if crossed.sum() == 0:
+                return
 
         datas, cdx = self._source.launch(mean, n_step, cdx)
         excess = self.n_active + datas.shape[1] - self._n_max
 
-        jdx = self._ghosts[cdx]
-        if config.source_type != 'stochastic':
+        if config.source_type == 'constant':
+            jdx = self._ghosts[cdx]
+
             r_hi = self.r[jdx] + 0.5 * self.dr[jdx]
             self._data[0, jdx] = (self._r_ghost + r_hi) / 2
             self._data[1, jdx] = r_hi - self._r_ghost

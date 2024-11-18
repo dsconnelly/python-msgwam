@@ -12,7 +12,7 @@ import xarray as xr
 from . import config
 from .constants import EPOCH
 from .dispersion import get_cg_r, get_m
-from .sources import DeterministicSource
+from .sources import ConstantSource
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -168,7 +168,7 @@ def plot_source(output_path: str) -> None:
 
     """
 
-    source = DeterministicSource()
+    source = ConstantSource()
     k, l, *_, flux = source._data.transpose(1, 0, 2)
     days = config.dt * np.arange(config.n_steps) / 86400
     cp_x = source._cp_x

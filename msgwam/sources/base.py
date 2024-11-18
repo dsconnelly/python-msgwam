@@ -64,6 +64,10 @@ class Source(FactoryABC):
         waves as were requested, we also return an array indicating which
         requested wave each returned wave corresponds to.
 
+        Moreover, if `config.dt_launch` is greater than unity, the source is
+        intermittent. This function therefore returns empty arrays if called
+        at a non-integer multiple of the launch window.
+
         This is the public method meant to be called by propagators, and here we
         derive the time-varying wave properties mentioned above. We then rely on
         the `_postprocess` method implemented by subclasses to handle the launch
@@ -89,6 +93,9 @@ class Source(FactoryABC):
             first returned array corresponds to.
 
         """
+
+        if n_step * config.dt % config.dt_launch != 0:
+            return np.empty((7, 0)), np.empty(0, dtype=int)
 
         if cdx is None:
             cdx = np.arange(config.n_source)

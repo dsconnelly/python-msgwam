@@ -14,7 +14,7 @@ _DEFAULTS = {}
 ################################################################################
 mean_state_type: Literal['interactive', 'prescribed']
 propagator_type: Literal['instantaneous', 'network', 'transient']
-source_type: Literal['deterministic', 'network', 'stochastic']
+source_type: Literal['constant', 'network', 'packet', 'stochastic']
 spectrum_type: Literal['custom', 'gaussians']
 
 ################################################################################
@@ -51,6 +51,7 @@ mu: float
 # gravity wave source and spectrum
 ################################################################################
 c_max: float
+dt_launch: int
 n_source: int
 
 ################################################################################

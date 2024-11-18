@@ -8,7 +8,7 @@ from .base import Source
 if TYPE_CHECKING:
     from ..means import MeanState
 
-class DeterministicSource(Source):
+class ConstantSource(Source):
     def _postprocess(
         self,
         mean: MeanState,
@@ -17,7 +17,7 @@ class DeterministicSource(Source):
         cdx: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        A deterministic source returns the properties of all requested waves
+        A constant-flxu source returns the properties of all requested waves
         unchanged, along with the required second array indicating as much.
         """
 
