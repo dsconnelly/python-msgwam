@@ -62,7 +62,9 @@ class Source(FactoryABC):
 
         Because some sources (e.g. stochastic ones) might not return as many
         waves as were requested, we also return an array indicating which
-        requested wave each returned wave corresponds to.
+        requested wave each returned wave corresponds to. The propagator is to
+        interpret repeated indices in this array as indicating multiple copies
+        of the ray volume in question, stacked in vertical space.
 
         Moreover, if `config.dt_launch` is greater than unity, the source is
         intermittent. This function therefore returns empty arrays if called

@@ -156,7 +156,12 @@ class TransientPropagator(Propagator):
 
         return self
 
-    def _add_ray(self, data: np.ndarray, mean: MeanState) -> int:
+    def _add_ray(
+        self,
+        data: np.ndarray,
+        mean: MeanState,
+        r: Optional[float]=None
+    ) -> int:
         """
         Add a ray volume to the propagator, storing its data in the first open
         column. Raises an error if the propagator is already at the maximum
@@ -168,6 +173,9 @@ class TransientPropagator(Propagator):
             Vector of wave properties (k, l, m, dk, dl, dm, dens).
         mean
             Current mean state of the system.
+        r
+            Vertical position of the array to add. If `None`, defaults to the
+            precomputed value of `self._r_init`.
 
         Returns
         -------
@@ -189,16 +197,19 @@ class TransientPropagator(Propagator):
 
             else:
                 raise TooManyRaysError
+            
+        if r is None:
+            r = self._r_init
 
         k, l, m, *_ = data
-        u = np.interp(self._r_init, mean.z_centers, mean.u)
+        u = np.interp(r, mean.z_centers, mean.u)
         sign = np.sign(get_cp_x(k, l, m, mean.N[0]) - u)
         
         self._next_meta = self._next_meta + 1
         j = np.argmin(self._valid)
 
         self._data[2:-2, j] = data
-        self._data[:2, j] = [self._r_init, config.dr_init]
+        self._data[:2, j] = [r, config.dr_init]
         self._data[-2:, j] = [0, sign * self._next_meta]
 
         return cast(int, j)
@@ -263,7 +274,11 @@ class TransientPropagator(Propagator):
 
         """
 
-        below = self.r < self._r_init
+        z_lo = self._r_init
+        if config.source_type == 'packet':
+            z_lo = z_lo - (config.n_repeat - 1) * config.dr_init
+
+        below = self.r < z_lo
         above = self.r - 0.5 * self.dr > config.z_max
         self._delete_rays(below | above)
 
@@ -294,6 +309,7 @@ class TransientPropagator(Propagator):
 
         datas, cdx = self._source.launch(mean, n_step, cdx)
         excess = self.n_active + datas.shape[1] - self._n_max
+        self._prune(excess, mean)
 
         if config.source_type == 'constant':
             jdx = self._ghosts[cdx]
@@ -302,9 +318,13 @@ class TransientPropagator(Propagator):
             self._data[0, jdx] = (self._r_ghost + r_hi) / 2
             self._data[1, jdx] = r_hi - self._r_ghost
 
-        self._prune(excess, mean)
+        repeats = {}
         for k, data in zip(cdx, datas.T):
-            self._ghosts[k] = self._add_ray(data, mean)
+            n_shift = repeats.setdefault(k, 0)
+            r = self._r_init - n_shift * config.dr_init
+
+            self._ghosts[k] = self._add_ray(data, mean, r)
+            repeats[k] = repeats[k] + 1
 
     def _delete_rays(self, j: int | np.ndarray) -> None:
         """

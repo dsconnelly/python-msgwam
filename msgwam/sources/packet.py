@@ -3,12 +3,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from .. import config
+
 from .base import Source
 
 if TYPE_CHECKING:
     from ..means import MeanState
 
-class ConstantSource(Source):
+class PacketSource(Source):
     def _postprocess(
         self,
         mean: MeanState,
@@ -17,8 +19,12 @@ class ConstantSource(Source):
         cdx: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        A constant-flux source returns the properties of all requested waves
-        unchanged, along with the required second array indicating as much.
+        A packet source returns multiple copies of the ray properties in each
+        slot. These are to be interpreted by the propagator as ray volumes
+        queued up in vertical space.
         """
+
+        data = np.repeat(data, config.n_repeat, axis=1)
+        cdx = np.repeat(cdx, config.n_repeat)
 
         return data, cdx
