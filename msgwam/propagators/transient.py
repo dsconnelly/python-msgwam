@@ -201,16 +201,12 @@ class TransientPropagator(Propagator):
         if r is None:
             r = self._r_init
 
-        k, l, m, *_ = data
-        u = np.interp(r, mean.z_centers, mean.u)
-        sign = np.sign(get_cp_x(k, l, m, mean.N[0]) - u)
-        
         self._next_meta = self._next_meta + 1
         j = np.argmin(self._valid)
 
         self._data[2:-2, j] = data
         self._data[:2, j] = [r, config.dr_init]
-        self._data[-2:, j] = [0, sign * self._next_meta]
+        self._data[-2:, j] = [0, self._next_meta]
 
         return cast(int, j)
 
@@ -246,20 +242,20 @@ class TransientPropagator(Propagator):
         threshold = mean.rho * mean.N ** 2 / 2
         S = self.m ** 2 * omega_hat * self.action
 
-        if config.n_chromatic != -1:
-            S = S.reshape(-1, config.n_chromatic)
-            wvn_sq = wvn_sq.reshape(-1, config.n_chromatic)
-            threshold = threshold[:, None]
+        if config.n_chromatic == -1:
+            pdx = np.zeros(self._n_max).astype(int)
+        else:
+            _, pdx = self._get_packet_info()
 
         data = np.vstack((S, S * wvn_sq))
-        P, Q = self._project(data, mean.z_faces)
+        P, Q = self._project(data, mean.z_faces, pdx)
         P = P - threshold
 
         idx = Q != 0
         kappa = np.zeros(P.shape)
         kappa[idx] = np.maximum(P[idx], 0) / Q[idx]
 
-        maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa)
+        maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa, pdx)
         self._data[8] = self.dens * (1 - wvn_sq * maxes)
 
     def _check_boundaries(self, mean: MeanState) -> None:
@@ -459,6 +455,28 @@ class TransientPropagator(Propagator):
         N = interp(self.r, mean.z_centers, mean.N)
         return get_omega_hat(self.k, self.l, self.m, N)
 
+    def _get_packet_info(self) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Sort the ray volumes into packets according to the `meta` attribute and
+        the packet size specified by `config.n_chromatic`.
+
+        Returns
+        -------
+        np.ndarray
+            Labels of the packets that are currently active. Packet labels will
+            not be reused throught the entire integration.
+        np.ndarray
+            Array indicating which of the currently active packets, numbered
+            starting at zero, each ray volume belongs to.
+
+        """
+
+        floors = np.floor(self.meta / config.n_chromatic)
+        labels, pdx = np.unique(floors, return_inverse=True)
+        pdx[~self._valid] = -1
+
+        return labels[~np.isnan(labels)], pdx.astype(int)
+
     @property
     def _n_max(self) -> int:
         """
@@ -475,7 +493,12 @@ class TransientPropagator(Propagator):
 
         return self._data.shape[1]
     
-    def _project(self, data: np.ndarray, edges: np.ndarray) -> np.ndarray:
+    def _project(
+        self,
+        data: np.ndarray,
+        edges: np.ndarray,
+        pdx: Optional[np.ndarray]=None
+    ) -> np.ndarray:
         """
         Project data corresponding to each ray volume onto the vertical grid.
         This function is mainly a wrapper around `project`, which cannot be an
@@ -492,17 +515,25 @@ class TransientPropagator(Propagator):
             Edges of regions of the vertical grid. Likely either the cell faces
             (for projection onto cell centers) or the padded set of cell centers
             (for projection onto cell faces).
+        pdx
+            Precomputed packet index for each ray volume. If `None`, ray volumes
+            will be projected all together.
 
         Returns
         -------
         np.ndarray
             Projected values at each vertical grid point for each variable
-            passed in as a row of `data`.
+            passed in as a row of `data`. If `pdx` was not passed as `None`, the
+            returned array will have three dimensions, the second of which
+            ranges over non-negative indices in `pdx`.
 
         """
 
-        # TODO: re-implement the batch projection option
-        return project(self.r, self.dr, edges, data)
+        jdx = 0 if pdx is None else slice(None, None)
+        pdx = np.zeros(self._n_max, dtype=int) if pdx is None else pdx
+        out = project(self.r, self.dr, edges, data, pdx)
+
+        return out[:, jdx]
 
     def _prune(self, excess: int, mean: MeanState) -> None:
         """

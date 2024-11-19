@@ -8,7 +8,8 @@ def get_max_intersects(
     r: np.ndarray,
     dr: np.ndarray,
     edges: np.ndarray,
-    profile: np.ndarray
+    profiles: np.ndarray,
+    pdx: np.ndarray
 ) -> np.ndarray:
     """
     Find the maximum value in a vertical profile intersected by each ray.
@@ -21,8 +22,11 @@ def get_max_intersects(
         Ray volume extents.
     edges
         Edges of the vertical grid regions where the profile is stored.
-    profile
-        Vertical profile (e.g. dissipation constants) to search.
+    profiles
+        Vertical profile (e.g. dissipation constants) for each packet. Even if
+        rays are not sorted into packets, should have a dummy first dimension.
+    pdx
+        Indices of profiles against which each ray volume should be compared.
 
     Returns
     -------
@@ -35,7 +39,7 @@ def get_max_intersects(
     r_hi = r + 0.5 * dr
 
     maxes = np.zeros(len(r))
-    for i, (a, b) in enumerate(zip(r_lo, r_hi)):
+    for i, (a, b, p) in enumerate(zip(r_lo, r_hi, pdx)):
         if np.isnan(a):
             continue
 
@@ -46,8 +50,8 @@ def get_max_intersects(
             if z_hi < a:
                 continue
 
-            if profile[j] > maxes[i]:
-                maxes[i] = profile[j]
+            if profiles[p, j] > maxes[i]:
+                maxes[i] = profiles[p, j]
 
     return maxes
 
@@ -166,13 +170,12 @@ def project(
     r: np.ndarray,
     dr: np.ndarray,
     edges: np.ndarray,
-    data: np.ndarray
+    data: np.ndarray,
+    pdx: np.ndarray
 ) -> np.ndarray:
     """
     Project data associated with each ray onto the vertical grid. Profiling
-    finds that with numba, the fastest approach is to keep the logic for this
-    function and `get_fracs` separate, and moreover to have the iteration logic
-    repeated instead of reused.
+    finds that numba approaches are faster here than array operations.
 
     Parameters
     ----------
@@ -184,22 +187,26 @@ def project(
         Edges of the vertical grid regions to project onto.
     data
         Data variables associated with each ray (e.g. momentum flux) to project.
+    pdx
+        Indices of profiles towards which each ray volume's contribution should
+        count. Useful if individual packets are to be projected separately.
 
     Returns
     -------
     np.ndarray
-        Array of shape `(data.shape[0], len(edges) - 1)` of the projected values
-        of at each grid point of each variable passed as a row of `data`.
+        Array of shape `(data.shape[0], pdx.max() + 1, len(edges) - 1)` of the
+        projected values at each grid point of each variable in `data`. Includes
+        a profile for each unique index in `pdx`.
 
     """
 
     r_lo = r - 0.5 * dr
     r_hi = r + 0.5 * dr
 
-    shape = (data.shape[0], len(edges) - 1)
+    shape = (data.shape[0], pdx.max() + 1, len(edges) - 1)
     proj = np.zeros(shape)
 
-    for i, (a, b) in enumerate(zip(r_lo, r_hi)):
+    for i, (a, b, p) in enumerate(zip(r_lo, r_hi, pdx)):
         if np.isnan(a):
             continue
 
@@ -212,6 +219,6 @@ def project(
 
             frac = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
             for k in range(data.shape[0]):
-                proj[k, j] = proj[k, j] + frac * data[k, i]
+                proj[k, p, j] += frac * data[k, i]
 
     return proj
