@@ -40,7 +40,7 @@ class TransientPropagator(Propagator):
 
         shape = (len(PROP_NAMES), config.n_max)
         self._data = np.nan * np.zeros(shape)
-        self._next_meta = 0
+        self._next_meta = -1
 
         self._r_init = config.z_min - config.dr_init
         self._r_ghost = config.z_min - 0.5 * config.dr_init
@@ -475,7 +475,7 @@ class TransientPropagator(Propagator):
         labels, pdx = np.unique(floors, return_inverse=True)
         pdx[~self._valid] = -1
 
-        return labels[~np.isnan(labels)], pdx.astype(int)
+        return labels[~np.isnan(labels)].astype(int), pdx.astype(int)
 
     @property
     def _n_max(self) -> int:

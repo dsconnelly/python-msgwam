@@ -57,6 +57,7 @@ def _gaussians() -> xr.Dataset:
     seconds = config.dt * np.arange(config.n_steps)
     decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
     args = [seconds, decay_scale, 3600 * config.tau_cutoff_hours]
+    rng = np.random.default_rng(config.seed)
     
     cp_fine = _get_phase_velocities(_N_LARGE)
     cp = _get_phase_velocities(config.n_source)
@@ -67,7 +68,7 @@ def _gaussians() -> xr.Dataset:
             *args,
             n_min=c_lo,
             n_max=c_hi,
-            seed=config.seed
+            rng=rng
         )[:, None]
 
         flux = flux + np.exp(-0.5 * ((cp_fine - center) / config.c_width) ** 2)
@@ -79,7 +80,7 @@ def _gaussians() -> xr.Dataset:
         *args,
         n_min=(3600 * config.T_hat_lo),
         n_max=(3600 * config.T_hat_hi),
-        seed=(config.seed + 1)
+        rng=rng
     )[:, None] / cp
 
     phi = np.deg2rad(config.direction)

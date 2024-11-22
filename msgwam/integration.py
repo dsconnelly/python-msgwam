@@ -1,5 +1,6 @@
+from __future__ import annotations
 from time import time as now
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import numpy as np
 import xarray as xr
@@ -9,9 +10,18 @@ from .means import MeanState
 from .propagators import Propagator, TransientPropagator
 from .utils import get_iterator, get_time
 
-def integrate() -> xr.Dataset:
+if TYPE_CHECKING:
+    _Callback = Callable[[MeanState, Propagator, int], None]
+
+def integrate(callback: Optional[_Callback]=None) -> xr.Dataset:
     """
     Integrate the system using the loaded configuration settings.
+
+    Parameters
+    ----------
+    callback
+        Optional function to call after initialization and each time step. Will
+        be passed the current mean state, propagator, and time step.
 
     Returns
     -------
@@ -24,10 +34,16 @@ def integrate() -> xr.Dataset:
     prop = Propagator.from_name(config.propagator_type, mean)
     ds = _update_dataset(mean, prop, _init_dataset(mean, prop), 0)
 
+    if callback is not None:
+        callback(mean, prop, 0)
+
     start = now()
     for n_step in get_iterator():
         mean, prop = mean.step(prop, n_step), prop.step(mean, n_step)
         ds = _update_dataset(mean, prop, ds, n_step)
+
+        if callback is not None:
+            callback(mean, prop, n_step)
 
     runtime = now() - start
     ds = ds.assign_attrs(runtime=runtime)

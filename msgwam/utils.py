@@ -1,6 +1,7 @@
+from __future__ import annotations
 from abc import ABC
 from itertools import takewhile
-from typing import Iterator, Optional, Self, TypeVar
+from typing import TYPE_CHECKING, Iterator, Optional, Self, TypeVar
 
 import cftime
 import numpy as np
@@ -11,7 +12,9 @@ from tqdm import trange
 from . import config
 from .constants import EPOCH
 
-_T = TypeVar('T')
+if TYPE_CHECKING:
+    from numpy.random import Generator
+    _T = TypeVar('T')
 
 class FactoryABC(ABC):
     """
@@ -89,7 +92,7 @@ def make_colored_noise(
     cutoff_scales: Optional[float | list[float]]=None,
     n_min: float=-1,
     n_max: float=1,
-    seed: Optional[int]=None
+    rng: Optional[Generator]=None
 ) -> np.ndarray:
     """
     Generate power law noise in one or two dimensions. The first three arguments
@@ -112,9 +115,10 @@ def make_colored_noise(
         Minimum value in returned noise.
     n_max
         Maximum value in returned noise.
-    seed
-        Optional seed to use in generating the random amplitudes, so that a call
-        to this function can be reproducible without altering the global seed.
+    rng
+        Optional random number generator to use in generating the random
+        amplitudes, so that a call to this function can be reproducible without
+        altering the global seed.
 
     Returns
     -------
@@ -154,12 +158,12 @@ def make_colored_noise(
     power = 1 / (1 + alpha * np.sqrt(decay) ** beta)
     power[idx] = 0
 
-    rng = np.random.default_rng(seed)
-    func = np.fft.ifft if len(xs) == 1 else np.fft.ifft2
+    rng = rng if rng is not None else np.random.default_rng()
+    fft_func = np.fft.ifft if len(xs) == 1 else np.fft.ifft2
 
-    phase = 2 * np.pi * rng.random(*power.shape)
+    phase = 2 * np.pi * rng.random(power.shape)
     noise_hat = np.sqrt(power) * np.exp(1j * phase)
-    noise = func(noise_hat).real
+    noise = fft_func(noise_hat).real
 
     noise = (noise - noise.min()) / (noise.max() - noise.min())
     return n_min + noise * (n_max - n_min)

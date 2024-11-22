@@ -90,7 +90,7 @@ def _get_descending_jets(period_days: str='2') -> xr.Dataset:
     noise_1 = make_colored_noise([seconds, z], [period, 15e3], cutoff_scales)
     noise_2 = make_colored_noise([seconds, z], [9 * 3600, 5e3], cutoff_scales)
 
-    u = env_1 * (40 * wave + 20 * noise_1) + env_2 * 10 * noise_2
+    u = env_1 * (60 * wave + 5 * noise_1) + env_2 * 10 * noise_2
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 
