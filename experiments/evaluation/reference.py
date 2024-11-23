@@ -56,13 +56,12 @@ def save_reference() -> None:
 
     with config.override(dr_init=dr, **_OVERRIDES):
         ds = integrate()
+        ds.to_netcdf(f'data/{config.name}/reference.nc')
 
         plot_integration(ds, f'plots/{config.name}/reference-integration.png')
         plot_ray_count(ds, f'plots/{config.name}/reference-ray-count.png')
         plot_boundary(ds, f'plots/{config.name}/reference-boundary.png')
         plot_source(f'plots/{config.name}/reference-source.png')
-
-        ds.to_netcdf(f'data/{config.name}/reference.nc')
 
 def _get_descending_jets(period_days: str='2') -> xr.Dataset:
     """
