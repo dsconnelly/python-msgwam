@@ -2,6 +2,7 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
+import xarray as xr
 
 from msgwam import config
 from msgwam.integration import integrate as _integrate
@@ -11,8 +12,11 @@ from utils import get_rmse, load_flux
 
 _COLORS = {
     'coarse' : 'royalblue',
-    'instantaneous' : 'tab:red'
+    'instantaneous' : 'tab:red',
+    'stochastic' : 'darkviolet'
 }
+
+_N_SAMPLES = 25
 
 def integrate(strategy: str) -> None:
     """
@@ -31,7 +35,18 @@ def integrate(strategy: str) -> None:
     kwargs = globals()[func_name]()
 
     with config.override(**kwargs):
-        _integrate().to_netcdf(f'data/{config.name}/{strategy}.nc')
+        if strategy != 'stochastic':
+            ds = _integrate()
+
+        else:
+            datasets = []
+            for i in range(_N_SAMPLES):
+                ds = _integrate().assign_coords(sample=np.array([i]))
+                datasets.append(ds)
+
+            ds = xr.concat(datasets, dim='sample')
+        
+        ds.to_netcdf(f'data/{config.name}/{strategy}.nc')
 
 def plot_errors() -> None:
     """
@@ -50,6 +65,8 @@ def plot_errors() -> None:
     z_plot = z_faces / 1000
     for strategy, color in _COLORS.items():
         pmf = load_flux(f'data/{config.name}/{strategy}.nc', z_faces)
+        if strategy == 'stochastic':
+            pmf = pmf.mean('sample')
 
         rmse = 1000 * get_rmse(pmf, ref)
         erms = 1000 * (get_rmse(pmf) - rms)
@@ -92,6 +109,9 @@ def plot_fluxes() -> None:
 
     for i, (strategy, ax) in enumerate(zip(strategies, axes)):
         pmf = load_flux(f'data/{config.name}/{strategy}.nc', z_faces)
+        if strategy == 'stochastic':
+            pmf = pmf.mean('sample')
+
         plot_time_series(1000 * pmf, 3, [ax])
         ax.set_title(strategy)
 
@@ -123,7 +143,8 @@ def _get_stochastic_kwargs() -> dict[str, Any]:
     """
 
     return {
-        'epsilon' : 0.1,
-        'dr_init' : config.dr_init / (10 ** 0.5),
-        'n_source' : int(config.n_source * 10 ** 0.5)
+        'epsilon' : 1 / 9,
+        'dr_init' : config.dr_init / 3,
+        'n_source' : int(config.n_source * 3),
+        'source_type' : 'stochastic'
     }

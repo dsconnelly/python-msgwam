@@ -1,7 +1,9 @@
+import cftime
 import numpy as np
 import xarray as xr
 
 from msgwam import config
+from msgwam.constants import EPOCH
 from msgwam.means import PrescribedWind
 from msgwam.propagators import TransientPropagator
 from msgwam.utils import open_dataset
@@ -49,7 +51,12 @@ def get_rmse(a: xr.DataArray, b: xr.DataArray | float = 0) -> xr.DataArray:
 
     return np.sqrt(((a - b) ** 2).mean('time'))
 
-def load_flux(path: str, z_faces: np.ndarray) -> xr.DataArray:
+def load_flux(
+    path: str,
+    z_faces: np.ndarray,
+    resample: str='3h',
+    spinup: int=5
+) -> xr.DataArray:
     """
     Load the zonal gravity wave momentum flux from a netCDF file. This function
     adds the easterly and westerly components and ensures that the returned flux
@@ -61,6 +68,10 @@ def load_flux(path: str, z_faces: np.ndarray) -> xr.DataArray:
         Path to netCDF file containing flux data.
     z_faces
         Array of vertical grid faces to interpolate onto.
+    resample
+        How to temporally resample the dataset.
+    spinup
+        How many days to discard from the start of the integration. If None
 
     Returns
     -------
@@ -71,7 +82,8 @@ def load_flux(path: str, z_faces: np.ndarray) -> xr.DataArray:
 
     with open_dataset(path) as ds:
         ds = ds.interp(z_faces=z_faces)
-        ds = ds.resample(time='3h').mean('time')
-        flux = ds['pmf_e'] + ds['pmf_w']
+        ds = ds.resample(time=resample).mean('time')
+        days = cftime.date2num(ds['time'], f'days since {EPOCH}')
+        ds = ds.isel(time=(days >= spinup))
 
-    return flux
+    return ds['pmf_e'] + ds['pmf_w']

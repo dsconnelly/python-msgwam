@@ -6,7 +6,12 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.integration import integrate
 from msgwam.means import InteractiveWind
-from msgwam.plotting import plot_boundary, plot_integration, plot_ray_count
+from msgwam.plotting import (
+    plot_boundary,
+    plot_integration,
+    plot_ray_count,
+    plot_source
+)
 from msgwam.utils import make_colored_noise, shapiro_filter
 
 from utils import get_min_dr
@@ -14,8 +19,8 @@ from utils import get_min_dr
 _OVERRIDES = {
     'dt' : 30,
     'n_grid' : 201,
-    'n_source' : 100,
-    'n_max' : 500000,
+    'n_source' : 150,
+    'n_max' : 250000,
     'n_increment' : 10000,
     'prune_by' : 'none'
 }
@@ -55,6 +60,8 @@ def save_reference() -> None:
         plot_integration(ds, f'plots/{config.name}/reference-integration.png')
         plot_ray_count(ds, f'plots/{config.name}/reference-ray-count.png')
         plot_boundary(ds, f'plots/{config.name}/reference-boundary.png')
+        plot_source(f'plots/{config.name}/reference-source.png')
+
         ds.to_netcdf(f'data/{config.name}/reference.nc')
 
 def _get_descending_jets(period_days: str='2') -> xr.Dataset:
@@ -90,7 +97,7 @@ def _get_descending_jets(period_days: str='2') -> xr.Dataset:
     noise_1 = make_colored_noise([seconds, z], [period, 15e3], cutoff_scales)
     noise_2 = make_colored_noise([seconds, z], [9 * 3600, 5e3], cutoff_scales)
 
-    u = env_1 * (60 * wave + 5 * noise_1) + env_2 * 10 * noise_2
+    u = env_1 * (45 * wave + 10 * noise_1) + env_2 * 10 * noise_2
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

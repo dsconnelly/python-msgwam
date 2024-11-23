@@ -61,8 +61,8 @@ def save_coarsenings() -> None:
     drs, n_sources = _get_grid()
     for dr, n_source in product(drs, n_sources):
         with config.override(dr_init=float(dr), n_source=n_source):
-            fname = f'coarse_dr-{dr}_n-source-{n_source}'
-            integrate().to_netcdf(f'data/{config.name}/{fname}.nc')
+            fname = f'dr-{dr}_n-source-{n_source}'
+            integrate().to_netcdf(f'data/{config.name}/coarse/{fname}.nc')
 
 def update_config() -> None:
     """
@@ -102,7 +102,7 @@ def _get_grid() -> tuple[list[int], list[int]]:
 
     """
 
-    drs = [1000 * i for i in range(1, 11)]
+    drs = [500 * i for i in range(1, 11)]
     n_sources = [10 * i for i in range(1, 11)]
 
     return drs, n_sources[::-1]
@@ -137,13 +137,16 @@ def _get_errors(
 
     
     z_faces = np.linspace(config.z_min, config.z_max, config.n_grid)
-    ref = load_flux(f'data/{config.name}/reference.nc', z_faces)
     profiles = np.zeros((len(drs), len(n_sources), len(z_faces)))
 
+    args = [z_faces, '3h', config.n_day - 10]
+    ref = load_flux(f'data/{config.name}/reference.nc', *args)
+    
     for i, dr in enumerate(drs):
         for j, n_source in enumerate(n_sources):
-            fname = f'coarse_dr-{dr}_n-source-{n_source}'
-            flux = load_flux(f'data/{config.name}/{fname}.nc', z_faces)
+            fname = f'dr-{dr}_n-source-{n_source}'
+            flux = load_flux(f'data/{config.name}/coarse/{fname}.nc', *args)
+
             profiles[i, j] = get_rmse(ref, flux)
 
     rms = get_rmse(ref).values

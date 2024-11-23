@@ -289,9 +289,8 @@ def plot_time_series(
         cmap=cmap
     )
 
-    tmax = time.max()
-    axes[0].set_xlim(0, tmax)
-    axes[0].set_xticks(np.linspace(0, tmax, 6))
+    axes[0].set_xlim(time.min(), time.max())
+    axes[0].set_xticks(np.linspace(time.min(), time.max(), 6))
 
     yticks = np.linspace(z.min(), z.max(), 7)
     ylabels = 10 * np.round((yticks - yticks.min()) / 10)

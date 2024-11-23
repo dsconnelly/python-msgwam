@@ -57,11 +57,12 @@ def plot_error_grid(
 
     colors = ['darkgreen', 'w', 'darkred']
     cmap = LinearSegmentedColormap.from_list('custom', colors, 256)
+    vmin, vmax = 0.75, 1.25
 
     ax, cax = axes
     img = ax.imshow(
         errors.T,
-        vmin=0, vmax=2,
+        vmin=vmin, vmax=vmax,
         origin='lower',
         aspect='auto',
         cmap=cmap
@@ -75,7 +76,7 @@ def plot_error_grid(
     ax.set_ylabel('$\\delta c_{\mathrm{p}}$ (m / s)')
 
     cbar = plt.colorbar(img, cax=cax)
-    cbar.set_ticks(np.linspace(0, 2, 5))
+    cbar.set_ticks(np.linspace(vmin, vmax, 5))
     cbar.set_label('normalized error')
 
     return ax, cax
