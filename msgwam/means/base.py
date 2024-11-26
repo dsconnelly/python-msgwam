@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Self
 import numpy as np
 
 from .. import config
-from ..utils import FactoryABC
+from ..utils import FactoryABC, get_vertical_grids
 
 if TYPE_CHECKING:
     from ..propagators import Propagator
@@ -19,8 +19,7 @@ class MeanState(FactoryABC):
         by calling a function that should be implemented by subclasses.
         """
 
-        self.z_faces = np.linspace(config.z_min, config.z_max, config.n_grid)
-        self.z_centers = (self.z_faces[1:] + self.z_faces[:-1]) / 2
+        self.z_faces, self.z_centers = get_vertical_grids()
         self.dz: float = self.z_faces[1] - self.z_faces[0]
 
         self.N = self._init_N()

@@ -4,20 +4,21 @@
 mean_state_type = 'prescribed'
 propagator_type = 'transient'
 source_type = 'constant'
-spectrum_type = 'gaussians'
+spectrum_type = 'from_file'
 
 ################################################################################
 # input and output
 ################################################################################
 average_output = true
-prescribed_wind_file = 'data/idealized/mean-state.nc'
+prescribed_wind_file = 'data/idealized-fast/descending-jets.nc'
+spectrum_file = 'data/idealized-fast/spectrum.nc'
 
 ################################################################################
 # time stepping
 ################################################################################
 dt = 120
 dt_output = 120
-n_day = 15
+n_day = 30
 
 ################################################################################
 # mean state
@@ -42,13 +43,13 @@ mu = 1e-3
 ################################################################################
 c_max = 50
 dt_launch = 1
-n_source = 40
+n_source = 1
 
 ################################################################################
 # 'transient' propagator
 ################################################################################
 check_sign_changes = false
-dr_init = 2500
+dr_init = 1
 min_flux = 1e-8
 n_chromatic = -1
 n_increment = 0

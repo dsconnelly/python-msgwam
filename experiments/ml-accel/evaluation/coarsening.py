@@ -1,0 +1,123 @@
+from itertools import product
+
+import numpy as np
+
+from msgwam import config
+from msgwam.integration import integrate
+
+from .utils import get_rmse, load_data
+
+_KWARGS = {'spinup_days' : 3, 'resample' : '3h'}
+
+def save_coarsenings() -> None:
+    """
+    Integrate over the grid of vertical and spectral resolutions with low
+    `config.n_max`, saving the output of each configuration.
+    """
+
+    for dr, n_source in product(*_get_grid()):
+        with config.override(dr_init=float(dr), n_source=n_source):
+            integrate().to_netcdf(_get_path(dr, n_source))
+
+def update_config() -> None:
+    """
+    Update the values of `dr_init` and `n_source` in the loaded configuration
+    file to the best values found during the grid search.
+    """
+
+    drs, n_sources = _get_grid()
+    errors = _get_normalized_errors()
+    i, j = np.unravel_index(np.argmin(errors), errors.shape)
+
+    with open(f'config/{config.name}.toml') as f:
+        lines = f.readlines()
+
+    with open(f'config/{config.name}.toml', 'w') as f:
+        for line in lines:
+            if line.startswith('dr_init'):
+                f.write(f'dr_init = {drs[i]}\n')
+
+            elif line.startswith('n_source'):
+                f.write(f'n_source = {n_sources[j]}\n')
+
+            else:
+                f.write(line)
+
+def _get_error_profiles() -> np.ndarray:
+    """
+    Compute root-mean-square errors as a function of height for all coarsenings.
+
+    Returns
+    -------
+    np.ndarray
+        Two-dimensional grid of root-mean-square error profiles whose last
+        dimension corresponds to height.
+
+    """
+
+    drs, n_sources = _get_grid()
+    profiles = np.zeros((len(drs), len(n_sources), config.n_grid))
+    ref = load_data('reference', **_KWARGS)
+
+    for i, dr in enumerate(drs):
+        for j, n_source in enumerate(n_sources):
+            flux = load_data(_get_path(dr, n_source), **_KWARGS)
+            profiles[i, j] = get_rmse(ref, flux)
+
+    return profiles
+
+def _get_path(dr: int, n_source: int) -> str:
+    """
+    Get the path where each integration output should be saved.
+
+    Parameters
+    ----------
+    dr
+        Value for `config.dr_init`.
+    n_source
+        Value for `config.n_source`.
+
+    Returns
+    -------
+    str
+        Path where integration data should be saved.
+
+    """
+
+    return f'data/{config.name}/coarsenings/dr-{dr}_n-source-{n_source}.nc'
+
+def _get_grid() -> tuple[list[int], list[int]]:
+    """
+    Return lists of values for `config.dr_init` and `config.n_source` within
+    which to search for the optimal coarse configuration.
+
+    Returns
+    -------
+    list[int]
+        Values for `config.dr_init`.
+    list[int]
+        Values for `config.n_source`.
+
+    """
+
+    drs = [500 * i for i in range(1, 11)]
+    n_sources = [10 * i for i in range(1, 11)]
+
+    return drs, n_sources[::-1]
+
+def _get_normalized_errors() -> np.ndarray:
+    """
+    Get the normalized total error for each coarse configuration.
+
+    Returns
+    -------
+    np.ndarray
+        Two-dimensional grid of normalized errors averaged over all heights.
+
+    """
+
+    profiles = _get_error_profiles()
+    ref = load_data('reference', **_KWARGS)
+    rms = get_rmse(ref).values
+
+    return (profiles / rms).mean(axis=-1)

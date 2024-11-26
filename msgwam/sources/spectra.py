@@ -6,17 +6,16 @@ import xarray as xr
 
 from .. import config
 from ..constants import EPOCH
-from ..utils import make_colored_noise
-
-_N_LARGE = int(1e4)
+from ..utils import get_time, make_colored_noise, open_dataset
 
 def get_spectrum() -> xr.Dataset:
     """
     Return the properties of the spectrum specified by the loaded configuration
     file. Functions in this module (excluding utilities) should return a dataset
     with coordinates time (optional) and phase speed, and variables for the wave
-    properties that can be determined without knowing the buoyancy frequency.
-    These are k, l, dk, dl, and the momentum flux associated with each wave.
+    properties that can be determined without knowing the buoyancy frequency or
+    the exact spectral resolution. These are omega_hat, phi, dk, dl, and flux.
+    The other variables are added by `_postprocess` or by the Source object.
 
     Returns
     -------
@@ -26,26 +25,48 @@ def get_spectrum() -> xr.Dataset:
     """
 
     func_name = '_' + config.spectrum_type
-    return globals()[func_name]()
+    return _postprocess(globals()[func_name]())
 
-def _coarsen(c_new: np.ndarray, c: np.ndarray, flux: np.ndarray) -> np.ndarray:
+def _postprocess(ds: xr.Dataset) -> xr.Dataset:
     """
-    Coarsen an array of fluxes calculated on a very fine phase speed grid (for
-    consistency across spectral resolutions) such that each flux on the coarse
-    grid is the sum of all nearby fluxes on the fine grid.
+    Prepare a source dataset for use at the specific resolution set by the
+    loaded configuration file.
+
+    Parameters
+    ----------
+    ds
+        Dataset with coordinates `'cp_x'` and `'time'` along with variables
+        `'omega_hat'`, `'phi'`, `'dk'`, `'dl'`, and `'flux'` defined along the
+        time dimension only.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset at the right spectral and temporal resolution with `'k'` and
+        `'l`' calculated and added.
+
     """
 
-    p, = c_new.shape
-    n_steps, q = flux.shape
+    cp_x = _get_phase_velocities(config.n_source)
+    idx = np.argmin(abs(cp_x[:, None] - ds['cp_x'].values), axis=0)
+    ds = ds.assign_coords(cp_x=cp_x[idx])
 
-    idx = np.repeat(np.arange(n_steps), q)
-    jdx = np.argmin(abs(c_new - c[:, None]), axis=1)
-    jdx = np.tile(jdx, n_steps)
+    ds = ds.groupby('cp_x', squeeze=False).sum()
+    wvn_hor = ds['omega_hat'] / ds['cp_x']
 
-    flux_new = np.zeros((n_steps, p))
-    np.add.at(flux_new, (idx, jdx), flux.flatten())
+    ds['k'] = wvn_hor * np.cos(ds['phi'])
+    ds['l'] = wvn_hor * np.sin(ds['phi'])
+    ds = ds[['k', 'l', 'dk', 'dl', 'flux']]
 
-    return flux_new
+    if 'time' in ds.coords:
+        ds = ds.sel(time=get_time(), method='ffill')
+
+    return ds
+
+def _from_file() -> xr.Dataset:
+    """Load a precomputed source spectrum from disk."""
+
+    return open_dataset(config.spectrum_file)
 
 def _gaussians() -> xr.Dataset:
     """
@@ -57,11 +78,10 @@ def _gaussians() -> xr.Dataset:
     seconds = config.dt * np.arange(config.n_steps)
     decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
     args = [seconds, decay_scale, 3600 * config.tau_cutoff_hours]
+
+    cp_x = _get_phase_velocities(config.n_source)
+    flux = np.zeros((len(seconds), config.n_source))
     rng = np.random.default_rng(config.seed)
-    
-    cp_fine = _get_phase_velocities(_N_LARGE)
-    cp = _get_phase_velocities(config.n_source)
-    flux = np.zeros((len(seconds), _N_LARGE))
 
     for c_lo, c_hi in zip(config.c_los, config.c_his):
         center = make_colored_noise(
@@ -71,30 +91,28 @@ def _gaussians() -> xr.Dataset:
             rng=rng
         )[:, None]
 
-        flux = flux + np.exp(-0.5 * ((cp_fine - center) / config.c_width) ** 2)
+        flux = flux + np.exp(-0.5 * ((cp_x - center) / config.c_width) ** 2)
 
     flux = config.flux_bc * flux / flux.sum(axis=1)[:, None]
-    flux = _coarsen(cp, cp_fine, flux)
 
-    wvn_hor = 2 * np.pi / make_colored_noise(
+    omega_hat = 2 * np.pi / make_colored_noise(
         *args,
         n_min=(3600 * config.T_hat_lo),
         n_max=(3600 * config.T_hat_hi),
         rng=rng
-    )[:, None] / cp
+    )
 
-    phi = np.deg2rad(config.direction)
-    k, l = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
-    dk, dl = config.dk_init, config.dl_init
-
-    ones = np.ones_like(k)
-    spectrum = np.stack((k, l, dk * ones, dl * ones, flux), axis=0)
+    ones = np.ones_like(omega_hat)
+    phi = np.deg2rad(config.direction) * ones
+    dk, dl = config.dk_init * ones, config.dl_init * ones
+    stacked = np.stack((omega_hat, phi, dk, dl), axis=0)
 
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
-    data: dict[str, Any] = {'time' : time, 'cp_x' : cp}
+    data: dict[str, Any] = {'time' : time, 'cp_x' : cp_x}
+    data['flux'] = (('time', 'cp_x'), flux)
 
-    for i, name in enumerate(['k', 'l', 'dk', 'dl', 'flux']):
-        data[name] = (('time', 'cp_x'), spectrum[i])
+    for i, name in enumerate(['omega_hat', 'phi', 'dk', 'dl']):
+        data[name] = ('time', stacked[i])
 
     return xr.Dataset(data)
 

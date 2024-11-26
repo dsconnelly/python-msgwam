@@ -26,9 +26,6 @@ class Source(FactoryABC):
         """
 
         ds = get_spectrum()
-        if 'time' in ds.coords:
-            ds = ds.sel(time=get_time(), method='ffill')
-
         self._cp_x = ds['cp_x'].values
         self.dc = self._cp_x[1] - self._cp_x[0]
         data = ds.to_array().values
@@ -38,7 +35,7 @@ class Source(FactoryABC):
             data = np.broadcast_to(data, shape)
 
         else:
-            data = data.transpose(1, 0, 2)
+            data = data.transpose(2, 0, 1)
 
         self._data = data
 

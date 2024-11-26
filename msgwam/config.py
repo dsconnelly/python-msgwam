@@ -15,13 +15,14 @@ _DEFAULTS = {}
 mean_state_type: Literal['interactive', 'prescribed']
 propagator_type: Literal['instantaneous', 'network', 'transient']
 source_type: Literal['constant', 'network', 'packet', 'stochastic']
-spectrum_type: Literal['custom', 'gaussians']
+spectrum_type: Literal['custom', 'from_file', 'gaussians']
 
 ################################################################################
 # input and output
 ################################################################################
 average_output: bool
 prescribed_wind_file: str
+spectrum_file: str
 
 ################################################################################
 # time stepping

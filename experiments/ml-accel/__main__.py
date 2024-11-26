@@ -3,7 +3,7 @@ import sys
 sys.path.insert(0, '.')
 from msgwam import config
 
-from generation import *
+from evaluation import *
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]

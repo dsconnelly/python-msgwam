@@ -48,6 +48,26 @@ class FactoryABC(ABC):
         subs = {handle(sub.__name__) : sub for sub in cls.__subclasses__()}
 
         return subs[name](*args, **kwargs)
+    
+def get_vertical_grids() -> tuple[np.ndarray, np.ndarray]:
+    """
+    Create the vertical grids of cell faces and cell centers. Provided as a
+    utility so that codes can obtain grid information without instantiating an
+    otherwise-unnecessary `MeanState` object.
+
+    Returns
+    -------
+    np.ndarray
+        Array of vertical grid cell faces.
+    np.ndarray
+        Array of vertical grid cell centers.
+
+    """
+
+    faces = np.linspace(config.z_min, config.z_max, config.n_grid)
+    centers = (faces[:-1] + faces[1:]) / 2
+
+    return faces, centers
 
 def get_iterator() -> Iterator[int]:
     """
