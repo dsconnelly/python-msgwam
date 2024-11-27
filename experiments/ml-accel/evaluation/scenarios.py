@@ -18,7 +18,7 @@ def save_descending_jets() -> None:
     which it can be coarsened later.
     """
 
-    with config.override(get_overrides('reference')):
+    with config.override(**get_overrides('reference')):
         ds = _get_descending_jets()
     
     _, cbar = plot_time_series(ds['u'], 50, cmap='PuOr_r')

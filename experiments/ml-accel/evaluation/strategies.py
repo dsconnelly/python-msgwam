@@ -5,7 +5,7 @@ import xarray as xr
 
 from msgwam import config
 from msgwam.integration import integrate as _integrate
-from msgwam.means import PrescribedWind
+from msgwam.means import InteractiveWind
 from msgwam.propagators import TransientPropagator
 
 _N_SAMPLES = 25
@@ -101,7 +101,7 @@ def _get_reference_overrides() -> dict[str, Any]:
     }
 
     with config.override(**overrides):
-        mean = PrescribedWind()
+        mean = InteractiveWind()
         cg = TransientPropagator(mean)._get_cg_r(mean)
         dr = np.ceil(np.nanmax(cg * config.dt) / 25) * 25
 
