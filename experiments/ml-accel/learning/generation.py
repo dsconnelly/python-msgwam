@@ -60,9 +60,10 @@ def _get_overrides(fine: bool=False) -> dict[str, Any]:
     seed = hash(config.name) % 2 ** 32
 
     kwargs = {
+        'n_day' : 360,
         'source_type' : 'packet',
         'spectrum_type' : 'gaussians',
-        'dt_launch' : 6 * 3600,
+        'dt_launch' : 3600,
         'n_increment' : 1000,
         'prune_by' : 'none',
         'seed' : seed

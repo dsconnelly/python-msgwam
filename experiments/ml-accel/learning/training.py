@@ -9,8 +9,9 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from msgwam import config
 
+from . import architectures
 from . import hyperparameters as hp
-from .utils import get_indices, load_data, load_model
+from .utils import get_indices, load_data
 
 if TYPE_CHECKING:
     from .architectures import SourceNet
@@ -19,7 +20,7 @@ def train_network(
     target_type: str='fine',
     eval_type: str='validation',
     restart: int=0,
-    n_print: int=500
+    n_print: int=1
 ) -> None:
     """
     Train a `SourceNet` subclass. This function can be used either to train a
@@ -45,7 +46,7 @@ def train_network(
     """
 
     loader_tr, loader_ev = _load_datasets(target_type, eval_type)
-    model, optimizer = load_model(target_type, restart)
+    model, optimizer = _load_model(target_type, restart)
     loss_func = nn.MSELoss()
 
     if restart == 0:
@@ -72,10 +73,10 @@ def train_network(
     u_ex, X_ex, _ = loader_ev.dataset.tensors
     traced = _trace_model(u_ex, X_ex, model)
 
-    data_dir = f'data/{config.name}/models'
+    model_dir = f'data/{config.name}/models'
     tag = f'{"best" if eval_type == "test" else hp.task_id}-r{restart}'
-    torch.jit.save(traced, f'{data_dir}/model-{tag}.jit')
-    torch.save(state, f'{data_dir}/state-{tag}.pkl')
+    torch.jit.save(traced, f'{model_dir}/model-{tag}.jit')
+    torch.save(state, f'{model_dir}/state-{tag}.pkl')
 
 def _load_datasets(
     target_type: str,
@@ -107,6 +108,44 @@ def _load_datasets(
         loaders.append(DataLoader(data, hp.batch_size, shuffle=True))
 
     return tuple(loaders)
+
+def _load_model(target_type: str, restart: int) -> tuple[SourceNet, Adam]:
+    """
+    Load a model of the specified kind and an associated optimizer. If this is a
+    restart run, load the saved state for both modules.
+
+    Parameters
+    ----------
+    target_type
+        Target specifier, as passed to `train_network`.
+    restart
+        What training restart this is.
+    
+    Returns
+    -------
+    SourceNet
+        Requested subclass instance, with loaded state if necessary.
+    Adam
+        Associated optimizer, with loaded state if necessary.
+
+    """
+
+    cls_name = {'coarse' : 'Surrogate', 'fine' : 'Surrogate'}[target_type]
+    model: SourceNet = getattr(architectures, cls_name.capitalize())()
+    optimizer = Adam(model.parameters(), hp.learning_rate)
+
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'Model {hp.task_id} has {n_params} trainable parameters.')
+
+    if restart > 0:
+        fname = f'state-{hp.task_id}-r{restart - 1}.pkl'
+        state = torch.load(f'data/{config.name}/models/{fname}')
+
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
+        print(f'Loaded state from training run {restart - 1}')
+
+    return model, optimizer
 
 def _run_epoch(
     model: SourceNet,
