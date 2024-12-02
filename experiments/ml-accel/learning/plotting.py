@@ -1,47 +1,61 @@
+from typing import Optional
+
 import matplotlib.pyplot as plt
 import numpy as np
+import torch
 
 from msgwam import config
 from msgwam.dispersion import get_cp_x
 from msgwam.utils import get_vertical_grids
 
-from . import hyperparameters as hp
+from .utils import get_indices, load_data
 
-def plot_training_samples() -> None:
+def plot_training_samples(model_path: Optional[str]=None) -> None:
     """
     
     """
 
-    u = np.load(f'data/{config.name}/u.npy')
-    X = np.load(f'data/{config.name}/X.npy')
-    Y_fine = np.load(f'data/{config.name}/Y-fine.npy')
-    Y_coarse = np.load(f'data/{config.name}/Y-coarse.npy')
+    idx, _ = get_indices('validation')
+    u, X, Y_coarse = load_data('coarse')
+    *_, Y_fine = load_data('fine')
+    u, X = u[idx], X[idx]
+    
+    datas = [Y_fine[idx], Y_coarse[idx]]
+    colors = ['forestgreen', 'royalblue']
+    labels = ['fine', 'coarse']
+
+    if model_path is not None:
+        # model = torch.jit.load(model_path)
+
+        from .architectures import Surrogate
+        model = Surrogate()
+        state = torch.load(f'data/{config.name}/models/state-0-r0.pkl')
+        model.load_state_dict(state['model'])
+        model.eval()
+    
+        with torch.no_grad():
+            datas.append(model(u, X))
+
+        colors.append('tab:red')
+        labels.append('network')
 
     n_rows, n_cols = 2, 4
     fig, axes = plt.subplots(n_rows, n_cols)
     fig.set_size_inches(n_cols * 3, n_rows * 4.5)
     axes = axes.flatten()
 
-    jdx = np.random.choice(u.shape[0], size=len(axes), replace=False)
+    jdx = np.random.choice(u.shape[0], size=5, replace=False)
     z_faces, z_centers = [z / 1e3 for z in get_vertical_grids()]
-    T = hp.max_days * 86400
 
     for i, (j, ax) in enumerate(zip(jdx, axes)):
-        k, l, m, dk, dl, dm, dens = X[j]
-        action = dens * dk * dl * dm
-
-        factor = abs(k) * action * config.dr_init / T
-        colors = ['forestgreen', 'royalblue']
-
         handles = []
-        for data, color in zip([Y_fine, Y_coarse], colors):
-            line, = ax.plot(data[j] / factor, z_faces, color=color)
-            handles.append(line)
+        for data, color in zip(datas, colors):
+            handles.append(ax.plot(data[j], z_faces, color=color)[0])
 
         ax.set_xlim(-1.25, 1.25)
         ax.set_ylim(z_faces.min(), z_faces.max())
 
-        ax.set_xlabel(f'flux ($\\times${1e6 * factor:.2f} $\\mu$Pa)')
+        ax.set_xlabel(f'normalized flux')
         ax.set_ylabel('height (km)')
 
         ax.grid(color='lightgray')
@@ -51,12 +65,13 @@ def plot_training_samples() -> None:
         line, = ax.plot(u[j], z_centers, color='k')
         handles.append(line)
 
-        cp_x = get_cp_x(k, l, m, config.N_ref) * np.ones_like(z_centers)
-        line, = ax.plot(cp_x + u[j, 0], z_centers, color='gray', ls='dashed')
-        handles.append(line)
+        k, l, m, *_ = X[j]
+        ones = np.ones_like(z_centers)
+        cp_x = get_cp_x(k, l, m, config.N_ref) * ones + u[j, 0]
+        handles.append(ax.plot(cp_x, z_centers, color='gray', ls='dashed')[0])
 
         if i == 0:
-            labels = ['fine', 'coarse', '$\\bar{u}$', '$c_{\\mathrm{p}}$']
+            labels = labels + ['$\\bar{u}$', '$c_{\\mathrm{p}}$']
             ax.legend(handles, labels)
 
         ax.set_xlim(-50, 50)

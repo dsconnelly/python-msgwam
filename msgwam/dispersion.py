@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 
 from . import config
 
@@ -110,7 +111,7 @@ def get_m(
 
     omega_hat_sq = cp_x ** 2 * k ** 2
 
-    return -np.sqrt(
+    return -_sqrt(
         (k ** 2 + l ** 2) * (N ** 2 - omega_hat_sq) /
         (omega_hat_sq - config.f ** 2)
     )
@@ -138,7 +139,28 @@ def get_omega_hat(
 
     """
 
-    return np.sqrt(
+    return _sqrt(
         (N ** 2 * (k ** 2 + l ** 2) + config.f ** 2 * m ** 2) /
         (k ** 2 + l ** 2 + m ** 2)
     )
+
+def _sqrt(a: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
+    """
+    Square root function that uses `torch` only when appropriate.
+
+    Parameters
+    ----------
+    a
+        Array or tensor to take the square root of.
+
+    Returns
+    -------
+    np.ndarray | torch.Tensor
+        Array or tensor of square roots, with type matching that of `a`.
+
+    """
+
+    if isinstance(a, torch.Tensor):
+        return torch.sqrt(a)
+    
+    return np.sqrt(a)

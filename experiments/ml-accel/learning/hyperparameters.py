@@ -27,6 +27,14 @@ layer_size: int
 n_blocks: int
 n_layers: int
 
+################################################################################
+# training
+################################################################################
+batch_size: int
+learning_rate: float
+max_epochs: int
+max_hours: int
+
 def load(path: str, i: Optional[int]=None, verbose: bool=False) -> None:
     """
     Load the hyperparameter settings for a particular grid file and Slurm task

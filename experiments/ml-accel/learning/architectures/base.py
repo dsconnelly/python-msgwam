@@ -142,7 +142,7 @@ class SourceNet(nn.Module, ABC):
 
         if final:
             n_drop = 2 + abs(hp.batch_norm_pos)
-            args = args[:n_drop]
+            args = args[:-n_drop]
 
         return nn.Sequential(*args)
     
