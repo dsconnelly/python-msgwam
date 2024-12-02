@@ -19,19 +19,13 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     u, X, Y_coarse = load_data('coarse')
     *_, Y_fine = load_data('fine')
     u, X = u[idx], X[idx]
-    
+
     datas = [Y_fine[idx], Y_coarse[idx]]
     colors = ['forestgreen', 'royalblue']
     labels = ['fine', 'coarse']
 
     if model_path is not None:
-        # model = torch.jit.load(model_path)
-
-        from .architectures import Surrogate
-        model = Surrogate()
-        state = torch.load(f'data/{config.name}/models/state-0-r0.pkl')
-        model.load_state_dict(state['model'])
-        model.eval()
+        model = torch.jit.load(model_path)
     
         with torch.no_grad():
             datas.append(model(u, X))
@@ -44,7 +38,7 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     fig.set_size_inches(n_cols * 3, n_rows * 4.5)
     axes = axes.flatten()
 
-    jdx = np.random.choice(u.shape[0], size=5, replace=False)
+    jdx = np.random.choice(u.shape[0], size=len(axes), replace=False)
     z_faces, z_centers = [z / 1e3 for z in get_vertical_grids()]
 
     for i, (j, ax) in enumerate(zip(jdx, axes)):

@@ -60,6 +60,7 @@ n_source: int
 ################################################################################
 check_sign_changes: bool
 dr_init: float
+max_age: int
 min_flux: float
 n_chromatic: int
 n_increment: int

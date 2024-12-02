@@ -60,10 +60,11 @@ def _get_overrides(fine: bool=False) -> dict[str, Any]:
     seed = hash(config.name) % 2 ** 32
 
     kwargs = {
-        'n_day' : 360,
         'source_type' : 'packet',
         'spectrum_type' : 'gaussians',
-        'dt_launch' : 3600,
+        'n_day' : 360,
+        'dt_launch' : hp.dt_launch,
+        'max_age' : hp.max_days * 86400,
         'n_increment' : 1000,
         'prune_by' : 'none',
         'seed' : seed
@@ -76,7 +77,6 @@ def _get_overrides(fine: bool=False) -> dict[str, Any]:
         return kwargs
 
     kwargs['n_source'] = config.n_source * root
-    kwargs['n_max'] = config.n_max * hp.speedup
     kwargs['dr_init'] = config.dr_init / root
     kwargs['n_chromatic'] = hp.speedup
     kwargs['n_repeat'] = root
@@ -142,31 +142,28 @@ def _generate_outputs() -> np.ndarray:
 
     """
 
-    starts = np.inf * np.ones(hp.n_packets)
-    Y = np.zeros((config.n_steps, hp.n_packets, config.n_grid))
-    callback = _make_callback(starts, Y)
+    Y = np.zeros((hp.n_packets, config.n_grid))
+    callback = _make_callback(Y)
 
     try:
         _ = integrate(callback)
 
     except EnoughPackets:
-        return config.dt * Y.sum(axis=0) / (hp.max_days * 86400)
+        return config.dt * Y / (hp.max_days * 86400)
     
     raise NotEnoughPackets
 
-def _make_callback(starts: np.ndarray, Y: np.ndarray) -> _Callback:
+def _make_callback(Y: np.ndarray) -> _Callback:
     """
     Make a callback function that stores packet launch times in `starts` and
     flux profiles associated with each packet in `Y`.
 
     Parameters
     ----------
-    starts
-        Array with an entry for each packet to be launched.
     Y
-        Three-dimensional array whose first dimension ranges over time steps,
-        whose seocnd dimension ranges over packets, and whose third dimension
-        ranges over vertical grid cells. Will hold flux profiles.
+        Two-dimensional array whose first dimension ranges over packets and
+        whose second dimension ranges over vertical grid cells. Will eventually
+        hold time-averaged momentum flux profiles.
 
     Returns
     -------
@@ -178,7 +175,7 @@ def _make_callback(starts: np.ndarray, Y: np.ndarray) -> _Callback:
     def callback(
         mean: MeanState,
         prop: TransientPropagator,
-        n_step: int
+        _: int
     ) -> None:
         """
         Callback function storing appropriate data in `starts` and `Y`.
@@ -193,21 +190,15 @@ def _make_callback(starts: np.ndarray, Y: np.ndarray) -> _Callback:
 
         labels, pdx = prop._get_packet_info()
         flux = prop.k * prop.action * prop._get_cg_r(mean)
-        profiles = prop._project(flux[None], prop._z_padded, pdx)[0]
+        profiles, = prop._project(flux[None], prop._z_padded, pdx)
+        profiles[:, 1:-1] = shapiro_filter(profiles.T).T
 
-        profiles = profiles[labels < hp.n_packets]
-        labels = labels[labels < hp.n_packets]
-
-        new = np.isinf(starts[labels])
-        starts[labels[new]] = n_step
-
-        keep = config.dt * (n_step - starts[labels]) < hp.max_days * 86400
-        labels, profiles = labels[keep], profiles[keep]
-
+        keep = labels < hp.n_packets        
         if keep.sum() == 0:
             raise EnoughPackets
         
-        profiles[:, 1:-1] = shapiro_filter(profiles.T).T
-        Y[n_step][labels] = profiles
+        prop._delete_rays(~np.isin(labels[pdx], labels[keep]))
+        profiles, labels = profiles[keep], labels[keep]
+        Y[labels] += profiles
 
     return callback

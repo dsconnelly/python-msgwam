@@ -278,6 +278,10 @@ class TransientPropagator(Propagator):
         above = self.r - 0.5 * self.dr > config.z_max
         self._delete_rays(below | above)
 
+        if config.max_age > 0:
+            old = self.age > config.max_age
+            self._delete_rays(old)
+
         flux = self.k * self.action * self._get_cg_r(mean)
         self._delete_rays(abs(flux) < config.min_flux)
 
