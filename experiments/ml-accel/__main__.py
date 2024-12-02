@@ -14,7 +14,7 @@ if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]
     config.load(config_path)
 
-    hp_dir = dirname(abspath(__file__)) + '/hyperparameters'
+    hp_dir = dirname(abspath(__file__)) + '/../../hyperparameters'
     hp.load(f'{hp_dir}/{config.name}.toml', verbose=True)
 
     for task in tasks:

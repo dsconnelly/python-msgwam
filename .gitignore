@@ -1,5 +1,4 @@
 *.ipynb*
-*.slurm
 *.pyc
 *old*
 data
