@@ -1,8 +1,8 @@
 *.ipynb*
 *.slurm
 *.pyc
-config/old
+*old*
 data
-experiments/old-coarsenet
+experiments/debug
 logs/*
 plots/*
