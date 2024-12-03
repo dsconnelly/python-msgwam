@@ -63,7 +63,7 @@ def plot_coarse_errors() -> None:
     cbar.set_label('normalized error')
 
     z = get_vertical_grids()[0] / 1000
-    ref = load_data('reference', 5, '3h')
+    ref = load_data('reference')
 
     funcs = [np.argmin, np.argmax]
     colors = ['darkgreen', 'darkred']
@@ -81,7 +81,7 @@ def plot_coarse_errors() -> None:
             zorder=10
         ))
 
-        rmse = get_rmse(ref, load_data(path, 5, '3h'))
+        rmse = get_rmse(ref, load_data(path))
         axes[0].plot(1000 * rmse, z, color=color, label=label)
 
     rms = 1000 * get_rmse(ref)

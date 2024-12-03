@@ -11,6 +11,9 @@ from msgwam.utils import get_vertical_grids, make_colored_noise, shapiro_filter
 
 from .strategies import get_overrides
 
+_PERIOD_BOUNDS = [1, 7]
+_WVL_BOUNDS = [17, 23]
+
 def save_descending_jets() -> None:
     """
     Save a mean wind field consisting of descending jets alternating westerly
@@ -18,7 +21,7 @@ def save_descending_jets() -> None:
     which it can be coarsened later.
     """
 
-    with config.override(n_day=360, **get_overrides('reference')):
+    with config.override(n_day=30, **get_overrides('reference')):
         ds = _get_descending_jets()
     
     _, cbar = plot_time_series(ds['u'], 50, cmap='PuOr_r')
@@ -53,18 +56,23 @@ def _get_descending_jets() -> xr.Dataset:
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     _, z = get_vertical_grids()
 
-    period = 5 * 86400
-    k, ell = 2 * np.pi / period, 2 * np.pi / 25e3
-    x, y = np.meshgrid(seconds, z)
-
+    rng = np.random.default_rng(7278)
+    args = [seconds, 15 * 86400, 5 * 86400]
+    period = make_colored_noise(*args, *_PERIOD_BOUNDS, rng) * 86400
+    wvl = make_colored_noise(*args, *_WVL_BOUNDS, rng) * 1e3
+    
+    _, y = np.meshgrid(seconds, z)
+    k = np.cumsum(1 / period) * config.dt
+    ell = (1 / wvl) * y
+    
     env_1 = np.exp(-((z - 45e3) / 10e3) ** 2)
-    env_2 = np.exp(-((z - 40e3) / 15e3) ** 2)
+    env_2 = np.exp(-((z - 40e3) / 20e3) ** 2)
 
     cutoffs = [30 * 60, 0]
     noise = make_colored_noise([seconds, z], [period, 15e3], cutoffs)
-    wave = np.exp(1j * (k * x + ell * y)).real.T
+    wave = np.exp(1j * 2 * np.pi * (k + ell)).real.T
 
-    u = 45 * env_1 * wave + 20 * env_2 * noise
+    u = 40 * env_1 * wave + 15 * env_2 * noise
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

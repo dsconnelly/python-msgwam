@@ -7,8 +7,6 @@ from msgwam.integration import integrate
 
 from .utils import get_rmse, load_data
 
-_KWARGS = {'spinup_days' : 3, 'resample' : '3h'}
-
 def save_coarsenings() -> None:
     """
     Integrate over the grid of vertical and spectral resolutions with low
@@ -57,11 +55,11 @@ def _get_error_profiles() -> np.ndarray:
 
     drs, n_sources = _get_grid()
     profiles = np.zeros((len(drs), len(n_sources), config.n_grid))
-    ref = load_data('reference', **_KWARGS)
+    ref = load_data('reference')
 
     for i, dr in enumerate(drs):
         for j, n_source in enumerate(n_sources):
-            flux = load_data(_get_path(dr, n_source), **_KWARGS)
+            flux = load_data(_get_path(dr, n_source))
             profiles[i, j] = get_rmse(ref, flux)
 
     return profiles
@@ -117,7 +115,7 @@ def _get_normalized_errors() -> np.ndarray:
     """
 
     profiles = _get_error_profiles()
-    ref = load_data('reference', **_KWARGS)
+    ref = load_data('reference')
     rms = get_rmse(ref).values
 
     return (profiles / rms).mean(axis=-1)
