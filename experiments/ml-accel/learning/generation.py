@@ -58,10 +58,12 @@ def _get_overrides(fine: bool=False) -> dict[str, Any]:
 
     root = int(hp.speedup ** 0.5)
     seed = hash(config.name) % 2 ** 32
+    path = f'data/{config.name}/descending-jets-long.nc'
 
     kwargs = {
         'source_type' : 'packet',
         'spectrum_type' : 'gaussians',
+        'prescribed_wind_file' : path,
         'n_day' : 360,
         'dt_launch' : hp.dt_launch,
         'max_age' : hp.max_days * 86400,
