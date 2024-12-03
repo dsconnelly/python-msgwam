@@ -11,8 +11,11 @@ from msgwam.utils import get_vertical_grids, make_colored_noise, shapiro_filter
 
 from .strategies import get_overrides
 
+_AMP_BOUNDS = [25, 50]
 _PERIOD_BOUNDS = [1, 7]
-_WVL_BOUNDS = [17, 23]
+_WAVELENGTH = 18e3
+
+_SEED = 7278
 
 def save_descending_jets() -> None:
     """
@@ -56,23 +59,24 @@ def _get_descending_jets() -> xr.Dataset:
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     _, z = get_vertical_grids()
 
-    rng = np.random.default_rng(7278)
+    rng = np.random.default_rng(_SEED)
     args = [seconds, 15 * 86400, 5 * 86400]
     period = make_colored_noise(*args, *_PERIOD_BOUNDS, rng) * 86400
-    wvl = make_colored_noise(*args, *_WVL_BOUNDS, rng) * 1e3
     
-    _, y = np.meshgrid(seconds, z)
     k = np.cumsum(1 / period) * config.dt
-    ell = (1 / wvl) * y
-    
+    _, y = np.meshgrid(seconds, z)
+    ell = y / _WAVELENGTH
+
     env_1 = np.exp(-((z - 45e3) / 10e3) ** 2)
     env_2 = np.exp(-((z - 40e3) / 20e3) ** 2)
 
     cutoffs = [30 * 60, 0]
-    noise = make_colored_noise([seconds, z], [period, 15e3], cutoffs)
-    wave = np.exp(1j * 2 * np.pi * (k + ell)).real.T
+    decay_time = 86400 * sum(_PERIOD_BOUNDS) / 2
+    noise = make_colored_noise([seconds, z], [decay_time, 15e3], cutoffs)
+    wave = np.exp(2j * np.pi * (k + ell)).real.T
 
-    u = 40 * env_1 * wave + 15 * env_2 * noise
+    amp = make_colored_noise(*args, *_AMP_BOUNDS, rng)[:, None]
+    u = amp * env_1 * wave + 15 * env_2 * noise
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

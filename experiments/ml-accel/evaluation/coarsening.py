@@ -98,7 +98,7 @@ def _get_grid() -> tuple[list[int], list[int]]:
 
     """
 
-    drs = [500 + 750 * i for i in range(10)]
+    drs = [500 * i for i in range(1, 11)]
     n_sources = [10 * i for i in range(1, 11)]
 
     return drs, n_sources[::-1]

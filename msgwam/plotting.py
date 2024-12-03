@@ -13,6 +13,7 @@ from . import config
 from .constants import EPOCH
 from .dispersion import get_cg_r, get_m
 from .sources import ConstantSource
+from .utils import open_dataset
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -159,7 +160,7 @@ def plot_ray_count(ds: xr.Dataset, output_path: str) -> None:
 
 def plot_source(output_path: str) -> None:
     """
-    Make Hovmöller plots of source momentum flux and vertical group velocity.
+    Plot some informative properties of the source spectrum.
 
     Parameters
     ----------
@@ -168,84 +169,66 @@ def plot_source(output_path: str) -> None:
 
     """
 
+    widths = [4.5, 4.5, 4.5, 0.2]
+    fig = plt.figure(constrained_layout=True)
+    fig.set_size_inches(sum(widths), 3)
+
+    spec = gs.GridSpec(1, len(widths), fig, width_ratios=widths)
+    axes = [fig.add_subplot(spec[0, i]) for i in range(4)]
+
     source = ConstantSource()
     k, l, *_, flux = source._data.transpose(1, 0, 2)
     days = config.dt * np.arange(config.n_steps) / 86400
+
     cp_x = source._cp_x
-
     m = get_m(k, l, cp_x, config.N_ref)
-    cg_r = get_cg_r(k, l, m, config.N_ref)
 
-    widths = [4.5, 4.3, 0.2]
-    fig = plt.figure(constrained_layout=True)
-    fig.set_size_inches(1.25 * sum(widths), 1.25 * 3)
+    names = ['$\\lambda_x$', '$\\lambda_z$']
+    datas = [2 * np.pi / abs(k) / 1000, 2 * np.pi / abs(m) / 1000]
+    bounds = [(0, 1500), (0, 16)]
 
-    spec = gs.GridSpec(
-        nrows=3, ncols=3,
-        width_ratios=widths,
-        figure=fig
-    )
+    for name, data, (a, b), ax in zip(names, datas, bounds, axes[:2]):
+        edges = np.linspace(a, b, 13)
+        x = (edges[:-1] + edges[1:]) / 2
+        width = edges[1] - edges[0]
 
-    idxs = [(slice(None, None), 1), (0, 0), (1, 0), (2, 0)]
-    axes = [fig.add_subplot(spec[*idx]) for idx in idxs]
-    cax = fig.add_subplot(spec[:, 2])
+        h = 1e6 * _get_bin_averages(flux, data, edges)
+        ax.bar(x, h, width=width, ec='k', fc='gray')
 
-    for ax in axes[1:]:
-        ax.grid(color='lightgray')
-        ax.set_axisbelow(True)
+        ax.set_xlim(a, b)
+        ax.set_xlabel(f'{name} (km)')
+
+        ax.set_ylim(0, 60)
+        ax.set_ylabel('flux ($\\mu$Pa)')
 
     vmax = 1000 * flux.max()
     vmax = np.ceil(vmax / 0.1) * 0.1
 
-    img = axes[0].pcolormesh(
+    img = axes[2].pcolormesh(
         days, cp_x, 1000 * flux.T,
         vmin=0, vmax=vmax,
         shading='nearest',
         cmap='Reds'
     )
 
-    axes[0].set_xlim(0, config.n_day)
-    axes[0].set_xticks(np.linspace(0, config.n_day, 6))
-    axes[0].set_xlabel('time (days)')
+    axes[2].set_xlabel('time (days)')
+    axes[2].set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
 
-    axes[0].set_ylim(-config.c_max, config.c_max)
-    axes[0].set_yticks(np.linspace(*axes[0].get_ylim(), 5))
-    axes[0].set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
+    cbar = plt.colorbar(img, cax=axes[3])
+    cbar.set_label('source flux (mPa)')
 
-    cbar = plt.colorbar(img, cax=cax)
-    cbar.set_label('flux (mPa)')
-    
-    names = ['$c_{\\mathrm{g}}$', '$\\lambda_x$', '$\\lambda_z$']
-    fields = [cg_r, 2 * np.pi / abs(k) / 1000, 2 * np.pi / abs(m) / 1000]
-    bounds = [(0, 5), (0, 1500), (0, 16)]
-    units = ['m / s', 'km', 'km']
+    axes[0].set_title('(a) horizontal wavelength')
+    axes[1].set_title('(b) vertical wavelength')
+    axes[2].set_title('(c) source flux over time')
 
-    zipped = zip(names, fields, bounds, units, axes[1:])
-    for name, field, (a, b), unit, ax in zipped:
-        edges = np.linspace(a, b, 13)
-        x = (edges[:-1] + edges[1:]) / 2
-        width = edges[1] - edges[0]
-
-        h = 1e6 * _get_bin_averages(flux, field, edges)
-        ax.bar(x, h, width=width, ec='k', fc='gray')
-
-        ax.set_xlim(a, b)
-        n_ticks = 5 if b == 16 else 6
-        ax.set_xticks(np.linspace(a, b, n_ticks))
-        ax.set_title(f'{name} ({unit})')
-
-        ax.set_ylim(0, np.ceil(h.max() / 50) * 50)
-        ax.set_yticks([*ax.get_ylim()])
-        ax.set_ylabel('flux ($\mu$Pa)')
-
-    axes[0].set_title('source flux')
     plt.savefig(output_path, dpi=400)
 
 def plot_time_series(
     data: xr.DataArray,
     amax: float,
     axes: Optional[list[Axes]]=None,
-    cmap: str='RdBu_r'
+    cmap: str='RdBu_r',
+    orientation: str='vertical'
 ) -> tuple[QuadMesh, Optional[Colorbar]]:
     """
     Plot data with time and height coordinates.
@@ -264,6 +247,8 @@ def plot_time_series(
         provided, then a new figure with two axes will be created.
     cmap
         Colormap to use in the mesh plot.
+    orientation
+        Orientation of colorbar, if one is created. Ignored otherwise.
 
     Returns
     -------
@@ -303,7 +288,7 @@ def plot_time_series(
     axes[0].set_ylabel('height (km)')
 
     try:
-        cbar = plt.colorbar(img, cax=axes[1], orientation='vertical')
+        cbar = plt.colorbar(img, cax=axes[1], orientation=orientation)
         cbar.set_ticks(np.linspace(-amax, amax, 5)) # type: ignore
 
     except IndexError:

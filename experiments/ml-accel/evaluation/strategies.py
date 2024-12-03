@@ -58,7 +58,7 @@ def _get_coarse_overrides() -> dict[str, Any]:
 def _get_instantaneous_overrides() -> dict[str, Any]:
     """Use an instantaneous propagator instead of the ray tracer."""
 
-    return {'propagator_type' : 'instantaneous'}
+    return {'propagator_type' : 'instantaneous', 'n_source' : 100}
 
 def _get_integration(strategy: str) -> xr.Dataset:
     """

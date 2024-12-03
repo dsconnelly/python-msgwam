@@ -23,8 +23,11 @@ class PrescribedWind(MeanState):
         the appropriate time and z values. Stores the dataset for later updates.
         """
 
+        kwargs = {'fill_value' : 'extrapolate'}
+        coords = {'time' : get_time(), 'z_centers' : self.z_centers}
+
         with open_dataset(config.prescribed_wind_file) as ds:
-            ds = ds.interp(time=get_time(), z_centers=self.z_centers)
+            ds = ds.interp(**coords, kwargs=kwargs)
             self._wind = np.stack((ds['u'], ds['v']), axis=1)
 
         return self._wind[0]
