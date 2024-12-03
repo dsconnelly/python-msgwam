@@ -5,11 +5,11 @@ config="config/$name.toml"
 
 mkdir -p "data/$name/coarsenings"
 mkdir -p "data/$name/models"
-mkdir "plots/$name"
+mkdir -p "plots/$name"
 
 reference_id=$(sbatch \
     --parsable \
-    --n-tasks=1 \
+    --ntasks=1 \
     --cpus-per-task=8 \
     --time=18:00:00 \
     --mem=64G \
@@ -20,7 +20,7 @@ reference_id=$(sbatch \
 
 coarsenings_id=$(sbatch \
     --parsable \
-    --n-tasks=1 \
+    --ntasks=1 \
     --cpus-per-task=8 \
     --time=12:00:00 \
     --mem=16G \
@@ -32,7 +32,7 @@ coarsenings_id=$(sbatch \
 
 baselines_id=$(sbatch \
     --parsable \
-    --n-tasks=1 \
+    --ntasks=1 \
     --cpus-per-task=8 \
     --time=1:00:00 \
     --mem=16G \
@@ -44,7 +44,7 @@ baselines_id=$(sbatch \
 
 generate_id=$(sbatch \
     --parsable \
-    --n-tasks=1 \
+    --ntasks=1 \
     --cpus-per-task=8 \
     --time=6:00:00 \
     --mem=16G \
@@ -56,7 +56,7 @@ generate_id=$(sbatch \
 
 training_id=$(sbatch \
     --parsable \
-    --n-tasks=1 \
+    --ntasks=1 \
     --cpus-per-task=8 \
     --time=9:00:00 \
     --mem=16G \
