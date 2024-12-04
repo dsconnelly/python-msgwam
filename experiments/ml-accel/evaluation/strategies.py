@@ -108,6 +108,15 @@ def _get_reference_overrides() -> dict[str, Any]:
     overrides['dr_init'] = dr
     return overrides
 
+def _get_surrogate_overrides() -> dict[str, Any]:
+    """Use a pretrained surrogate as the propagator."""
+
+    return {
+        'propagator_type' : 'network',
+        'network_path' : f'data/{config.name}/surrogate-fine/model-best.jit',
+        'time_horizon' : 2,
+    }
+
 def _get_stochastic_overrides() -> dict[str, Any]:
     """Use a stochastic source that launches nine times less often."""
 
