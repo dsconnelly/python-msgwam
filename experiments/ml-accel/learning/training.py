@@ -1,17 +1,15 @@
 from __future__ import annotations
 from time import time
 from typing import TYPE_CHECKING, Optional
+from warnings import catch_warnings
 
 import torch, torch.nn as nn
 
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 
-from msgwam import config
-
-from . import architectures
 from . import hyperparameters as hp
-from .utils import get_indices, load_data
+from .utils import get_indices, get_model_dir, load_data, load_model
 
 if TYPE_CHECKING:
     from .architectures import SourceNet
@@ -19,7 +17,7 @@ if TYPE_CHECKING:
 def train_network(
     target_type: str='fine',
     eval_type: str='validation',
-    restart: int=0,
+    restart: bool=False,
     n_print: int=1
 ) -> None:
     """
@@ -38,18 +36,20 @@ def train_network(
         training data, or to hold out `'test'` data and train the model on the
         combined training and validation sets.
     restart
-        Whether training should resume from a previously saved state, in which
-        case state must be saved for run `restart - 1`.
+        Whether training should resume from a previously saved state.
     n_print
         Interval, in epochs, at which to print training and evaluation losses.
 
     """
 
     loader_tr, loader_ev = _load_datasets(target_type, eval_type)
-    model, optimizer = _load_model(target_type, restart)
+    model, optimizer = load_model(target_type, eval_type, restart)
     loss_func = nn.MSELoss()
 
-    if restart == 0:
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f'Model {hp.task_id} has {n_params} trainable parameters.')
+
+    if not restart:
         u_tr, X_tr, _ = loader_tr.dataset.tensors
         model.init_stats(u_tr, X_tr)
 
@@ -67,14 +67,15 @@ def train_network(
 
     state = {
         'model' : model.state_dict(),
-        'optimizer' : optimizer.state_dict()
+        'optimizer' : optimizer.state_dict(),
+        'task_id' : hp.task_id
     }
 
     u_ex, X_ex, _ = loader_ev.dataset.tensors
     traced = _trace_model(u_ex, X_ex, model)
 
-    model_dir = f'data/{config.name}/models'
-    tag = f'{"best" if eval_type == "test" else hp.task_id}-r{restart}'
+    model_dir = get_model_dir(target_type)
+    tag = f'{"best" if eval_type == "test" else hp.task_id}'
     torch.jit.save(traced, f'{model_dir}/model-{tag}.jit')
     torch.save(state, f'{model_dir}/state-{tag}.pkl')
 
@@ -108,44 +109,6 @@ def _load_datasets(
         loaders.append(DataLoader(data, hp.batch_size, shuffle=True))
 
     return tuple(loaders)
-
-def _load_model(target_type: str, restart: int) -> tuple[SourceNet, Adam]:
-    """
-    Load a model of the specified kind and an associated optimizer. If this is a
-    restart run, load the saved state for both modules.
-
-    Parameters
-    ----------
-    target_type
-        Target specifier, as passed to `train_network`.
-    restart
-        What training restart this is.
-    
-    Returns
-    -------
-    SourceNet
-        Requested subclass instance, with loaded state if necessary.
-    Adam
-        Associated optimizer, with loaded state if necessary.
-
-    """
-
-    cls_name = {'coarse' : 'Surrogate', 'fine' : 'Surrogate'}[target_type]
-    model: SourceNet = getattr(architectures, cls_name.capitalize())()
-    optimizer = Adam(model.parameters(), hp.learning_rate)
-
-    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f'Model {hp.task_id} has {n_params} trainable parameters.')
-
-    if restart > 0:
-        fname = f'state-{hp.task_id}-r{restart - 1}.pkl'
-        state = torch.load(f'data/{config.name}/models/{fname}')
-
-        model.load_state_dict(state['model'])
-        optimizer.load_state_dict(state['optimizer'])
-        print(f'Loaded state from training run {restart - 1}')
-
-    return model, optimizer
 
 def _run_epoch(
     model: SourceNet,
@@ -233,4 +196,5 @@ def _trace_model(
         p.requires_grad = False
 
     with torch.no_grad():
-        return torch.jit.trace(model, (u, X))
+        with catch_warnings(action='ignore', category=torch.jit.TracerWarning):
+            return torch.jit.trace(model, (u, X))
