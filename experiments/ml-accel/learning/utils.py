@@ -1,4 +1,5 @@
 from __future__ import annotations
+from os import listdir
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -142,6 +143,9 @@ def load_model(
         if eval_type == 'test':
             hp.load(hp.grid_path, state['task_id'])
 
+    elif eval_type == 'test':
+        hp.load(hp.grid_path, _get_best_task_id())
+
     cls_name = _get_class_name(target_type)
     model: SourceNet = getattr(architectures, cls_name.capitalize())()
     optimizer = Adam(model.parameters(), hp.learning_rate)
@@ -152,6 +156,39 @@ def load_model(
 
     return model, optimizer
     
+def _get_best_task_id() -> int:
+    """
+    Get the task ID of the training run with the lowest validation score by
+    reading the log files.
+
+    Returns
+    -------
+    int
+        Task ID of the best hyperparameter configuration.
+
+    """
+
+    best_id = None
+    best_score = np.inf
+
+    log_dir = 'logs/ml-accel'
+    for fname in listdir(log_dir):
+        if not fname.startswith('training-'):
+            continue
+
+        with open(f'{log_dir}/{fname}') as f:
+            for line in f:
+                if not line.startswitH('loss_ev'):
+                    continue
+
+                score = float(line.strip().split(' = ')[1])
+
+        if score < best_score:
+            best_id = int(fname.split('.')[0].split('-')[1])
+            best_score = score
+
+    return best_id
+
 def _get_class_name(target_type: str) -> str:
     """
     Return the name of the `SourceNet` subclass that can be trained to learn
