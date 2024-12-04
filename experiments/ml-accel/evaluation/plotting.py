@@ -19,6 +19,7 @@ _COLORS = {
     'coarse' : 'k',
     'stochastic' : 'gold',
     'instantaneous' : 'tab:red',
+    'surrogate' : 'royalblue'
 }
 
 def plot_coarse_errors() -> None:
@@ -165,28 +166,29 @@ def plot_summary(strategy: str) -> None:
     cax = fig.add_subplot(spec[0, 2])
 
     with config.override(**get_overrides(strategy)):
-        count = load_data(strategy, spinup_days=0, resample=None, var='n_rays')
         flux = load_data(strategy, spinup_days=0, resample=None)
-
-        ymax = config.n_max + 10 ** np.floor(np.log10(config.n_max))
-        days = cftime.date2num(count['time'], f'days since {EPOCH}')
-        line = config.n_max * np.ones_like(days)
-
         _, cbar = plot_time_series(1000 * flux, 3, [axes[1], cax])
         cbar.set_label('flux (mPa)')
 
-    axes[0].plot(days, count, color='k')
-    axes[0].plot(days, line, color='gray', ls='dashed')
+        if config.propagator_type == 'transient':
+            count = load_data(strategy, 0, None, var='n_rays')
 
-    axes[0].set_xlim(days.min(), days.max())
-    axes[0].set_xlabel('time (days)')
+            ymax = config.n_max + 10 ** np.floor(np.log10(config.n_max))
+            days = cftime.date2num(flux['time'], f'days since {EPOCH}')
+            line = config.n_max * np.ones_like(days)
 
-    axes[0].set_ylim(0, ymax)
-    axes[0].set_yticks(np.linspace(0, ymax, 5))
-    axes[0].set_ylabel('active ray volumes')
+            axes[0].plot(days, count, color='k')
+            axes[0].plot(days, line, color='gray', ls='dashed')
 
-    axes[0].grid(color='lightgray')
-    axes[0].tick_params('both', direction='in')
+            axes[0].set_xlim(days.min(), days.max())
+            axes[0].set_xlabel('time (days)')
+
+            axes[0].set_ylim(0, ymax)
+            axes[0].set_yticks(np.linspace(0, ymax, 5))
+            axes[0].set_ylabel('active ray volumes')
+
+            axes[0].grid(color='lightgray')
+            axes[0].tick_params('both', direction='in')
 
     plt.savefig(f'plots/{config.name}/{strategy}-summary.png', dpi=400)
 
