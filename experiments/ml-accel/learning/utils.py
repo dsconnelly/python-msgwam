@@ -178,7 +178,7 @@ def _get_best_task_id() -> int:
 
         with open(f'{log_dir}/{fname}') as f:
             for line in f:
-                if not line.startswitH('loss_ev'):
+                if not line.startswith('loss_ev'):
                     continue
 
                 score = float(line.strip().split(' = ')[1])

@@ -8,7 +8,7 @@ from scipy.ndimage import gaussian_filter1d as filter
 
 from msgwam import config
 from msgwam.constants import EPOCH
-from msgwam.utils import get_vertical_grids, open_dataset
+from msgwam.utils import get_rho, get_vertical_grids, open_dataset
 
 def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
     """
@@ -51,9 +51,10 @@ def load_data(
         with standard deviation equal to `resample / 4` will be applied, so that
         ~95% of the filter mass will within `resample / 2` of the center.
     var
-        What data variable to return. Should be the name of a variable in the
-        dataset or `'flux'`, in which case the total (westerly plus easterly)
-        momentum flux time series is returned.
+        What data variable to return. Should be either the name of a variable in
+        the dataset; `'flux'`, in which case the total (westerly plus easterly)
+        momentum flux time series is returned; or 'acceleration', in which case
+        the corresponding mean wind forcing is computed and returned.
 
     Returns
     -------
@@ -68,8 +69,19 @@ def load_data(
     with open_dataset(path) as ds:
         z_faces, z_centers = get_vertical_grids()
         ds = ds.interp(z_faces=z_faces, z_centers=z_centers)
-        data = ds['pmf_e'] + ds['pmf_w'] if var == 'flux' else ds[var]
 
+        if var in ['flux', 'acceleration']:
+            data = ds['pmf_e'] + ds['pmf_w']
+
+            if var == 'acceleration':
+                z_faces = data['z_faces']
+                dz = np.diff(z_faces.values)[0]
+                rho = xr.DataArray(get_rho(z_faces.values), [z_faces])
+                data = -data.diff('z_faces') / dz / rho
+
+        else:
+            data = ds[var]
+        
     if 'sample' in data.coords:
         data = data.mean('sample')
 

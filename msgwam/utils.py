@@ -48,7 +48,29 @@ class FactoryABC(ABC):
         subs = {handle(sub.__name__) : sub for sub in cls.__subclasses__()}
 
         return subs[name](*args, **kwargs)
+
+def get_rho(z: np.ndarray) -> np.ndarray:
+    """
+    Return the background density profile as constant or decaying with height,
+    depending on whether the Boussinesq approximation is made.
+
+    Parameters
+    ----------
+    z
+        Vertical grid points at which to calculate the density.
+
+    Returns
+    -------
+    np.ndarray
+        Density at each vertical grid point.
+
+    """
+
+    if config.boussinesq:
+        return config.rho_ref * np.ones_like(z)
     
+    return config.rho_ref * np.exp(-z / config.H_rho)
+
 def get_vertical_grids() -> tuple[np.ndarray, np.ndarray]:
     """
     Create the vertical grids of cell faces and cell centers. Provided as a

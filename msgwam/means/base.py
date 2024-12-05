@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Self
 import numpy as np
 
 from .. import config
-from ..utils import FactoryABC, get_vertical_grids
+from ..utils import FactoryABC, get_rho, get_vertical_grids
 
 if TYPE_CHECKING:
     from ..propagators import Propagator
@@ -23,7 +23,7 @@ class MeanState(FactoryABC):
         self.dz: float = self.z_faces[1] - self.z_faces[0]
 
         self.N = self._init_N()
-        self.rho = self._init_rho()
+        self.rho = get_rho(self.z_centers)
         self.wind = self._init_wind()
         self.nu = self._init_nu()
 
@@ -100,23 +100,6 @@ class MeanState(FactoryABC):
         """
 
         return np.interp(self.z_faces, self.z_centers, config.mu / self.rho)
-
-    def _init_rho(self) -> np.ndarray:
-        """
-        Initialize the background density profile as constant or decaying with
-        height, depending on whether the Boussinesq approximation is made.
-
-        Returns
-        -------
-        np.ndarray
-            Densities at cell centers.
-
-        """
-
-        if config.boussinesq:
-            return config.rho_ref * np.ones_like(self.z_centers)
-        
-        return config.rho_ref * np.exp(-self.z_centers / config.H_rho)
 
     @abstractmethod
     def _init_wind(self) -> np.ndarray:
