@@ -77,7 +77,7 @@ def _gaussians() -> xr.Dataset:
 
     seconds = config.dt * np.arange(config.n_steps)
     decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
-    args = [seconds, decay_scale, 3600 * config.tau_cutoff_hours]
+    args = [seconds, decay_scale, 86400 * config.tau_cutoff_days]
 
     cp_x = _get_phase_velocities(config.n_source)
     flux = np.zeros((len(seconds), config.n_source))

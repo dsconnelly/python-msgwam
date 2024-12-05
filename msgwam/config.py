@@ -97,7 +97,7 @@ flux_bc: float
 T_hat_lo: float
 T_hat_hi: float
 tau_corr_days: float
-tau_cutoff_hours: float
+tau_cutoff_days: float
 seed: int
 
 ################################################################################

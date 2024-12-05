@@ -11,9 +11,8 @@ import xarray as xr
 
 from . import config
 from .constants import EPOCH
-from .dispersion import get_cg_r, get_m
+from .dispersion import get_m
 from .sources import ConstantSource
-from .utils import open_dataset
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -202,7 +201,7 @@ def plot_source(output_path: str) -> None:
         ax.set_ylabel('flux ($\\mu$Pa)')
 
     vmax = 1000 * flux.max()
-    vmax = np.ceil(vmax / 0.1) * 0.1
+    vmax = np.ceil(vmax / 0.01) * 0.01
 
     img = axes[2].pcolormesh(
         days, cp_x, 1000 * flux.T,
