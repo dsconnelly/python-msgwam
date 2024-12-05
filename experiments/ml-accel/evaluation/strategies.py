@@ -93,9 +93,8 @@ def _get_reference_overrides() -> dict[str, Any]:
 
     overrides = {
         'dt' : 30,
-        'n_grid' : 201,
         'n_source' : 200,
-        'n_max' : int(300e3),
+        'n_max' : int(50e3),
         'n_increment' : int(10e3),
         'prune_by' : 'none'
     }
