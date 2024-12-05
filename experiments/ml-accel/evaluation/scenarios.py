@@ -9,8 +9,6 @@ from msgwam.constants import EPOCH
 from msgwam.sources.spectra import _gaussians
 from msgwam.utils import get_vertical_grids, make_colored_noise, shapiro_filter
 
-from .strategies import get_overrides
-
 _PERIOD_BOUNDS = [1, 5]
 _WVL_BOUNDS = [5e3, 30e3]
 _Z_DECAY = 45e3
@@ -23,8 +21,8 @@ def save_descending_jets() -> None:
     which it can be coarsened later.
     """
 
-    path = f'data/{config.name}/descending-jets.nc'
-    with config.override(**get_overrides('reference')):
+    with config.override(dt=30, n_grid=501):
+        path = f'data/{config.name}/descending-jets.nc'
         _get_descending_jets().to_netcdf(path)
 
 def save_spectrum() -> None:

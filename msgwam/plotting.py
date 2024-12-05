@@ -11,7 +11,7 @@ import xarray as xr
 
 from . import config
 from .constants import EPOCH
-from .dispersion import get_m
+from .dispersion import get_cg_r, get_m
 from .sources import ConstantSource
 
 if TYPE_CHECKING:
@@ -168,12 +168,12 @@ def plot_source(output_path: str) -> None:
 
     """
 
-    widths = [4.5, 4.5, 4.5, 0.2]
+    widths = [4.5, 4.5, 4.5, 4.5, 0.2]
     fig = plt.figure(constrained_layout=True)
     fig.set_size_inches(sum(widths), 3)
 
     spec = gs.GridSpec(1, len(widths), fig, width_ratios=widths)
-    axes = [fig.add_subplot(spec[0, i]) for i in range(4)]
+    axes = [fig.add_subplot(spec[0, i]) for i in range(5)]
 
     source = ConstantSource()
     k, l, *_, flux = source._data.transpose(1, 0, 2)
@@ -181,12 +181,15 @@ def plot_source(output_path: str) -> None:
 
     cp_x = source._cp_x
     m = get_m(k, l, cp_x, config.N_ref)
+    cg_r = get_cg_r(k, l, m, config.N_ref)
 
-    names = ['$\\lambda_x$', '$\\lambda_z$']
-    datas = [2 * np.pi / abs(k) / 1000, 2 * np.pi / abs(m) / 1000]
-    bounds = [(0, 1500), (0, 16)]
-
-    for name, data, (a, b), ax in zip(names, datas, bounds, axes[:2]):
+    names = ['$\\lambda_x$', '$\\lambda_z$', '$c_{\\mathrm{g}}$']
+    datas = [2 * np.pi / abs(k) / 1000, 2 * np.pi / abs(m) / 1000, cg_r]
+    bounds = [(0, 2000), (0, 20), (0, 5)]
+    units = ['km', 'km', 'm / s']
+    
+    zipped = zip(names, datas, bounds, units, axes[:3])
+    for name, data, (a, b), unit, ax in zipped:
         edges = np.linspace(a, b, 13)
         x = (edges[:-1] + edges[1:]) / 2
         width = edges[1] - edges[0]
@@ -195,30 +198,34 @@ def plot_source(output_path: str) -> None:
         ax.bar(x, h, width=width, ec='k', fc='gray')
 
         ax.set_xlim(a, b)
-        ax.set_xlabel(f'{name} (km)')
+        ax.set_ylim(0, 50)
+        
+        ax.grid(color='lightgray')
+        ax.set_axisbelow(True)
 
-        ax.set_ylim(0, 60)
+        ax.set_xlabel(f'{name} ({unit})')
         ax.set_ylabel('flux ($\\mu$Pa)')
 
     vmax = 1000 * flux.max()
     vmax = np.ceil(vmax / 0.01) * 0.01
 
-    img = axes[2].pcolormesh(
+    img = axes[3].pcolormesh(
         days, cp_x, 1000 * flux.T,
         vmin=0, vmax=vmax,
         shading='nearest',
         cmap='Reds'
     )
 
-    axes[2].set_xlabel('time (days)')
-    axes[2].set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
+    axes[3].set_xlabel('time (days)')
+    axes[3].set_ylabel('$c_{\\mathrm{p}}$ (m / s)')
 
-    cbar = plt.colorbar(img, cax=axes[3])
+    cbar = plt.colorbar(img, cax=axes[4])
     cbar.set_label('source flux (mPa)')
 
     axes[0].set_title('(a) horizontal wavelength')
     axes[1].set_title('(b) vertical wavelength')
-    axes[2].set_title('(c) source flux over time')
+    axes[2].set_title('(c) vertical group velocity')
+    axes[3].set_title('(d) source flux over time')
 
     plt.savefig(output_path, dpi=400)
 
