@@ -6,8 +6,10 @@ import numpy as np
 from msgwam import config
 from msgwam.integration import integrate
 from msgwam.means import MeanState
-from msgwam.sources import Source
+from msgwam.sources import Source, get_spectrum
 from msgwam.utils import shapiro_filter
+
+from ..evaluation.scenarios import _get_descending_jets
 
 from . import hyperparameters as hp
 
@@ -20,6 +22,22 @@ class EnoughPackets(Exception):
 
 class NotEnoughPackets(Exception):
     pass
+
+def save_training_context() -> None:
+    """
+    In preparation for training machine learning models, save longer versions of
+    the mean wind and source spectrum files, generated with the same processes
+    but using different random seeds.
+    """
+
+    kwargs = _get_overrides()
+    kwargs['n_source'] = int(1e3)
+    kwargs['spectrum_type'] = 'gaussians'
+    kwargs['seed'] = hash(config.name) % 2 ** 32
+
+    with config.override(**kwargs):
+        _get_descending_jets(seed=5).to_netcdf(config.prescribed_wind_file)
+        get_spectrum().to_netcdf(config.spectrum_file)
 
 def save_training_data() -> None:
     """
@@ -57,19 +75,18 @@ def _get_overrides(fine: bool=False) -> dict[str, Any]:
     """
 
     root = int(hp.speedup ** 0.5)
-    seed = hash(config.name) % 2 ** 32
-    path = f'data/{config.name}/descending-jets-long.nc'
+    mean_path = f'data/{config.name}/descending-jets-training.nc'
+    spectrum_path = f'data/{config.name}/spectrum-training.nc'
 
     kwargs = {
         'source_type' : 'packet',
-        'spectrum_type' : 'gaussians',
-        'prescribed_wind_file' : path,
+        'prescribed_wind_file' : mean_path,
+        'spectrum_file' : spectrum_path,
         'n_day' : 360,
         'dt_launch' : hp.dt_launch,
         'max_age' : hp.max_days * 86400,
         'n_increment' : 1000,
         'prune_by' : 'none',
-        'seed' : seed
     }
 
     if not fine:

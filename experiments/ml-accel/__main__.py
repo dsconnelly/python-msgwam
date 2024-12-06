@@ -5,10 +5,8 @@ from os.path import abspath, dirname
 sys.path.insert(0, '.')
 from msgwam import config
 
-import learning.hyperparameters as hp
-
-from evaluation import *
-from learning import *
+from .evaluation import *
+from .learning import *
 
 if __name__ == '__main__':
     config_path, *tasks = sys.argv[1:]
