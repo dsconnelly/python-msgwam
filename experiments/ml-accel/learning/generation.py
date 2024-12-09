@@ -6,7 +6,8 @@ import numpy as np
 from msgwam import config
 from msgwam.integration import integrate
 from msgwam.means import MeanState
-from msgwam.sources import Source, get_spectrum
+from msgwam.sources import Source
+from msgwam.sources.spectra import _gaussians
 from msgwam.utils import shapiro_filter
 
 from ..evaluation.scenarios import _get_descending_jets
@@ -37,7 +38,7 @@ def save_training_context() -> None:
 
     with config.override(**kwargs):
         _get_descending_jets(seed=5).to_netcdf(config.prescribed_wind_file)
-        get_spectrum().to_netcdf(config.spectrum_file)
+        _gaussians().to_netcdf(config.spectrum_file)
 
 def save_training_data() -> None:
     """
@@ -52,10 +53,10 @@ def save_training_data() -> None:
     with config.override(**_get_overrides(fine=True)):
         Y_fine = _generate_outputs()
 
-    np.save(f'data/{config.name}/u.npy', u)
-    np.save(f'data/{config.name}/X.npy', X)
-    np.save(f'data/{config.name}/Y-fine.npy', Y_fine)
-    np.save(f'data/{config.name}/Y-coarse.npy', Y_coarse)
+    np.save(f'data/{config.name}/training/u.npy', u)
+    np.save(f'data/{config.name}/training/X.npy', X)
+    np.save(f'data/{config.name}/training/Y-fine.npy', Y_fine)
+    np.save(f'data/{config.name}/training/Y-coarse.npy', Y_coarse)
 
 def _get_overrides(fine: bool=False) -> dict[str, Any]:
     """
@@ -75,13 +76,14 @@ def _get_overrides(fine: bool=False) -> dict[str, Any]:
     """
 
     root = int(hp.speedup ** 0.5)
-    mean_path = f'data/{config.name}/descending-jets-training.nc'
-    spectrum_path = f'data/{config.name}/spectrum-training.nc'
+    mean_path = f'data/{config.name}/input/descending-jets-training.nc'
+    spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
 
     kwargs = {
         'source_type' : 'packet',
         'prescribed_wind_file' : mean_path,
         'spectrum_file' : spectrum_path,
+        'dt' : 30,
         'n_day' : 360,
         'dt_launch' : hp.dt_launch,
         'max_age' : hp.max_days * 86400,

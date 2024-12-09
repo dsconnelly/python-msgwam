@@ -10,8 +10,8 @@ spectrum_type = 'from_file'
 # input and output
 ################################################################################
 average_output = true
-prescribed_wind_file = 'data/idealized/descending-jets.nc'
-spectrum_file = 'data/idealized/spectrum.nc'
+prescribed_wind_file = 'data/idealized/input/descending-jets.nc'
+spectrum_file = 'data/idealized/input/spectrum.nc'
 
 ################################################################################
 # time stepping

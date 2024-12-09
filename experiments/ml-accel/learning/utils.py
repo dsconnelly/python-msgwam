@@ -1,6 +1,6 @@
 from __future__ import annotations
 from os import listdir
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import torch
@@ -15,7 +15,10 @@ from . import hyperparameters as hp
 if TYPE_CHECKING:
     from .architectures import SourceNet
 
-def get_indices(eval_type: str) -> tuple[torch.Tensor, torch.Tensor]:
+def get_indices(
+    eval_type: str,
+    n_packets: Optional[int]=None
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Get index tensors partitioning the data into training and evaluation sets.
     Note that no shuffling is performed, so that the training, validation, and
@@ -25,6 +28,10 @@ def get_indices(eval_type: str) -> tuple[torch.Tensor, torch.Tensor]:
     ----------
     eval_type
         Evaluation dataset specifier, as passed to `train_network`.
+    n_packets
+        How many packets the combined training, validation, and test sets should
+        consist of. Useful for testing architectures on smaller datasets. If not
+        provided, defaults to using all available packets.
 
     Returns
     -------
@@ -33,10 +40,13 @@ def get_indices(eval_type: str) -> tuple[torch.Tensor, torch.Tensor]:
 
     """
 
-    a = int(0.7 * hp.n_packets)
-    b = int(0.85 * hp.n_packets)
-    idx = torch.arange(hp.n_packets)
-    
+    if n_packets is None:
+        n_packets = hp.n_packets
+
+    a = int(0.7 * n_packets)
+    b = int(0.85 * n_packets)
+    idx = torch.arange(n_packets)
+
     idx_tr = idx[:a]
     idx_va = idx[a:b]
     idx_te = idx[b:]
@@ -91,9 +101,9 @@ def load_data(
 
     """
 
-    u = np.load(f'data/{config.name}/u.npy')
-    X = np.load(f'data/{config.name}/X.npy')
-    Y = np.load(f'data/{config.name}/Y-{target_type}.npy')
+    u = np.load(f'data/{config.name}/training/u.npy')
+    X = np.load(f'data/{config.name}/training/X.npy')
+    Y = np.load(f'data/{config.name}/training/Y-{target_type}.npy')
 
     if nondimensional:
         T = hp.max_days * 86400

@@ -141,7 +141,7 @@ def _run_epoch(
 
     if optimizer is None:
         model.eval()
-        
+
         with torch.no_grad():
             u, X, targets = loader.dataset.tensors
             loss = loss_func(targets, model(u, X))

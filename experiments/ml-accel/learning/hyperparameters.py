@@ -23,6 +23,7 @@ speedup: int
 # architectures
 ################################################################################
 batch_norm_pos: int
+constrained: bool
 dropout_rate: float
 layer_size: int
 n_blocks: int

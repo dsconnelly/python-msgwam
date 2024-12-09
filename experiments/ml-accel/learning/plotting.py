@@ -38,7 +38,8 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     fig.set_size_inches(n_cols * 3, n_rows * 4.5)
     axes = axes.flatten()
 
-    jdx = np.random.choice(u.shape[0], size=len(axes), replace=False)
+    n_samples = min(len(axes), u.shape[0])
+    jdx = np.random.choice(u.shape[0], size=n_samples, replace=False)
     z_faces, z_centers = [z / 1e3 for z in get_vertical_grids()]
 
     for i, (j, ax) in enumerate(zip(jdx, axes)):

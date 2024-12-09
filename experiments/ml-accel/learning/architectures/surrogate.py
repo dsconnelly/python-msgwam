@@ -2,6 +2,7 @@ import torch
 
 from msgwam import config
 
+from .. import hyperparameters as hp
 from .base import SourceNet
 
 class Surrogate(SourceNet):
@@ -10,6 +11,17 @@ class Surrogate(SourceNet):
     properties and predicts the time-mean nondimensional momentum flux profile
     associated with the corresponding packet over the integration period
     """
+
+    def __init__(self) -> None:
+        """
+        Depending on the hyperparameters, `Surrogate` models may need a softplus
+        layer to constrain outputs during postprocessing.
+        """
+
+        super().__init__()
+
+        if hp.constrained:
+            self._softplus = torch.nn.Softplus()
 
     @property
     def _n_outputs(self) -> int:
@@ -33,16 +45,12 @@ class Surrogate(SourceNet):
         they both are sign-definite and respect momentum conservation.
         """
 
+        if hp.constrained:
+            output = self._softplus(output)
+            output = 1 - torch.cumsum(output, dim=1)
+
         if not self.training:
-            output = torch.clamp(output, min=0)
+            output = torch.clamp(output, min=0, max=1)
 
         signs = torch.sign(X[:, 0])[:, None]
         return signs * output
-
-        # decrements = torch.clamp(output, min=0)
-        # scale = torch.maximum(decrements.sum(dim=1), torch.as_tensor(1))
-        # flux = 1 - torch.cumsum(decrements / scale[:, None], dim=1)
-
-        # signs = torch.sign(X[:, 0])[:, None]
-        # return signs * flux
-
