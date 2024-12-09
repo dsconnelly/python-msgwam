@@ -19,7 +19,7 @@ _COLORS = {
     'coarse' : 'k',
     'stochastic' : 'gold',
     'instantaneous' : 'tab:red',
-    'surrogate' : 'royalblue'
+    # 'surrogate' : 'royalblue'
 }
 
 def plot_coarse_errors() -> None:
@@ -104,39 +104,38 @@ def plot_error_profiles() -> None:
     Plot the RMS errors as a function of height for each strategy.
     """
 
+    names = ['flux', 'acceleration']
+    units = ['mPa', 'm / s / day']
+    factors = [1000, 86400]
+
     fig, axes = plt.subplots(ncols=2)
     fig.set_size_inches(6, 4.5)
 
-    z = get_vertical_grids()[0] / 1000
-    ref = load_data('reference')
-    rms = get_rmse(ref)
+    zipped = zip(names, units, factors, axes)
+    for i, (name, unit, factor, ax) in enumerate(zipped):
+        z = get_vertical_grids()[i] / 1000
+        ref = load_data('reference', var=name, resample=86400)
 
-    for strategy, color in _COLORS.items():
-        pmf = load_data(strategy)
-        rmse = 1000 * get_rmse(pmf, ref)
-        erms = 1000 * (get_rmse(pmf) - rms)
+        for strategy, color in _COLORS.items():
+            data = load_data(strategy, var=name)
+            rmse = factor * get_rmse(data, ref)
 
-        axes[0].plot(rmse, z, color=color, label=strategy)
-        axes[1].plot(erms, z, color=color)
+            ax.plot(rmse, z, color=color, label=strategy)
 
-    label = r'$\langle F_{\mathrm{ref}} \rangle$'
-    axes[0].plot(1000 * rms, z, color='gray', ls='dashed', label=label)
-    
-    axes[0].set_xlim(0, 1.5)
-    axes[1].set_xlim(-0.5, 0.5)
-    axes[0].legend()
+        rms = factor * get_rmse(ref)
+        ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
 
-    label = r'$\langle F \rangle - \langle F_{\mathrm{ref}} \rangle$ (mPa)'
-    axes[0].set_xlabel(r'$\langle F - F_{\mathrm{ref}} \rangle$ (mPa)')
-    axes[1].set_xlabel(label)
-
-    for ax in axes:
+        xmax = [1, 50][i]
+        ax.set_xlim(0, xmax)
         ax.set_ylim(z.min(), z.max())
+
+        ax.set_xlabel(f'{name} RMSE ({unit})')
         ax.set_ylabel('height (km)')
 
         ax.grid(color='lightgray')
         ax.tick_params('both', direction='in')
 
+    axes[0].legend()
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/error-profiles.png', dpi=400)
 
@@ -207,7 +206,7 @@ def plot_summary(strategy: str) -> None:
     cax = fig.add_subplot(spec[0, 3])
 
     with config.override(**get_overrides(strategy)):
-        flux = load_data(strategy, spinup_days=0, resample=43200)
+        flux = load_data(strategy, spinup_days=0)
         _, cbar = plot_time_series(1000 * flux, 2, [axes[-1], cax])
         cbar.set_label('flux (mPa)')
 
@@ -225,7 +224,7 @@ def plot_summary(strategy: str) -> None:
         if config.propagator_type == 'transient':
             count = load_data(strategy, 0, None, var='n_rays')
 
-            ymax = config.n_max + 10 ** np.floor(np.log10(config.n_max))
+            ymax = 800e3 if strategy == 'reference' else 300
             days = cftime.date2num(flux['time'], f'days since {EPOCH}')
             line = config.n_max * np.ones_like(days)
 

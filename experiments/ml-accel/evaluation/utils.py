@@ -33,7 +33,7 @@ def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
 def load_data(
     path: str,
     spinup_days: int=5,
-    resample: Optional[int]=86400,
+    resample: Optional[int]=10800,
     var: str='flux'
 ) -> xr.DataArray:
     """
