@@ -42,26 +42,18 @@ def _postprocess(ds: xr.Dataset) -> xr.Dataset:
     Returns
     -------
     xr.Dataset
-        Dataset at the right spectral and temporal resolution with `'k'` and
-        `'l`' calculated and added.
+        Dataset at the right spectral and temporal resolution.
 
     """
 
     cp_x = _get_phase_velocities(config.n_source)
     idx = np.argmin(abs(cp_x[:, None] - ds['cp_x'].values), axis=0)
-    ds = ds.assign_coords(cp_x=cp_x[idx])
-
-    ds = ds.groupby('cp_x', squeeze=False).sum()
-    wvn_hor = ds['omega_hat'] / ds['cp_x']
-
-    ds['k'] = wvn_hor * np.cos(ds['phi'])
-    ds['l'] = wvn_hor * np.sin(ds['phi'])
-    ds = ds[['k', 'l', 'dk', 'dl', 'flux']]
+    ds = ds.assign_coords(cp_x=cp_x[idx]).groupby('cp_x').sum()
 
     if 'time' in ds.coords:
         ds = ds.sel(time=get_time(), method='ffill')
 
-    return ds
+    return ds[['omega_hat', 'phi', 'dk', 'dl', 'flux']]
 
 def _from_file() -> xr.Dataset:
     """Load a precomputed source spectrum from disk."""

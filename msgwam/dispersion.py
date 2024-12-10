@@ -86,19 +86,19 @@ def get_dm(
 def get_m(
     k: np.ndarray,
     l: np.ndarray,
-    cp_x: np.ndarray,
+    omega_hat: np.ndarray,
     N: float | np.ndarray
 ) -> np.ndarray:
     """
     Calculate the vertical wavenumber of internal gravity waves, assuming the
-    horizontal wavenumbers and the zonal phase velocity are known.
+    horizontal wavenumbers and the intrinsic frequency are known.
 
     Parameters
     ----------
     k, l
         Arrays of zonal and meridional wavenumbers, respectively.
-    cp_x
-        Array of zonal phase velocities.
+    omega_hat
+        Array of intrinsic frequencies.
     N
         Buoyancy frequency or array of buoyancy frequencies.
 
@@ -109,7 +109,7 @@ def get_m(
     
     """
 
-    omega_hat_sq = cp_x ** 2 * k ** 2
+    omega_hat_sq = omega_hat ** 2
 
     return -_sqrt(
         (k ** 2 + l ** 2) * (N ** 2 - omega_hat_sq) /

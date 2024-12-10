@@ -99,8 +99,11 @@ class Source(FactoryABC):
         if cdx is None:
             cdx = np.arange(config.n_source)
 
-        k, l, dk, dl, flux = self._data[n_step][:, cdx]
-        m = get_m(k, l, self._cp_x[cdx] - mean.u[0], mean.N[0])
+        omega_hat, phi, dk, dl, flux = self._data[n_step][:, cdx]
+        wvn_hor = omega_hat / (self._cp_x[cdx] - mean.u[0])
+
+        k, l, = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
+        m = get_m(k, l, omega_hat, mean.N[0])
         dm = get_dm(m, self.dc, mean.N[0])
 
         cg_r = get_cg_r(k, l, m, mean.N[0])
