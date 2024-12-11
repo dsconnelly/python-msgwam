@@ -2,6 +2,8 @@ import sys
 
 from os.path import abspath, dirname
 
+import numpy as np
+
 sys.path.insert(0, '.')
 from msgwam import config
 
@@ -18,4 +20,6 @@ if __name__ == '__main__':
     for task in tasks:
         func_name, *args = task.split(':')
         func_name = func_name.replace('-', '_')
-        globals()[func_name](*args)
+
+        with np.errstate(invalid='raise'):
+            globals()[func_name](*args)

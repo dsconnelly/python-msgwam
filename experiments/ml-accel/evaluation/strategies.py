@@ -43,7 +43,7 @@ def integrate(strategy: str) -> None:
 
     """
 
-    path = f'data/{config.name}/{strategy}.nc'
+    path = f'data/{config.name}/strategies/{strategy}.nc'
     with config.override(**get_overrides(strategy)):
         _get_integration(strategy).to_netcdf(path)
 

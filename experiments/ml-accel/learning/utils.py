@@ -1,6 +1,6 @@
 from __future__ import annotations
 from os import listdir
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 import torch
@@ -53,7 +53,7 @@ def get_indices(
 
     if eval_type == 'validation':
         return idx_tr, idx_va
-    
+
     return torch.cat((idx_tr, idx_va)), idx_te
 
 def get_model_dir(target_type: str) -> str:
@@ -74,6 +74,52 @@ def get_model_dir(target_type: str) -> str:
 
     cls_name = _get_class_name(target_type).lower()
     return f'data/{config.name}/{cls_name}-{target_type}'
+
+def get_overrides(fine: bool=False) -> dict[str, Any]:
+    """
+    Get the configuration overrides for various machine learning training steps.
+    
+    Parameters
+    ----------
+    fine
+        Whether to get overrides for the reference fine integration or, if
+        `False`, for the coarse integration.
+
+    Returns
+    -------
+    dict[str, Any]
+        Dictionary to pass to `config.override`.
+
+    """
+
+    root = int(hp.speedup ** 0.5)
+    mean_path = f'data/{config.name}/input/descending-jets-training.nc'
+    spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
+
+    kwargs = {
+        'source_type' : 'packet',
+        'prescribed_wind_file' : mean_path,
+        'spectrum_file' : spectrum_path,
+        'dt' : 30,
+        'n_day' : _get_n_day(),
+        'dt_launch' : hp.dt_launch,
+        'max_age' : hp.max_days * 86400,
+        'n_increment' : 1000,
+        'prune_by' : 'none',
+    }
+
+    if not fine:
+        kwargs['n_chromatic'] = 1
+        kwargs['n_repeat'] = 1
+
+        return kwargs
+
+    kwargs['n_source'] = config.n_source * root
+    kwargs['dr_init'] = config.dr_init / root
+    kwargs['n_chromatic'] = hp.speedup
+    kwargs['n_repeat'] = root
+
+    return kwargs
 
 def load_data(
     target_type: str,
@@ -154,7 +200,10 @@ def load_model(
             hp.load(hp.grid_path, state['task_id'])
 
     elif eval_type == 'test':
-        hp.load(hp.grid_path, _get_best_task_id())
+        task_id = _get_best_task_id()
+        print(f'Selecting hyperparameter configuration {task_id}:')
+        hp.load(hp.grid_path, _get_best_task_id(), verbose=True)
+        print()
 
     cls_name = _get_class_name(target_type)
     model: SourceNet = getattr(architectures, cls_name.capitalize())()
@@ -194,7 +243,7 @@ def _get_best_task_id() -> int:
                 score = float(line.strip().split(' = ')[1])
 
         if score < best_score:
-            best_id = int(fname.split('.')[0].split('-')[1])
+            best_id = int(fname.split('.')[0].split('-')[-1])
             best_score = score
 
     return best_id
@@ -217,3 +266,18 @@ def _get_class_name(target_type: str) -> str:
     """
 
     return {'coarse' : 'Surrogate', 'fine' : 'Surrogate'}[target_type]
+
+def _get_n_day() -> int:
+    """
+    Get a reasonable upper bound on the number of days the integration should
+    run to generate the number of packets requested.
+
+    Returns
+    -------
+    int
+        Number of days to be prepared to integrate for.
+
+    """
+
+    last_launch = hp.dt_launch * hp.n_packets / config.n_source
+    return int(last_launch / 86400 + hp.max_days + 5)

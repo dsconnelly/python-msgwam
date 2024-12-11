@@ -47,7 +47,7 @@ def train_network(
     loss_func = nn.MSELoss()
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f'Model {hp.task_id} has {n_params} trainable parameters.')
+    print(f'Model {hp.task_id} has {n_params} trainable parameters.\n')
 
     if not restart:
         u_tr, X_tr, _ = loader_tr.dataset.tensors

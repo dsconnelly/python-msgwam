@@ -13,6 +13,7 @@ from msgwam.utils import shapiro_filter
 from ..evaluation.scenarios import _get_descending_jets
 
 from . import hyperparameters as hp
+from .utils import get_overrides
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
@@ -31,7 +32,7 @@ def save_training_context() -> None:
     but using different random seeds.
     """
 
-    kwargs = _get_overrides()
+    kwargs = get_overrides()
     kwargs['n_source'] = int(1e3)
     kwargs['spectrum_type'] = 'gaussians'
     kwargs['seed'] = hash(config.name) % 2 ** 32
@@ -46,63 +47,17 @@ def save_training_data() -> None:
     averaged momentum flux profiles for each fine and coarse packet.
     """
 
-    with config.override(**_get_overrides()):
+    with config.override(**get_overrides()):
         u, X = _generate_inputs()
         Y_coarse = _generate_outputs()
 
-    with config.override(**_get_overrides(fine=True)):
+    with config.override(**get_overrides(fine=True)):
         Y_fine = _generate_outputs()
 
     np.save(f'data/{config.name}/training/u.npy', u)
     np.save(f'data/{config.name}/training/X.npy', X)
     np.save(f'data/{config.name}/training/Y-fine.npy', Y_fine)
     np.save(f'data/{config.name}/training/Y-coarse.npy', Y_coarse)
-
-def _get_overrides(fine: bool=False) -> dict[str, Any]:
-    """
-    Get the configuration overrides to generate data at a specified resolution.
-    
-    Parameters
-    ----------
-    fine
-        Whether to get overrides for the reference fine integration or, if
-        `False`, for the coarse integration.
-
-    Returns
-    -------
-    dict[str, Any]
-        Dictionary to pass to `config.override`.
-
-    """
-
-    root = int(hp.speedup ** 0.5)
-    mean_path = f'data/{config.name}/input/descending-jets-training.nc'
-    spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
-
-    kwargs = {
-        'source_type' : 'packet',
-        'prescribed_wind_file' : mean_path,
-        'spectrum_file' : spectrum_path,
-        'dt' : 30,
-        'n_day' : 360,
-        'dt_launch' : hp.dt_launch,
-        'max_age' : hp.max_days * 86400,
-        'n_increment' : 1000,
-        'prune_by' : 'none',
-    }
-
-    if not fine:
-        kwargs['n_chromatic'] = 1
-        kwargs['n_repeat'] = 1
-
-        return kwargs
-
-    kwargs['n_source'] = config.n_source * root
-    kwargs['dr_init'] = config.dr_init / root
-    kwargs['n_chromatic'] = hp.speedup
-    kwargs['n_repeat'] = root
-
-    return kwargs
 
 def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
     """

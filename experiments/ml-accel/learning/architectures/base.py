@@ -164,7 +164,7 @@ class SourceNet(nn.Module, ABC):
         for i, length in enumerate(lengths):
             final = i == hp.n_blocks - 1
             n_last = self._n_outputs if final else self._n_inputs
-            sizes = [self._n_inputs] + [hp.layer_size] * length + [n_last]
+            sizes = [self._n_inputs] + [hp.layer_size] * (length - 1) + [n_last]
             self._blocks.append(self._get_block(sizes, final))
 
     @property
