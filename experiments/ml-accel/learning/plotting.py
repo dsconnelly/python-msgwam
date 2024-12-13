@@ -15,23 +15,10 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     
     """
 
-    idx, _ = get_indices('validation')
+    idx = get_indices('validation')[0]
     u, X, Y_coarse = load_data('coarse')
-    *_, Y_fine = load_data('fine')
+    *_, Y_fine = load_data('fine')   
     u, X = u[idx], X[idx]
-
-    datas = [Y_fine[idx], Y_coarse[idx]]
-    colors = ['forestgreen', 'royalblue']
-    labels = ['fine', 'coarse']
-
-    if model_path is not None:
-        model = torch.jit.load(model_path)
-    
-        with torch.no_grad():
-            datas.append(model(u, X))
-
-        colors.append('tab:red')
-        labels.append('network')
 
     n_rows, n_cols = 2, 4
     fig, axes = plt.subplots(n_rows, n_cols)
@@ -42,9 +29,22 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     jdx = np.random.choice(u.shape[0], size=n_samples, replace=False)
     z_faces, z_centers = [z / 1e3 for z in get_vertical_grids()]
 
-    for i, (j, ax) in enumerate(zip(jdx, axes)):
+    datas = [Y_fine[idx][jdx], Y_coarse[idx][jdx]]
+    colors = ['forestgreen', 'royalblue']
+    labels = ['fine', 'coarse']
+
+    if model_path is not None:
+        model = torch.jit.load(model_path)
+
+        with torch.no_grad():
+            datas.append(model(u[jdx], X[jdx]))
+
+        colors.append('tab:red')
+        labels.append('network')
+
+    for j, ax in zip(range(n_samples), axes):
         handles = []
-        for data, color in zip(datas, colors):
+        for data, color in zip(datas, colors):        
             handles.append(ax.plot(data[j], z_faces, color=color)[0])
 
         ax.set_xlim(-1.25, 1.25)
@@ -65,12 +65,13 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
         cp_x = get_cp_x(k, l, m, config.N_ref) * ones + u[j, 0]
         handles.append(ax.plot(cp_x, z_centers, color='gray', ls='dashed')[0])
 
-        if i == 0:
+        if j == 0:
             labels = labels + ['$\\bar{u}$', '$c_{\\mathrm{p}}$']
-            ax.legend(handles, labels)
+            ax.legend(handles, labels, loc='lower left')
 
         ax.set_xlim(-50, 50)
         ax.set_xlabel('$\\bar{u}$ (m / s)')
+        ax.set_title(f'sample {jdx[j]}')
 
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/training-samples.png', dpi=400)

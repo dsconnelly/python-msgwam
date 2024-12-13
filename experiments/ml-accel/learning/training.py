@@ -1,6 +1,6 @@
 from __future__ import annotations
 from time import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 from warnings import catch_warnings
 
 import torch, torch.nn as nn
@@ -8,11 +8,16 @@ import torch, torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 
+from msgwam import config
+from msgwam.dispersion import get_omega_hat
+
 from . import hyperparameters as hp
+from .architectures import Surrogate
 from .utils import get_indices, get_model_dir, load_data, load_model
 
 if TYPE_CHECKING:
     from .architectures import SourceNet
+    _TraceFunc = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 def train_network(
     target_type: str='fine',
@@ -50,8 +55,8 @@ def train_network(
     print(f'Model {hp.task_id} has {n_params} trainable parameters.\n')
 
     if not restart:
-        u_tr, X_tr, _ = loader_tr.dataset.tensors
-        model.init_stats(u_tr, X_tr)
+        X_tr, _ = loader_tr.dataset.tensors
+        model.init_stats(X_tr)
 
     n_epoch, start = 1, time()
     while n_epoch <= hp.max_epochs and (time() - start) / 3600 < hp.max_hours:
@@ -63,6 +68,10 @@ def train_network(
             print(f'loss_tr = {loss_tr:.6f}')
             print(f'loss_ev = {loss_ev:.6f}')
 
+        if loss_ev < hp.stop_loss:
+            print(f'Stopping early at epoch {n_epoch}')
+            break
+
         n_epoch = n_epoch + 1
 
     state = {
@@ -71,8 +80,16 @@ def train_network(
         'task_id' : hp.task_id
     }
 
-    u_ex, X_ex, _ = loader_ev.dataset.tensors
-    traced = _trace_model(u_ex, X_ex, model)
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
+
+    trace_func = _make_trace_func(model)
+    u_ex, rays_ex, _ = load_data(target_type)
+
+    with torch.no_grad():
+        with catch_warnings(action='ignore', category=torch.jit.TracerWarning):
+            traced = torch.jit.trace(trace_func, (u_ex[:10], rays_ex[:10]))
 
     model_dir = get_model_dir(target_type)
     tag = f'{"best" if eval_type == "test" else hp.task_id}'
@@ -100,15 +117,81 @@ def _load_datasets(
 
     """
 
-    u, X, targets = load_data(target_type)
+    u, rays, targets = load_data(target_type)
     idx_tr, idx_ev = get_indices(eval_type)
 
     loaders = []
     for idx in (idx_tr, idx_ev):
-        data = TensorDataset(u[idx], X[idx], targets[idx])
+        X = _make_inputs(u[idx], rays[idx])
+        Y = abs(targets[idx])
+
+        data = TensorDataset(X, Y)
         loaders.append(DataLoader(data, hp.batch_size, shuffle=True))
 
     return tuple(loaders)
+
+def _make_inputs(u: torch.Tensor, rays: torch.Tensor) -> torch.Tensor:
+    """
+    Preprocess input data to be passed to a `SourceNet`. Extracts spectral
+    features from ray volume data, and handles the sign of the zonal wind.
+
+    Parameters
+    ----------
+    u
+        Tensor of zonal wind profiles.
+    rays
+        Tensor of ray volume properties.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of extracted input features.
+
+    """
+
+    k, l, m, dk, dl, dm, dens = rays.T
+    log_A = torch.log(dens * dk * dl * dm)
+    u = u * torch.sign(k)[:, None]
+
+    omega_hat = get_omega_hat(k, l, m, config.N_ref)
+    T_hat = 2 * torch.pi / omega_hat
+    cp_x = omega_hat / abs(k)
+
+    return torch.column_stack((u, cp_x, T_hat, log_A))
+
+def _make_trace_func(model) -> _TraceFunc:
+    """
+    Create a function that takes inputs as they will come during online use,
+    evaluates the model, and postprocesses the outputs appropriately.
+
+    Parameters
+    ----------
+    model
+        Model whose behavior should be traced.
+
+    Returns
+    -------
+    _TraceFunc
+        Function to trace and save as a JITted object.
+
+    """
+
+    if isinstance(model, Surrogate):
+        def trace_func(u: torch.Tensor, rays: torch.Tensor) -> torch.Tensor:
+            """
+            Stack the wind and ray volume information, extracting the spectral
+            features as necessary. Then evaluate the model and make sure the
+            sign of the returned flux is correct.
+            """
+
+            sign = torch.sign(rays[:, 0])[:, None]
+            X = _make_inputs(u, rays)
+
+            return sign * model(X)
+        
+        return trace_func
+    
+    return NotImplemented
 
 def _run_epoch(
     model: SourceNet,
@@ -143,8 +226,8 @@ def _run_epoch(
         model.eval()
 
         with torch.no_grad():
-            u, X, targets = loader.dataset.tensors
-            loss = loss_func(targets, model(u, X))
+            X, targets = loader.dataset.tensors
+            loss = loss_func(targets, model(X))
 
         return loss.item()
 
@@ -152,10 +235,10 @@ def _run_epoch(
     weight_sum = 0
     total = 0
 
-    for u, X, targets in loader:
+    for X, targets in loader:
         optimizer.zero_grad()
-        output = model(u, X)
-        weight = u.shape[0]
+        weight = X.shape[0]
+        output = model(X)
 
         loss = loss_func(targets, output)
         total = total + weight * loss.item()
@@ -165,36 +248,3 @@ def _run_epoch(
         optimizer.step()
 
     return total / weight_sum
-
-def _trace_model(
-    u: torch.Tensor,
-    X: torch.Tensor,
-    model: SourceNet
-) -> torch.jit.ScriptModule:
-    """
-    Trace a model with the JIT compiler.
-
-    Parameters
-    ----------
-    u
-        Example zonal wind profiles.
-    X
-        Example ray volume properties.
-    model
-        Trained model to be traced.
-
-    Returns
-    -------
-    ScriptModule
-        JITted model that can be saved to disk and subsequently called without
-        needing access to the Python implementation of the class.
-
-    """
-
-    model.eval()
-    for p in model.parameters():
-        p.requires_grad = False
-
-    with torch.no_grad():
-        with catch_warnings(action='ignore', category=torch.jit.TracerWarning):
-            return torch.jit.trace(model, (u, X))

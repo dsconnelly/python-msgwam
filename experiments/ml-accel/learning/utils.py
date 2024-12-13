@@ -96,12 +96,17 @@ def get_overrides(fine: bool=False) -> dict[str, Any]:
     mean_path = f'data/{config.name}/input/descending-jets-training.nc'
     spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
 
+    n_day = _get_n_day()
+    dt_output = n_day * 86400
+
     kwargs = {
         'source_type' : 'packet',
         'prescribed_wind_file' : mean_path,
         'spectrum_file' : spectrum_path,
         'dt' : 30,
-        'n_day' : _get_n_day(),
+        'dt_output' : dt_output,
+        'n_day' : n_day,
+        'n_grid' : 101,
         'dt_launch' : hp.dt_launch,
         'max_age' : hp.max_days * 86400,
         'n_increment' : 1000,
@@ -148,18 +153,18 @@ def load_data(
     """
 
     u = np.load(f'data/{config.name}/training/u.npy')
-    X = np.load(f'data/{config.name}/training/X.npy')
+    rays = np.load(f'data/{config.name}/training/rays.npy')
     Y = np.load(f'data/{config.name}/training/Y-{target_type}.npy')
 
     if nondimensional:
         T = hp.max_days * 86400
-        k, *_, dk, dl, dm, dens = X.T
+        k, *_, dk, dl, dm, dens = rays.T
         action = dens * dk * dl * dm
 
         factor = abs(k) * action * config.dr_init / T
         Y = Y / factor[:, None]
 
-    return torch.as_tensor(u), torch.as_tensor(X), torch.as_tensor(Y)
+    return torch.as_tensor(u), torch.as_tensor(rays), torch.as_tensor(Y)
 
 def load_model(
     target_type: str,

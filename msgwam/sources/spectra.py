@@ -51,7 +51,7 @@ def _postprocess(ds: xr.Dataset) -> xr.Dataset:
     ds = ds.assign_coords(cp_x=cp_x[idx]).groupby('cp_x').sum()
 
     if 'time' in ds.coords:
-        ds = ds.sel(time=get_time(), method='ffill')
+        ds = ds.sel(time=get_time(config.dt_launch), method='ffill')
 
     return ds[['omega_hat', 'phi', 'dk', 'dl', 'flux']]
 

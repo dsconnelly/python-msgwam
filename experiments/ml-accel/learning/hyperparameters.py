@@ -22,12 +22,13 @@ speedup: int
 ################################################################################
 # architectures
 ################################################################################
+basis_func: str
 batch_norm_pos: int
-constrained: bool
 dropout_rate: float
 layer_size: int
+layers_per_block: int
+n_basis: int
 n_blocks: int
-n_layers: int
 
 ################################################################################
 # training
@@ -36,6 +37,7 @@ batch_size: int
 learning_rate: float
 max_epochs: int
 max_hours: int
+stop_loss: float
 
 def load(path: str, i: Optional[int]=None, verbose: bool=False) -> None:
     """

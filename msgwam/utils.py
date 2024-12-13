@@ -71,26 +71,6 @@ def get_rho(z: np.ndarray) -> np.ndarray:
     
     return config.rho_ref * np.exp(-z / config.H_rho)
 
-def get_vertical_grids() -> tuple[np.ndarray, np.ndarray]:
-    """
-    Create the vertical grids of cell faces and cell centers. Provided as a
-    utility so that codes can obtain grid information without instantiating an
-    otherwise-unnecessary `MeanState` object.
-
-    Returns
-    -------
-    np.ndarray
-        Array of vertical grid cell faces.
-    np.ndarray
-        Array of vertical grid cell centers.
-
-    """
-
-    faces = np.linspace(config.z_min, config.z_max, config.n_grid)
-    centers = (faces[:-1] + faces[1:]) / 2
-
-    return faces, centers
-
 def get_iterator() -> Iterator[int]:
     """
     Return a `tqdm` object configured to show useful integration output.
@@ -114,9 +94,14 @@ def get_iterator() -> Iterator[int]:
         unit='day'
     )
 
-def get_time() -> np.ndarray:
+def get_time(dt: Optional[int]=None) -> np.ndarray:
     """
     Return an array of datetimes for each step in the integration.
+
+    Parameters
+    ----------
+    dt
+        Time step to use for each datetime. If `None`, use `config.dt`.
 
     Returns
     -------
@@ -125,8 +110,33 @@ def get_time() -> np.ndarray:
 
     """
 
-    seconds = config.dt * np.arange(config.n_steps)
+    if dt is None:
+        dt = config.dt
+
+    n_steps = n_steps = int(86400 * config.n_day / dt) + 1
+    seconds = dt * np.arange(n_steps)
+
     return cftime.num2date(seconds, f'seconds since {EPOCH}')
+
+def get_vertical_grids() -> tuple[np.ndarray, np.ndarray]:
+    """
+    Create the vertical grids of cell faces and cell centers. Provided as a
+    utility so that codes can obtain grid information without instantiating an
+    otherwise-unnecessary `MeanState` object.
+
+    Returns
+    -------
+    np.ndarray
+        Array of vertical grid cell faces.
+    np.ndarray
+        Array of vertical grid cell centers.
+
+    """
+
+    faces = np.linspace(config.z_min, config.z_max, config.n_grid)
+    centers = (faces[:-1] + faces[1:]) / 2
+
+    return faces, centers
 
 def make_colored_noise(
     xs: np.ndarray | list[np.ndarray],

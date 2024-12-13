@@ -39,6 +39,9 @@ def save_training_context() -> None:
 
     with config.override(**kwargs):
         _get_descending_jets(seed=5).to_netcdf(config.prescribed_wind_file)
+
+    kwargs['dt'] = kwargs['dt_launch']
+    with config.override(**kwargs):
         _gaussians().to_netcdf(config.spectrum_file)
 
 def save_training_data() -> None:
@@ -48,16 +51,16 @@ def save_training_data() -> None:
     """
 
     with config.override(**get_overrides()):
-        u, X = _generate_inputs()
+        u, rays = _generate_inputs()
         Y_coarse = _generate_outputs()
 
-    with config.override(**get_overrides(fine=True)):
-        Y_fine = _generate_outputs()
+    # with config.override(**get_overrides(fine=True)):
+        # Y_fine = _generate_outputs()
 
     np.save(f'data/{config.name}/training/u.npy', u)
-    np.save(f'data/{config.name}/training/X.npy', X)
-    np.save(f'data/{config.name}/training/Y-fine.npy', Y_fine)
+    np.save(f'data/{config.name}/training/rays.npy', rays)
     np.save(f'data/{config.name}/training/Y-coarse.npy', Y_coarse)
+    # np.save(f'data/{config.name}/training/Y-fine.npy', Y_fine)
 
 def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
     """
@@ -78,7 +81,7 @@ def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
     """
 
     u = np.zeros((hp.n_packets, config.n_grid - 1))
-    X = np.zeros((hp.n_packets, 7))
+    rays = np.zeros((hp.n_packets, 7))
 
     mean = MeanState.from_name('prescribed')
     source = Source.from_name('packet')
@@ -93,11 +96,11 @@ def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
         n_add = min(data.shape[1], hp.n_packets - i)
 
         u[i:(i + n_add)] = mean.u
-        X[i:(i + n_add)] = data.T[:n_add]
+        rays[i:(i + n_add)] = data.T[:n_add]
 
         i = i + n_add
         if i == hp.n_packets:
-            return u, X
+            return u, rays
         
     raise NotEnoughPackets
 
