@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -10,10 +10,10 @@ from msgwam.sources import Source
 from msgwam.sources.spectra import _gaussians
 from msgwam.utils import shapiro_filter
 
-from ..evaluation.scenarios import _get_descending_jets
+from ...evaluation.scenarios import _get_descending_jets
 
-from . import hyperparameters as hp
-from .utils import get_overrides
+from .. import hyperparameters as hp
+from ..utils import get_overrides
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback

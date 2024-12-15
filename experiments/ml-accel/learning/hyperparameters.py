@@ -22,7 +22,7 @@ speedup: int
 ################################################################################
 # architectures
 ################################################################################
-basis_func: str
+basis_type: str
 batch_norm_pos: int
 dropout_rate: float
 layer_size: int

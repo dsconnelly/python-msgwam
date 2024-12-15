@@ -7,10 +7,10 @@ from torch.optim import Adam
 
 from msgwam import config
 
-from .utils import load_data, load_model
+from ..utils import load_data, load_model
 
 if TYPE_CHECKING:
-    from .architectures import SourceNet
+    from ..architectures import SourceNet
 
 def invert_surrogate(
     n_steps: int=100,

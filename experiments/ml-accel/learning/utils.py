@@ -1,9 +1,9 @@
 from __future__ import annotations
 from os import listdir
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
-import torch
+import torch, torch.nn as nn
 
 from torch.optim import Adam
 
@@ -14,6 +14,44 @@ from . import hyperparameters as hp
 
 if TYPE_CHECKING:
     from .architectures import SourceNet
+
+def apply_basis(
+    coeffs: torch.Tensor,
+    n_grid: Optional[int]=None
+) -> torch.Tensor:
+    """
+    Given a tensor of amplitude, shape, and shift parameters, compute the
+    profile given as the sum of the basis functions for each sample.
+
+    Parameters
+    ----------
+    coeffs
+        Tensor whose first dimension ranges over training samples and whose
+        second dimension ranges over coefficients for the basis functions.
+
+    Returns
+    -------
+    torch.Tensor
+        Profile corresponding to each sample.
+
+    """
+
+    if n_grid == None:
+        n_grid = config.n_grid
+
+    n_samples = coeffs.shape[0]
+    coeffs = coeffs.reshape(n_samples, 3, -1, 1)
+    amp, shape, shift = coeffs.transpose(0, 1)
+    z = -torch.linspace(-3, 3, n_grid)
+
+    amp = torch.softmax(amp, dim=1)
+    shape = nn.functional.softplus(shape)
+    shift = 1.1 * z.max() * torch.tanh(shift)
+
+    arg = shape * (z - shift)
+    curves = amp * _basis_func(arg)
+
+    return curves.sum(dim=1)
 
 def get_indices(
     eval_type: str,
@@ -128,7 +166,8 @@ def get_overrides(fine: bool=False) -> dict[str, Any]:
 
 def load_data(
     target_type: str,
-    nondimensional: bool=True
+    grain: str,
+    **kwargs
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Load machine learning input and output data from disk.
@@ -136,10 +175,11 @@ def load_data(
     Parameters
     ----------
     target_type
-        What targets to load. Must be either `'coarse'` or `'fine'`.
-    nondimensional
-        If the targets are flux profiles, whether to nondimensionalize them
-        before returning.
+        Kind of target data to load. Must be either `'flux'` or `'coeffs'`.
+    grain
+        Whether to load data corresponding to `'coarse'` or `'fine'` packets.
+    **kwargs
+        Keyword arguments for the specified target type.
 
     Returns
     -------
@@ -152,19 +192,32 @@ def load_data(
 
     """
 
-    u = np.load(f'data/{config.name}/training/u.npy')
-    rays = np.load(f'data/{config.name}/training/rays.npy')
-    Y = np.load(f'data/{config.name}/training/Y-{target_type}.npy')
+    data_dir = f'data/{config.name}/training'
+    u = torch.as_tensor(np.load(f'{data_dir}/u.npy'))
+    rays = torch.as_tensor(np.load(f'{data_dir}/rays.npy'))
 
-    if nondimensional:
-        T = hp.max_days * 86400
-        k, *_, dk, dl, dm, dens = rays.T
-        action = dens * dk * dl * dm
+    if target_type == 'flux':
+        Y = torch.as_tensor(np.load(f'{data_dir}/flux-{grain}.npy'))
 
-        factor = abs(k) * action * config.dr_init / T
-        Y = Y / factor[:, None]
+        if kwargs.get('nondimensional', True):
+            T = hp.max_days * 86400
+            k, *_, dk, dl, dm, dens = rays.T
+            action = dens * dk * dl * dm
 
-    return torch.as_tensor(u), torch.as_tensor(rays), torch.as_tensor(Y)
+            factor = abs(k) * action * config.dr_init / T
+            Y = Y / factor[:, None]
+
+    elif target_type == 'coeffs':
+        fname = f'coeffs-{grain}-{hp.basis_type}.npy'
+        Y = torch.as_tensor(np.load(f'{data_dir}/{fname}'))
+
+        if kwargs.get('reconstructed', False):
+            signs = torch.sign(rays[:, :1])
+            signs = signs[:Y.shape[0]]
+
+            Y = signs * apply_basis(Y, get_overrides()['n_grid'])
+            
+    return u, rays, Y
 
 def load_model(
     target_type: str,
@@ -220,6 +273,34 @@ def load_model(
 
     return model, optimizer
     
+def _basis_func(z: torch.Tensor) -> torch.Tensor:
+    """
+    Compute the normalized version of the basis function, which must have
+    unit slope at the origin and be bounded between zero and one.
+
+    Parameters
+    ----------
+    z
+        Tensor of input values.
+
+    Returns
+    -------
+    torch.Tensor
+        Basis function values.
+
+    """
+
+    if hp.basis_type == 'logistic':
+        return 1 / (1 + torch.exp(-4 * z))
+    
+    if hp.basis_type == 'quadratic':
+        return (1 + 2 * z / torch.sqrt(1 + (2 * z) ** 2)) / 2
+    
+    if hp.basis_type == 'tanh':
+        return (1 + torch.tanh(2 * z)) / 2
+
+    raise ValueError(f'Unknown basis type: {hp.basis_type}')
+
 def _get_best_task_id() -> int:
     """
     Get the task ID of the training run with the lowest validation score by

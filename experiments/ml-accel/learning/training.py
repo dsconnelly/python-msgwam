@@ -13,7 +13,13 @@ from msgwam.dispersion import get_omega_hat
 
 from . import hyperparameters as hp
 from .architectures import Surrogate
-from .utils import get_indices, get_model_dir, load_data, load_model
+from .utils import (
+    get_indices,
+    get_model_dir,
+    get_overrides,
+    load_data,
+    load_model
+)
 
 if TYPE_CHECKING:
     from .architectures import SourceNet
@@ -24,6 +30,21 @@ def train_network(
     eval_type: str='validation',
     restart: bool=False,
     n_print: int=1
+) -> None:
+    """
+    Wrapper around `_train_network` so that that function can be called with the
+    appropriate override to `config.n_grid` and with sensible defaults. See that
+    function's docstring for explanations of each argument.
+    """
+
+    with config.override(n_grid=get_overrides()['n_grid']):
+        _train_network(target_type, eval_type, restart, n_print)
+
+def _train_network(
+    target_type: str,
+    eval_type: str,
+    restart: bool,
+    n_print: int
 ) -> None:
     """
     Train a `SourceNet` subclass. This function can be used either to train a
