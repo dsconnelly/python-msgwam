@@ -48,18 +48,19 @@ def combine_data(path: str) -> None:
 
     """
 
-    parts, base_name = path.split('/')
+    *parts, base_name = path.split('/')
+    base_name, suffix = base_name.split('.')
     dir_name = '/'.join(parts)
 
     is_valid = lambda s: s.startswith(base_name + '_task-')
     fnames = sorted(filter(is_valid, listdir(dir_name)))
+    fnames = [f'{dir_name}/{fname}' for fname in fnames]
 
     if len(fnames) == 0:
         return
 
-    suffix = base_name.split('.')[-1]
     lib = {'npy' : np, 'pkl' : torch}[suffix]
-    data = lib.vstack(map(lib.load, fnames))
+    data = lib.vstack(list(map(lib.load, fnames)))
 
     if suffix == 'npy':
         np.save(path, data)
