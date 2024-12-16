@@ -12,7 +12,7 @@ def save_basis_coefficients(
     grain: str,
     max_hours: int=23,
     max_steps: int=5000,
-    stop_loss: float=0.00001
+    stop_loss: float=0.00005
 ) -> None:
     """
     Compute the best representation of the momentum flux profiles with a given
@@ -48,11 +48,13 @@ def save_basis_coefficients(
 
             loss.backward()
             optimizer.step()
-            print(f'step {n_step + 1}: loss = {loss.item():.6f}')
+            print(f'step {n_step}: loss = {loss.item():.6f}')
 
             if loss < stop_loss:
                 print('terminating early!')
                 break
+
+            n_step = n_step + 1
 
     coeffs = coeffs.detach().numpy()
     fname = f'coeffs-{grain}-{hp.basis_type}.npy'
