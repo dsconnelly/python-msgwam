@@ -13,7 +13,7 @@ from msgwam.utils import shapiro_filter
 from ...evaluation.scenarios import _get_descending_jets
 
 from .. import hyperparameters as hp
-from ..utils import get_overrides
+from ..utils import add_task_info, get_overrides, get_workload, make_seed
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
@@ -35,13 +35,15 @@ def save_training_context() -> None:
     kwargs = get_overrides()
     kwargs['n_source'] = int(1e3)
     kwargs['spectrum_type'] = 'gaussians'
-    kwargs['seed'] = hash(config.name) % 2 ** 32
+
+    kwargs['seed'] = make_seed(config.name, 'spectrum', hp.task_id)
+    wind_seed = make_seed(config.name, 'wind', hp.task_id)
 
     with config.override(**kwargs):
-        _get_descending_jets(seed=5).to_netcdf(config.prescribed_wind_file)
+        ds = _get_descending_jets(seed=wind_seed)
+        ds.to_netcdf(config.prescribed_wind_file)
 
-    kwargs['dt'] = kwargs['dt_launch']
-    with config.override(**kwargs):
+    with config.override(**kwargs, dt=kwargs['dt_launch']):
         _gaussians().to_netcdf(config.spectrum_file)
 
 def save_training_data() -> None:
@@ -50,21 +52,31 @@ def save_training_data() -> None:
     averaged momentum flux profiles for each fine and coarse packet.
     """
 
+    start, end = get_workload(hp.n_packets)
+    n_packets = end - start
+
     with config.override(**get_overrides()):
-        u, rays = _generate_inputs()
+        u, rays = _generate_inputs(n_packets)
         Y_coarse = _generate_outputs()
 
-    # with config.override(**get_overrides(fine=True)):
-        # Y_fine = _generate_outputs()
+    with config.override(**get_overrides(fine=True)):
+        Y_fine = _generate_outputs()
 
-    np.save(f'data/{config.name}/training/u.npy', u)
-    np.save(f'data/{config.name}/training/rays.npy', rays)
-    np.save(f'data/{config.name}/training/Y-coarse.npy', Y_coarse)
-    # np.save(f'data/{config.name}/training/Y-fine.npy', Y_fine)
+    datas = [u, rays, Y_coarse, Y_fine]
+    names = ['u', 'rays', 'Y-coarse', 'Y-fine']
 
-def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
+    for data, name in zip(datas, names):
+        path = f'data/{config.name}/training/{name}.npy'
+        np.save(add_task_info(path), data)
+
+def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate input wind profiles and (coarse) ray volume properties.
+
+    Parameters
+    ----------
+    n_packets
+        How many packets to generate.
 
     Returns
     -------
@@ -80,8 +92,8 @@ def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
 
     """
 
-    u = np.zeros((hp.n_packets, config.n_grid - 1))
-    rays = np.zeros((hp.n_packets, 7))
+    u = np.zeros((n_packets, config.n_grid - 1))
+    rays = np.zeros((n_packets, 7))
 
     mean = MeanState.from_name('prescribed')
     source = Source.from_name('packet')
@@ -93,20 +105,25 @@ def _generate_inputs() -> tuple[np.ndarray, np.ndarray]:
 
         mean.step(None, n_step)
         data, _ = source.launch(mean, n_step)
-        n_add = min(data.shape[1], hp.n_packets - i)
+        n_add = min(data.shape[1], n_packets - i)
 
         u[i:(i + n_add)] = mean.u
         rays[i:(i + n_add)] = data.T[:n_add]
 
         i = i + n_add
-        if i == hp.n_packets:
+        if i == n_packets:
             return u, rays
         
     raise NotEnoughPackets
 
-def _generate_outputs() -> np.ndarray:
+def _generate_outputs(n_packets: int) -> np.ndarray:
     """
     Generate momentum flux profiles averaged over the lifetime of each packet.
+
+    Parameters
+    ----------
+    n_packets
+        How many packets to generate.
 
     Returns
     -------
@@ -121,7 +138,7 @@ def _generate_outputs() -> np.ndarray:
 
     """
 
-    Y = np.zeros((hp.n_packets, config.n_grid))
+    Y = np.zeros((n_packets, config.n_grid))
     callback = _make_callback(Y)
 
     try:
@@ -172,7 +189,7 @@ def _make_callback(Y: np.ndarray) -> _Callback:
         profiles, = prop._project(flux[None], prop._z_padded, pdx)
         profiles[:, 1:-1] = shapiro_filter(profiles.T).T
 
-        keep = labels < hp.n_packets        
+        keep = labels < Y.shape[0]        
         if keep.sum() == 0:
             raise EnoughPackets
         

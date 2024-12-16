@@ -7,9 +7,11 @@ from .preprocessing import (
     save_training_data
 )
 from .training import train_network
+from .utils import combine_data
 
 __all__ = [
     'hp',
+    'combine_data',
     'invert_surrogate',
     'plot_training_samples',
     'save_basis_coefficients',

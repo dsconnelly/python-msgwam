@@ -1,57 +1,21 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING, Optional
 from os import listdir
-from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
-import torch, torch.nn as nn
-
-from torch.optim import Adam
+import torch
 
 from msgwam import config
 
-from . import architectures
-from . import hyperparameters as hp
+from .. import architectures
+from .. import hyperparameters as hp
+
+from .bases import apply_basis
+from .overrides import get_overrides
 
 if TYPE_CHECKING:
-    from .architectures import SourceNet
-
-def apply_basis(
-    coeffs: torch.Tensor,
-    n_grid: Optional[int]=None
-) -> torch.Tensor:
-    """
-    Given a tensor of amplitude, shape, and shift parameters, compute the
-    profile given as the sum of the basis functions for each sample.
-
-    Parameters
-    ----------
-    coeffs
-        Tensor whose first dimension ranges over training samples and whose
-        second dimension ranges over coefficients for the basis functions.
-
-    Returns
-    -------
-    torch.Tensor
-        Profile corresponding to each sample.
-
-    """
-
-    if n_grid == None:
-        n_grid = config.n_grid
-
-    n_samples = coeffs.shape[0]
-    coeffs = coeffs.reshape(n_samples, 3, -1, 1)
-    amp, shape, shift = coeffs.transpose(0, 1)
-    z = -torch.linspace(-3, 3, n_grid)
-
-    amp = torch.softmax(amp, dim=1)
-    shape = nn.functional.softplus(shape)
-    shift = 1.1 * z.max() * torch.tanh(shift)
-
-    arg = shape * (z - shift)
-    curves = amp * _basis_func(arg)
-
-    return curves.sum(dim=1)
+    from torch.optim import Adam
+    from ..architectures import SourceNet
 
 def get_indices(
     eval_type: str,
@@ -113,57 +77,6 @@ def get_model_dir(target_type: str) -> str:
     cls_name = _get_class_name(target_type).lower()
     return f'data/{config.name}/{cls_name}-{target_type}'
 
-def get_overrides(fine: bool=False) -> dict[str, Any]:
-    """
-    Get the configuration overrides for various machine learning training steps.
-    
-    Parameters
-    ----------
-    fine
-        Whether to get overrides for the reference fine integration or, if
-        `False`, for the coarse integration.
-
-    Returns
-    -------
-    dict[str, Any]
-        Dictionary to pass to `config.override`.
-
-    """
-
-    root = int(hp.speedup ** 0.5)
-    mean_path = f'data/{config.name}/input/descending-jets-training.nc'
-    spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
-
-    n_day = _get_n_day()
-    dt_output = n_day * 86400
-
-    kwargs = {
-        'source_type' : 'packet',
-        'prescribed_wind_file' : mean_path,
-        'spectrum_file' : spectrum_path,
-        'dt' : 30,
-        'dt_output' : dt_output,
-        'n_day' : n_day,
-        'n_grid' : 101,
-        'dt_launch' : hp.dt_launch,
-        'max_age' : hp.max_days * 86400,
-        'n_increment' : 1000,
-        'prune_by' : 'none',
-    }
-
-    if not fine:
-        kwargs['n_chromatic'] = 1
-        kwargs['n_repeat'] = 1
-
-        return kwargs
-
-    kwargs['n_source'] = config.n_source * root
-    kwargs['dr_init'] = config.dr_init / root
-    kwargs['n_chromatic'] = hp.speedup
-    kwargs['n_repeat'] = root
-
-    return kwargs
-
 def load_data(
     target_type: str,
     grain: str,
@@ -215,7 +128,8 @@ def load_data(
             signs = torch.sign(rays[:, :1])
             signs = signs[:Y.shape[0]]
 
-            Y = signs * apply_basis(Y, get_overrides()['n_grid'])
+            n_grid = get_overrides()['n_grid']
+            Y = signs * apply_basis(Y, n_grid)
             
     return u, rays, Y
 
@@ -272,34 +186,6 @@ def load_model(
         optimizer.load_state_dict(state['optimizer'])
 
     return model, optimizer
-    
-def _basis_func(z: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the normalized version of the basis function, which must have
-    unit slope at the origin and be bounded between zero and one.
-
-    Parameters
-    ----------
-    z
-        Tensor of input values.
-
-    Returns
-    -------
-    torch.Tensor
-        Basis function values.
-
-    """
-
-    if hp.basis_type == 'logistic':
-        return 1 / (1 + torch.exp(-4 * z))
-    
-    if hp.basis_type == 'quadratic':
-        return (1 + 2 * z / torch.sqrt(1 + (2 * z) ** 2)) / 2
-    
-    if hp.basis_type == 'tanh':
-        return (1 + torch.tanh(2 * z)) / 2
-
-    raise ValueError(f'Unknown basis type: {hp.basis_type}')
 
 def _get_best_task_id() -> int:
     """
@@ -352,18 +238,3 @@ def _get_class_name(target_type: str) -> str:
     """
 
     return {'coarse' : 'Surrogate', 'fine' : 'Surrogate'}[target_type]
-
-def _get_n_day() -> int:
-    """
-    Get a reasonable upper bound on the number of days the integration should
-    run to generate the number of packets requested.
-
-    Returns
-    -------
-    int
-        Number of days to be prepared to integrate for.
-
-    """
-
-    last_launch = hp.dt_launch * hp.n_packets / config.n_source
-    return int(last_launch / 86400 + hp.max_days + 5)
