@@ -6,7 +6,13 @@ import torch, torch.nn as nn
 from msgwam import config
 
 from .. import hyperparameters as hp
-from ..utils import apply_basis, get_overrides, load_data
+from ..utils import (
+    add_task_info,
+    apply_basis,
+    get_overrides,
+    get_workload,
+    load_data
+)
 
 def save_basis_coefficients(
     grain: str,
@@ -32,7 +38,9 @@ def save_basis_coefficients(
     """
 
     Y = abs(load_data('flux', grain)[-1])
-    shape = (Y.shape[0], 3 * hp.n_basis)
+    start, end = get_workload(Y.shape[0])
+    shape = (end - start, 3 * hp.n_basis)
+    Y = Y[start:end]
 
     coeffs = torch.rand(*shape, dtype=torch.float64, requires_grad=True)
     optimizer = torch.optim.Adam([coeffs], lr=0.1)
@@ -58,4 +66,5 @@ def save_basis_coefficients(
 
     coeffs = coeffs.detach().numpy()
     fname = f'coeffs-{grain}-{hp.basis_type}.npy'
-    np.save(f'data/{config.name}/training/{fname}', coeffs)
+    path = add_task_info(f'data/{config.name}/training/{fname}')
+    np.save(path, coeffs)
