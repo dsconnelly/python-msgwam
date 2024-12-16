@@ -11,4 +11,4 @@ python ()
         /bin/bash -c "source /ext3/env.sh; $cmd"
 }
 
-python experiments/ml-accel $@
+python -m experiments.ml-accel $@
