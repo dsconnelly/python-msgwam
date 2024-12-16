@@ -2,6 +2,7 @@ import os
 import tomllib
 
 from typing import Optional
+from warnings import warn
 
 import numpy as np
 
@@ -67,6 +68,10 @@ def load(path: str, i: Optional[int]=None, verbose: bool=False) -> None:
 
     mesh = np.meshgrid(*grid.values(), indexing='ij')
     params = np.stack(mesh, axis=0).reshape(len(grid), -1)
+
+    if i >= params.shape[1]:
+        warn('more jobs than hyperparameter settings')
+        i = 0
 
     for name, value in zip(grid.keys(), params[:, i]):
         caster = __annotations__[name]

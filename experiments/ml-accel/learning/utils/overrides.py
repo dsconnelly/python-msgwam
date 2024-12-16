@@ -1,6 +1,8 @@
 from functools import wraps
 from typing import Any, Callable
 
+import numpy as np
+
 from msgwam import config
 
 from .. import hyperparameters as hp
@@ -112,7 +114,5 @@ def _get_n_day() -> int:
 
     """
 
-    last_start = hp.dt_launch * hp.n_packets / config.n_source
-    last_end = int(last_start / 86400 + hp.max_days) // N_TASKS
-
-    return last_end + 5
+    last_start = hp.dt_launch * hp.n_packets / config.n_source / N_TASKS
+    return int(last_start / 86400 + hp.max_days) + 5
