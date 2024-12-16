@@ -43,7 +43,8 @@ def save_training_context() -> None:
         ds = _get_descending_jets(seed=wind_seed)
         ds.to_netcdf(config.prescribed_wind_file)
 
-    with config.override(**kwargs, dt=kwargs['dt_launch']):
+    kwargs['dt'] = kwargs['dt_launch']
+    with config.override(**kwargs):
         _gaussians().to_netcdf(config.spectrum_file)
 
 def save_training_data() -> None:
@@ -57,10 +58,10 @@ def save_training_data() -> None:
 
     with config.override(**get_overrides()):
         u, rays = _generate_inputs(n_packets)
-        Y_coarse = _generate_outputs()
+        Y_coarse = _generate_outputs(n_packets)
 
     with config.override(**get_overrides(fine=True)):
-        Y_fine = _generate_outputs()
+        Y_fine = _generate_outputs(n_packets)
 
     datas = [u, rays, Y_coarse, Y_fine]
     names = ['u', 'rays', 'Y-coarse', 'Y-fine']

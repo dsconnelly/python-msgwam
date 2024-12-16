@@ -5,7 +5,7 @@ import torch
 
 from .. import hyperparameters as hp
 
-N_TASKS = int(environ.get('SLURM_ARRAY_TASK_COUNT'), 1)
+N_TASKS = int(environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 
 def add_task_info(fname: str) -> str:
     """
