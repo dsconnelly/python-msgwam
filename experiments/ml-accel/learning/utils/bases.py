@@ -50,7 +50,7 @@ def apply_basis(
     shift = 1.1 * z.max() * torch.tanh(shift)
 
     arg = shape * (z - shift)
-    curves = amp * _basis_func(arg)
+    curves = amp * _basis_func(arg, basis_type)
 
     return curves.sum(dim=1)
 
