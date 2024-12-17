@@ -16,6 +16,7 @@ from ..utils import (
 
 def save_proxies(
     grain: str,
+    basis_type: str='logistic',
     max_hours: int=5,
     max_steps: int=5000,
     patience: int=100,
@@ -56,7 +57,7 @@ def save_proxies(
         while n_step < max_steps + 1 and ((time() - start) / 3600) < max_hours:
             optimizer.zero_grad()
 
-            output = apply_basis(proxies)
+            output = apply_basis(proxies, basis_type=basis_type)
             loss = loss_func(output, Y)
 
             loss.backward()
@@ -79,6 +80,6 @@ def save_proxies(
             n_step = n_step + 1
 
     proxies = proxies.detach().numpy()
-    fname = f'proxies-{grain}-{hp.basis_type}.npy'
+    fname = f'proxies-{grain}-{basis_type}.npy'
     path = add_task_info(f'data/{config.name}/training/{fname}')
     np.save(path, proxies)

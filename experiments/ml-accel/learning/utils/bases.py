@@ -8,7 +8,8 @@ from .. import hyperparameters as hp
 
 def apply_basis(
     proxies: torch.Tensor,
-    n_grid: Optional[int]=None
+    n_grid: Optional[int]=None,
+    basis_type: Optional[str]=None
 ) -> torch.Tensor:
     """
     Given a tensor of amplitude, shape, and shift parameters, compute the
@@ -22,6 +23,9 @@ def apply_basis(
     n_grid
         Number of points in the coordinate grid on which to evaluate the basis
         functions. If `None`, uses the the value set in `config`.
+    basis_type
+        What family of basis functions to use. Defaults to the value set by
+        the current hyperparameter configuration.
 
     Returns
     -------
@@ -32,6 +36,9 @@ def apply_basis(
 
     if n_grid is None:
         n_grid = config.n_grid
+
+    if basis_type is None:
+        basis_type = hp.basis_type
 
     n_samples = proxies.shape[0]
     proxies = proxies.reshape(n_samples, 3, -1, 1)
@@ -47,7 +54,7 @@ def apply_basis(
 
     return curves.sum(dim=1)
 
-def _basis_func(z: torch.Tensor) -> torch.Tensor:
+def _basis_func(z: torch.Tensor, basis_type: str) -> torch.Tensor:
     """
     Compute the normalized version of the basis function, which must have
     unit slope at the origin and be bounded between zero and one.
@@ -56,6 +63,8 @@ def _basis_func(z: torch.Tensor) -> torch.Tensor:
     ----------
     z
         Tensor of input values.
+    basis_type
+        What family of basis functions to use.
 
     Returns
     -------
@@ -64,10 +73,10 @@ def _basis_func(z: torch.Tensor) -> torch.Tensor:
 
     """
 
-    if hp.basis_type == 'logistic':
+    if basis_type == 'logistic':
         return 1 / (1 + torch.exp(-4 * z))
     
-    if hp.basis_type == 'quadratic':
+    if basis_type == 'quadratic':
         return (1 + 2 * z / torch.sqrt(1 + (2 * z) ** 2)) / 2
 
-    raise ValueError(f'Unknown basis type: {hp.basis_type}')
+    raise ValueError(f'Unknown basis type: {basis_type}')
