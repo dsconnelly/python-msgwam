@@ -16,9 +16,9 @@ from ..utils import (
 
 def save_basis_coefficients(
     grain: str,
-    max_hours: int=23,
+    max_hours: int=5,
     max_steps: int=5000,
-    stop_loss: float=0.00005
+    stop_loss: float=0.00001
 ) -> None:
     """
     Compute the best representation of the momentum flux profiles with a given
@@ -47,6 +47,8 @@ def save_basis_coefficients(
     loss_func = nn.MSELoss()
 
     n_step, start = 1, time()
+    min_loss, waited = torch.inf, 0
+
     with config.override(n_grid=get_overrides()['n_grid']):
         while n_step < max_steps + 1 and (time() - start) / 3600 < max_hours:
             optimizer.zero_grad()
@@ -57,6 +59,15 @@ def save_basis_coefficients(
             loss.backward()
             optimizer.step()
             print(f'step {n_step}: loss = {loss.item():.6f}')
+
+            waited += 1
+            if loss < min_loss:
+                min_loss = loss
+                waited = 0
+
+            if waited > 100:
+                print('patience exceeded!')
+                break
 
             if loss < stop_loss:
                 print('terminating early!')

@@ -64,7 +64,7 @@ def save_training_data() -> None:
         Y_fine = _generate_outputs(n_packets)
 
     datas = [u, rays, Y_coarse, Y_fine]
-    names = ['u', 'rays', 'Y-coarse', 'Y-fine']
+    names = ['u', 'rays', 'flux-coarse', 'flux-fine']
 
     for data, name in zip(datas, names):
         path = f'data/{config.name}/training/{name}.npy'
