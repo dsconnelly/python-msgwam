@@ -2,7 +2,7 @@ from . import hyperparameters as hp
 from .plotting import plot_training_samples
 from .preprocessing import (
     invert_surrogate,
-    save_basis_coefficients,
+    save_proxies,
     save_training_context,
     save_training_data
 )
@@ -14,7 +14,7 @@ __all__ = [
     'combine_data',
     'invert_surrogate',
     'plot_training_samples',
-    'save_basis_coefficients',
+    'save_proxies',
     'save_training_context',
     'save_training_data',
     'train_network'

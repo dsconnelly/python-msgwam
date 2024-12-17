@@ -39,6 +39,7 @@ learning_rate: float
 max_epochs: int
 max_hours: int
 stop_loss: float
+weight_decay: float
 
 def load(path: str, i: Optional[int]=None, verbose: bool=False) -> None:
     """

@@ -36,7 +36,7 @@ def plot_training_samples(*args: str) -> None:
     n_samples = min(len(axes), len(idx))
     idx = np.random.choice(idx, n_samples, replace=False)
 
-    u, rays, _ = load_data('flux', 'coarse')
+    u, rays, _ = load_data('flux-coarse')
     u, rays = u[idx], rays[idx]
 
     datas, colors, labels = [], [], []
@@ -46,12 +46,11 @@ def plot_training_samples(*args: str) -> None:
     for arg in args:
         if arg.startswith('flux'):
             _, grain = arg.split('-')
-            data = load_data('flux', grain)[-1][idx]
+            data = load_data(arg)[-1][idx]
             color, label = _COLORS[grain], arg
 
-        elif arg.startswith('coeffs'):
-            _, grain = arg.split('-')
-            data = load_data('coeffs', grain, reconstructed=True)[-1][idx]
+        elif arg.startswith('proxies'):
+            data = load_data(arg, reconstructed=True)[-1][idx]
             color, label = _MODEL_COLORS.pop(), arg
 
         elif arg.endswith('.jit'):

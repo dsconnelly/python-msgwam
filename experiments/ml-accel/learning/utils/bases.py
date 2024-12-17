@@ -7,7 +7,7 @@ from msgwam import config
 from .. import hyperparameters as hp
 
 def apply_basis(
-    coeffs: torch.Tensor,
+    proxies: torch.Tensor,
     n_grid: Optional[int]=None
 ) -> torch.Tensor:
     """
@@ -16,7 +16,7 @@ def apply_basis(
 
     Parameters
     ----------
-    coeffs
+    proxies
         Tensor whose first dimension ranges over training samples and whose
         second dimension ranges over coefficients for the basis functions.
     n_grid
@@ -33,9 +33,9 @@ def apply_basis(
     if n_grid is None:
         n_grid = config.n_grid
 
-    n_samples = coeffs.shape[0]
-    coeffs = coeffs.reshape(n_samples, 3, -1, 1)
-    amp, shape, shift = coeffs.transpose(0, 1)
+    n_samples = proxies.shape[0]
+    proxies = proxies.reshape(n_samples, 3, -1, 1)
+    amp, shape, shift = proxies.transpose(0, 1)
     z = -torch.linspace(-3, 3, n_grid)
 
     amp = torch.softmax(amp, dim=1)
@@ -69,8 +69,5 @@ def _basis_func(z: torch.Tensor) -> torch.Tensor:
     
     if hp.basis_type == 'quadratic':
         return (1 + 2 * z / torch.sqrt(1 + (2 * z) ** 2)) / 2
-    
-    if hp.basis_type == 'tanh':
-        return (1 + torch.tanh(2 * z)) / 2
 
     raise ValueError(f'Unknown basis type: {hp.basis_type}')

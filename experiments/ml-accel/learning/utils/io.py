@@ -5,6 +5,8 @@ from os import listdir
 import numpy as np
 import torch
 
+from torch.optim import Adam
+
 from msgwam import config
 
 from .. import architectures
@@ -14,7 +16,6 @@ from .bases import apply_basis
 from .overrides import get_overrides
 
 if TYPE_CHECKING:
-    from torch.optim import Adam
     from ..architectures import SourceNet
 
 def get_indices(
@@ -74,12 +75,14 @@ def get_model_dir(target_type: str) -> str:
 
     """
 
+    if target_type.startswith(('flux', 'proxies')):
+        target_type, grain = target_type.split('-')
+
     cls_name = _get_class_name(target_type).lower()
-    return f'data/{config.name}/{cls_name}-{target_type}'
+    return f'data/{config.name}/{cls_name}-{grain}'
 
 def load_data(
     target_type: str,
-    grain: str,
     **kwargs
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -88,9 +91,7 @@ def load_data(
     Parameters
     ----------
     target_type
-        Kind of target data to load. Must be either `'flux'` or `'coeffs'`.
-    grain
-        Whether to load data corresponding to `'coarse'` or `'fine'` packets.
+        Kind of target data to load, as passed to `train_network`.
     **kwargs
         Keyword arguments for the specified target type.
 
@@ -109,6 +110,9 @@ def load_data(
     u = torch.as_tensor(np.load(f'{data_dir}/u.npy'))
     rays = torch.as_tensor(np.load(f'{data_dir}/rays.npy'))
 
+    if target_type.startswith(('flux', 'proxies')):
+        target_type, grain = target_type.split('-')
+
     if target_type == 'flux':
         Y = torch.as_tensor(np.load(f'{data_dir}/flux-{grain}.npy'))
 
@@ -120,8 +124,8 @@ def load_data(
             factor = abs(k) * action * config.dr_init / T
             Y = Y / factor[:, None]
 
-    elif target_type == 'coeffs':
-        fname = f'coeffs-{grain}-{hp.basis_type}.npy'
+    elif target_type == 'proxies':
+        fname = f'proxies-{grain}-{hp.basis_type}.npy'
         Y = torch.as_tensor(np.load(f'{data_dir}/{fname}'))
 
         if kwargs.get('reconstructed', False):
@@ -130,7 +134,7 @@ def load_data(
 
             n_grid = get_overrides()['n_grid']
             Y = signs * apply_basis(Y, n_grid)
-            
+
     return u, rays, Y
 
 def load_model(
@@ -179,7 +183,13 @@ def load_model(
 
     cls_name = _get_class_name(target_type)
     model: SourceNet = getattr(architectures, cls_name.capitalize())()
-    optimizer = Adam(model.parameters(), hp.learning_rate)
+    weight_decay = hp.weight_decay * hp.learning_rate
+
+    optimizer = Adam(
+        model.parameters(),
+        lr=hp.learning_rate,
+        weight_decay=weight_decay
+    )
 
     if restart:
         model.load_state_dict(state['model'])
@@ -237,4 +247,7 @@ def _get_class_name(target_type: str) -> str:
 
     """
 
-    return {'coarse' : 'Surrogate', 'fine' : 'Surrogate'}[target_type]
+    if target_type.startswith(('flux', 'proxies')):
+        return 'Surrogate'
+
+    raise ValueError(f'Unknown target type: {target_type}')

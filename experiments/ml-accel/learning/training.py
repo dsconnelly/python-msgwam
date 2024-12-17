@@ -14,6 +14,7 @@ from msgwam.dispersion import get_omega_hat
 from . import hyperparameters as hp
 from .architectures import Surrogate
 from .utils import (
+    apply_basis,
     get_indices,
     get_model_dir,
     get_overrides,
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
     _TraceFunc = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 def train_network(
-    target_type: str='fine',
+    grain: str='coarse',
     eval_type: str='validation',
     restart: bool=False,
     n_print: int=1
@@ -37,8 +38,9 @@ def train_network(
     function's docstring for explanations of each argument.
     """
 
+    p = 'flux' if hp.basis_type == 'none' else 'proxies'
     with config.override(n_grid=get_overrides()['n_grid']):
-        _train_network(target_type, eval_type, restart, n_print)
+        _train_network(f'{p}-{grain}', eval_type, restart, n_print)
 
 def _train_network(
     target_type: str,
@@ -55,8 +57,10 @@ def _train_network(
     Parameters
     ----------
     target_type
-        What targets should be used, which implicitly determines the `SourceNet`
-        subclass to train. Must be either `'coarse'` or `'fine'`.
+        What targets should be used, which implicity determines the `SourceNet`
+        subclass to train. If training a `Surrogate`, must be of the form
+        `'{kind}-{grain}'`, where `{kind}` is either `'flux'` or `'proxies`' and
+        `{grain}` is either `'fine'` or `'coarse'`.
     eval_type
         Whether to use `'validation'` data to evaluate and train only on the
         training data, or to hold out `'test'` data and train the model on the
@@ -141,12 +145,13 @@ def _load_datasets(
     u, rays, targets = load_data(target_type)
     idx_tr, idx_ev = get_indices(eval_type)
 
+    if target_type.startswith('flux'):
+        targets = abs(targets)
+
     loaders = []
     for idx in (idx_tr, idx_ev):
         X = _make_inputs(u[idx], rays[idx])
-        Y = abs(targets[idx])
-
-        data = TensorDataset(X, Y)
+        data = TensorDataset(X, targets[idx])
         loaders.append(DataLoader(data, hp.batch_size, shuffle=True))
 
     return tuple(loaders)
@@ -205,13 +210,16 @@ def _make_trace_func(model) -> _TraceFunc:
             sign of the returned flux is correct.
             """
 
-            sign = torch.sign(rays[:, 0])[:, None]
-            X = _make_inputs(u, rays)
+            signs = torch.sign(rays[:, 0])[:, None]
+            Y = model(_make_inputs(u, rays))
 
-            return sign * model(X)
+            if hp.basis_type != 'none':
+                Y = apply_basis(Y)
+
+            return signs * Y
         
         return trace_func
-    
+
     return NotImplemented
 
 def _run_epoch(

@@ -9,19 +9,20 @@ speedup = [25]
 ################################################################################
 # architectures
 ################################################################################
-basis_type = ['tanh']
-batch_norm_pos = [0] # [-1, 0, 1]
-dropout_rate = [0] # [0, 0.25, 0.5]
+basis_type = ['none', 'logistic']
+batch_norm_pos = [-1, 0, 1]
+dropout_rate = [0, 0.25, 0.5]
 layer_size = [256]
-layers_per_block = [3]
-n_basis = [32]
-n_blocks = [5]
+layers_per_block = [2, 5]
+n_basis = [16]
+n_blocks = [4, 9]
 
 ################################################################################
 # training
 ################################################################################
 batch_size = [32]
 learning_rate = [1e-3]
-max_epochs = [20]
-max_hours = [8]
-stop_loss = [0.00001]
+max_epochs = [50]
+max_hours = [5]
+stop_loss = [0.0001]
+weight_decay = [0.1]
