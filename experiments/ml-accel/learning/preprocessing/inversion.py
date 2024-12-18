@@ -7,7 +7,8 @@ from torch.optim import Adam
 
 from msgwam import config
 
-from ..utils import load_data, load_model
+from ..architectures import load_model
+from ..utils import load_data
 
 if TYPE_CHECKING:
     from ..architectures import SourceNet

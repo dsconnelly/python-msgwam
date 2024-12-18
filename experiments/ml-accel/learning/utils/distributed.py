@@ -52,8 +52,9 @@ def combine_data(path: str) -> None:
     base_name, suffix = base_name.split('.')
     dir_name = '/'.join(parts)
 
+    key = lambda s: int(s.split('.')[0].split('-')[-1])
     is_valid = lambda s: s.startswith(base_name + '_task-')
-    fnames = sorted(filter(is_valid, listdir(dir_name)))
+    fnames = sorted(filter(is_valid, listdir(dir_name)), key=key)
     fnames = [f'{dir_name}/{fname}' for fname in fnames]
 
     if len(fnames) == 0:

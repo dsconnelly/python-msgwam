@@ -1,3 +1,4 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch, torch.nn as nn
@@ -6,7 +7,7 @@ from msgwam import config
 
 from .. import hyperparameters as hp
 
-from .standardization import StandardizerMixin
+from .standardizer import StandardizerMixin
 from .utils import xavier_init
 
 class SourceNet(nn.Module, StandardizerMixin, ABC):
@@ -43,8 +44,29 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
 
         """
 
-        output = self._predict(self._standardize(X))
+        output = self._predict(self._standardize(X, 0))
         return self._postprocess(X, output)
+
+    @classmethod
+    def from_name(cls, name: str) -> SourceNet:
+        """
+        Instantiate a `SourceNet` subclass from its name.
+
+        Parameters
+        ----------
+        name
+            Name of the subclass to instantiate.
+
+        Returns
+        -------
+        SourceNet
+            Instantiated neural network.
+
+        """
+
+        subs = cls.__subclasses__()
+        i = [s.__name__ for s in subs].index(name)
+        return subs[i]()
 
     @staticmethod
     def _get_block(sizes: list[int], final: bool=False) -> nn.Sequential:

@@ -12,14 +12,13 @@ from msgwam import config
 from msgwam.dispersion import get_omega_hat
 
 from . import hyperparameters as hp
-from .architectures import Surrogate
+from .architectures import Surrogate, get_model_dir, load_model
+from .losses import FluxLoss
 from .utils import (
     apply_basis,
     get_indices,
-    get_model_dir,
     get_overrides,
     load_data,
-    load_model
 )
 
 if TYPE_CHECKING:
@@ -74,14 +73,13 @@ def _train_network(
 
     loader_tr, loader_ev = _load_datasets(target_type, eval_type)
     model, optimizer = load_model(target_type, eval_type, restart)
-    loss_func = nn.MSELoss()
+    loss_func = FluxLoss(loader_tr.dataset.tensors[-1])
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'Model {hp.task_id} has {n_params} trainable parameters.\n')
 
     if not restart:
-        X_tr, _ = loader_tr.dataset.tensors
-        model.init_stats(X_tr)
+        model.init_stats(*loader_tr.dataset.tensors)
 
     n_epoch, start = 1, time()
     while n_epoch <= hp.max_epochs and (time() - start) / 3600 < hp.max_hours:
@@ -253,6 +251,7 @@ def _run_epoch(
 
     if optimizer is None:
         model.eval()
+        loss_func.eval()
 
         with torch.no_grad():
             X, targets = loader.dataset.tensors
@@ -261,9 +260,9 @@ def _run_epoch(
         return loss.item()
 
     model.train()
-    weight_sum = 0
-    total = 0
+    loss_func.train()
 
+    weight_sum, total = 0, 0
     for X, targets in loader:
         optimizer.zero_grad()
         weight = X.shape[0]

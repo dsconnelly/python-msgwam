@@ -34,7 +34,12 @@ class Surrogate(SourceNet):
         sign-definite and respect momentum conservation.
         """
 
-        if (hp.basis_type == 'none') and (not self.training):
-            output = torch.clamp(output, min=0, max=1)
+        if not self.training:
+            if hp.basis_type == 'none':
+                output = torch.clamp(output, min=0, max=1)
+
+            else:
+                means, stds = self.means[1], self.stds[1]
+                output = stds * output + means
 
         return output

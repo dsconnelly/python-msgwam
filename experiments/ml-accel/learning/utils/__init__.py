@@ -2,20 +2,20 @@ from hashlib import sha1
 
 from .bases import apply_basis
 from .distributed import add_task_info, combine_data, get_workload
-from .io import get_indices, get_model_dir, load_data, load_model
+from .io import get_indices, load_data
 from .overrides import get_overrides, with_overrides
+from .statistics import standardize
 
 __all__ = [
     'add_task_info',
     'apply_basis',
     'combine_data',
     'get_indices',
-    'get_model_dir',
     'get_overrides',
     'get_workload',
     'load_data',
-    'load_model',
     'make_seed',
+    'standardize',
     'with_overrides'
 ]
 

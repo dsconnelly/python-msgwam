@@ -2,6 +2,8 @@ from typing import Any
 
 import torch
 
+from ..utils import standardize
+
 class StandardizerMixin:
     """
     Mixin providing an interface for standardizing input features, initializing
@@ -23,21 +25,21 @@ class StandardizerMixin:
 
         return {'means' : self.means, 'stds' : self.stds}
     
-    def init_stats(self, X: torch.Tensor) -> None:
+    def init_stats(self, *Xs: torch.Tensor) -> None:
         """
-        Save the mean and standard deviation information to be used later. Must
-        be called before `_standardize` can be called.
+        Save the means and standard deviations to be used later. Must be called
+        before `_standardize` can be called.
 
         Parameters
         ----------
-        X
-            Two-dimensional tensor whose first dimension ranges over training
-            samples and whose second dimension ranges over input features.
+        Xs
+            List of tensors for which to compute and store statistics (e.g.,
+            arrays of training inputs and targets).
 
         """
 
-        self.means = X.mean(dim=0)
-        self.stds = X.std(dim=0)
+        self.means = [X.mean(dim=0) for X in Xs]
+        self.stds = [X.std(dim=0) for X in Xs]
     
     def set_extra_state(self, state: dict[str]) -> None:
         """
@@ -53,7 +55,7 @@ class StandardizerMixin:
         self.means = state['means']
         self.stds = state['stds']
 
-    def _standardize(self, X: torch.Tensor) -> torch.Tensor:
+    def _standardize(self, X: torch.Tensor, i: int) -> torch.Tensor:
         """
         Standardize a tensor of input data using the precalculated statistics.
 
@@ -61,6 +63,9 @@ class StandardizerMixin:
         ----------
         X
             Tensor to standardize.
+        i
+            Index into the lists of statistics stored by this object (e.g. zero
+            for inputs and one for targets).
 
         Returns
         -------
@@ -69,8 +74,4 @@ class StandardizerMixin:
 
         """
 
-        sdx = self.stds > 0
-        output = torch.zeros_like(X)
-        output[:, sdx] = (X - self.means)[:, sdx] / self.stds[sdx]
-
-        return output
+        return standardize(X, self.means[i], self.stds[i])[0]
