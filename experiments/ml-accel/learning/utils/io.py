@@ -176,7 +176,7 @@ def load_model(
             hp.load(hp.grid_path, state['task_id'])
 
     elif eval_type == 'test':
-        task_id = _get_best_task_id()
+        task_id = _get_best_task_id(target_type)
         print(f'Selecting hyperparameter configuration {task_id}:')
         hp.load(hp.grid_path, _get_best_task_id(), verbose=True)
         print()
@@ -197,11 +197,16 @@ def load_model(
 
     return model, optimizer
 
-def _get_best_task_id() -> int:
+def _get_best_task_id(target_type: str) -> int:
     """
     Get the task ID of the training run with the lowest validation score by
     reading the log files.
 
+    Parameters
+    ----------
+    target_type
+        Target specifier, as passed to `train_network`.
+    
     Returns
     -------
     int
@@ -213,8 +218,13 @@ def _get_best_task_id() -> int:
     best_score = np.inf
 
     log_dir = 'logs/ml-accel'
+    _, grain = target_type.split('-')
+
     for fname in listdir(log_dir):
-        if not fname.startswith('training-'):
+        if not fname.startswith('train-'):
+            continue
+
+        if not grain in fname:
             continue
 
         with open(f'{log_dir}/{fname}') as f:
