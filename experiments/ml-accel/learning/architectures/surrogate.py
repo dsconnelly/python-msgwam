@@ -3,6 +3,8 @@ import torch, torch.nn as nn
 from msgwam import config
 
 from .. import hyperparameters as hp
+from ..utils import postprocess_proxies
+
 from .base import SourceNet
 
 class Surrogate(SourceNet):
@@ -30,16 +32,15 @@ class Surrogate(SourceNet):
     def _postprocess(self, _, output: torch.Tensor) -> torch.Tensor:
         """
         At inference time, if the model is predicting flux profiles directly,
-        outputs are clamepd to fall between zero and one, so that they both are
+        outputs are clamped to fall between zero and one, so that they both are
         sign-definite and respect momentum conservation.
         """
 
-        if not self.training:
-            if hp.basis_type == 'none':
-                output = torch.clamp(output, min=0, max=1)
+        if (hp.basis_type == 'none') and (not self.training):
+            output = torch.clamp(output, min=0, max=1)
 
-            else:
-                means, stds = self.means[1], self.stds[1]
-                output = stds * output + means
+        if hp.basis_type != 'none':
+            output = output.reshape(-1, 3, hp.n_basis)
+            output = postprocess_proxies(output, self.training)
 
         return output

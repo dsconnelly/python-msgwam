@@ -47,7 +47,10 @@ def apply_basis(
 
     return curves.sum(dim=1)
 
-def postprocess_proxies(proxies: torch.Tensor) -> torch.Tensor:
+def postprocess_proxies(
+    proxies: torch.Tensor,
+    training: bool=False
+) -> torch.Tensor:
     """
     Transform unconstrained data into amplitude, shape, and shift parameters.
 
@@ -57,6 +60,10 @@ def postprocess_proxies(proxies: torch.Tensor) -> torch.Tensor:
         Three-dimensional tensor whose first dimension ranges over samples,
         whose second dimension ranges over the three kinds of proxy variable,
         and whose third dimension ranges over basis functions.
+    training
+        If `True`, then the amplitudes will be set to positive using a leaky
+        ReLU, and the other parameters will not be zeroed out, to facilitate
+        better neural network training.
 
     Returns
     -------
@@ -68,14 +75,17 @@ def postprocess_proxies(proxies: torch.Tensor) -> torch.Tensor:
     """
 
     amp, shape, shift = proxies.transpose(0, 1)
+    func = nn.functional.leaky_relu if training else nn.functional.relu
 
-    amp = nn.functional.relu(amp)
+    amp = func(amp)
     amp = amp / amp.sum(dim=1)[:, None]
     shape = nn.functional.softplus(shape)
     shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
-    idx = amp == 0
-    shape[idx] = shift[idx] = 0
+    if not training:
+        idx = amp == 0
+        shape[idx] = 0
+        shift[idx] = 0
 
     return torch.stack((amp, shape, shift), dim=1)
 

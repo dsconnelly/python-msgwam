@@ -83,7 +83,8 @@ def _train_network(
 
     n_epoch, start = 1, time()
     while n_epoch <= hp.max_epochs and (time() - start) / 3600 < hp.max_hours:
-        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        _ = _run_epoch(model, loader_tr, loss_func, optimizer)
+        loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
 
         if n_epoch % n_print == 0:

@@ -25,7 +25,12 @@ class FluxLoss(nn.Module):
         super().__init__()
 
         if hp.basis_type != 'none':
-            _, self.means, self.stds = standardize(Y)
+            amp, shape, shift = Y.transpose(0, 1)
+
+            self.std_amp = amp[amp != 0].std()
+            self.std_shape = shape[shape != 0].std()
+            self.std_shift = shift[shift != 0].std()
+
 
     def forward(
         self,
@@ -51,9 +56,17 @@ class FluxLoss(nn.Module):
 
         """
 
-        if hp.basis_type != 'none':
+        if (hp.basis_type != 'none'):
             if self.training:
-                targets, *_ = standardize(targets, self.means, self.stds)
+                errors = (targets - output).transpose(0, 1)
+                err_amp, err_shape, err_shift = errors                
+                idx = targets[:, 0] != 0
+
+                loss_amp = ((err_amp / self.std_amp) ** 2).mean()
+                loss_shape = ((err_shape[idx] / self.std_shape) ** 2).mean()
+                loss_shift = ((err_shift[idx] / self.std_shift) ** 2).mean()
+
+                return loss_amp + loss_shape + loss_shift
 
             else:
                 targets = apply_basis(targets)

@@ -24,7 +24,14 @@ _MODEL_COLORS = [
 
 def plot_training_samples(*args: str) -> None:
     """
-    
+    Plot training and evaluation samples from various sources.
+
+    Parameters
+    ----------
+    args
+        List of profile sources to plot. Can either be a valid `target_type` to
+        pass to `load_data`, or the path to a JITted trained `Surrogate`.
+
     """
 
     n_rows, n_cols = 2, 4
@@ -37,7 +44,7 @@ def plot_training_samples(*args: str) -> None:
     idx_ev = np.random.choice(idx_ev, n_cols, replace=False)
     idx = np.concatenate((idx_tr, idx_ev))
 
-    u, rays, _ = load_data('flux-coarse')
+    u, rays, _ = load_data('flux-fine')
     u, rays = u[idx], rays[idx]
 
     datas, colors, labels = [], [], []
