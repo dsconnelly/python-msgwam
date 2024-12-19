@@ -6,6 +6,8 @@ from msgwam import config
 
 from .. import hyperparameters as hp
 
+_Z_MAX = 3
+
 def apply_basis(
     proxies: torch.Tensor,
     n_grid: Optional[int]=None,
@@ -40,19 +42,47 @@ def apply_basis(
     if basis_type is None:
         basis_type = hp.basis_type
 
-    n_samples = proxies.shape[0]
-    proxies = proxies.reshape(n_samples, 3, -1, 1)
+    z = -torch.linspace(-_Z_MAX, _Z_MAX, n_grid)
+    amp, shape, shift = parse_proxies(proxies, add_z_dim=True)
+    curves = amp * _basis_func(shape * (z - shift), basis_type)
+
+    return curves.sum(dim=1)
+
+def parse_proxies(
+    proxies: torch.Tensor,
+    add_z_dim: bool=False
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Unpack a two-dimensional tensor of proxy variables into amplitude, shape,
+    and shift parameters, performing the necessary transformations.
+
+    Parameters
+    ----------
+    proxies
+        Tensor of proxy variables, as passed to `apply_basis`.
+    add_z_dim
+        Whether to append a dummy dimension so that these parameters can be used
+        later to evaluate the basis functions on a vertical grid.
+
+    Returns
+    -------
+    torch.Tensor, torch.Tensor, torch.Tensor
+        Two-dimensional tensors of ampltiude, shape, and shift parameters.
+
+    """
+
+    proxies = proxies.reshape(proxies.shape[0], 3, -1)
+    
+    if add_z_dim:
+        proxies = proxies[..., None]
+
     amp, shape, shift = proxies.transpose(0, 1)
-    z = -torch.linspace(-3, 3, n_grid)
 
     amp = torch.softmax(amp, dim=1)
     shape = nn.functional.softplus(shape)
-    shift = 1.1 * z.max() * torch.tanh(shift)
+    shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
-    arg = shape * (z - shift)
-    curves = amp * _basis_func(arg, basis_type)
-
-    return curves.sum(dim=1)
+    return amp, shape, shift
 
 def _basis_func(z: torch.Tensor, basis_type: str) -> torch.Tensor:
     """

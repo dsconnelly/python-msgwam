@@ -11,7 +11,8 @@ from ..utils import (
     apply_basis,
     get_overrides,
     get_workload,
-    load_data
+    load_data,
+    parse_proxies
 )
 
 def save_proxies(
@@ -43,6 +44,7 @@ def save_proxies(
 
     Y = abs(load_data(f'flux-{grain}')[-1])
     start, end = get_workload(Y.shape[0])
+    start, end = 0, hp.n_packets
     shape = (end - start, 3 * hp.n_basis)
     Y = Y[start:end]
 
@@ -79,7 +81,13 @@ def save_proxies(
 
             n_step = n_step + 1
 
-    proxies = proxies.detach().numpy()
+    proxies = proxies.detach()
+    *_, shift = parse_proxies(proxies)
+
+    jdx = torch.argsort(shift, dim=1)
+    jdx = torch.hstack((jdx, jdx + hp.n_basis, jdx + 2 * hp.n_basis))
+    proxies = torch.take_along_dim(proxies, jdx, dim=1)
+
     fname = f'proxies-{grain}-{basis_type}.npy'
     path = add_task_info(f'data/{config.name}/training/{fname}')
-    np.save(path, proxies)
+    np.save(path, proxies.numpy())

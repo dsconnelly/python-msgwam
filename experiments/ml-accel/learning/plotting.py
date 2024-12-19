@@ -32,9 +32,10 @@ def plot_training_samples(*args: str) -> None:
     fig.set_size_inches(n_cols * 3, n_rows * 4.5)
     axes = axes.flatten()
 
-    idx = get_indices('validation')[0]
-    n_samples = min(len(axes), len(idx))
-    idx = np.random.choice(idx, n_samples, replace=False)
+    idx_tr, idx_ev = get_indices('validation')
+    idx_tr = np.random.choice(idx_tr, n_cols, replace=False)
+    idx_ev = np.random.choice(idx_ev, n_cols, replace=False)
+    idx = np.concatenate((idx_tr, idx_ev))
 
     u, rays, _ = load_data('flux-coarse')
     u, rays = u[idx], rays[idx]
@@ -72,7 +73,8 @@ def plot_training_samples(*args: str) -> None:
         ax.set_xlim(-1.25, 1.25)
         ax.set_ylim(z_faces.min(), z_faces.max())
 
-        ax.set_title(f'sample {i}')
+        suffix = 'train' if n < n_cols else 'eval'
+        ax.set_title(f'sample {i} ({suffix})')
         ax.set_xlabel('normalized flux')
         ax.set_ylabel('height (km)')
 
