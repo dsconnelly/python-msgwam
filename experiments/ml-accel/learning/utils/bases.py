@@ -20,8 +20,7 @@ def apply_basis(
     Parameters
     ----------
     proxies
-        Tensor whose first dimension ranges over training samples and whose
-        second dimension ranges over coefficients for the basis functions.
+        Three-dimensional tensor, as returned by `postprocess_proxies`.
     n_grid
         Number of points in the coordinate grid on which to evaluate the basis
         functions. If `None`, uses the the value set in `config`.
@@ -43,46 +42,42 @@ def apply_basis(
         basis_type = hp.basis_type
 
     z = -torch.linspace(-_Z_MAX, _Z_MAX, n_grid)
-    amp, shape, shift = parse_proxies(proxies, add_z_dim=True)
+    amp, shape, shift = proxies[..., None].transpose(0, 1)
     curves = amp * _basis_func(shape * (z - shift), basis_type)
 
     return curves.sum(dim=1)
 
-def parse_proxies(
-    proxies: torch.Tensor,
-    add_z_dim: bool=False
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def postprocess_proxies(proxies: torch.Tensor) -> torch.Tensor:
     """
-    Unpack a two-dimensional tensor of proxy variables into amplitude, shape,
-    and shift parameters, performing the necessary transformations.
+    Transform unconstrained data into amplitude, shape, and shift parameters.
 
     Parameters
     ----------
     proxies
-        Tensor of proxy variables, as passed to `apply_basis`.
-    add_z_dim
-        Whether to append a dummy dimension so that these parameters can be used
-        later to evaluate the basis functions on a vertical grid.
+        Three-dimensional tensor whose first dimension ranges over samples,
+        whose second dimension ranges over the three kinds of proxy variable,
+        and whose third dimension ranges over basis functions.
 
     Returns
     -------
-    torch.Tensor, torch.Tensor, torch.Tensor
-        Two-dimensional tensors of ampltiude, shape, and shift parameters.
+    torch.Tensor
+        Postprocessed tensor of the same shape as `proxies`. Variables are
+        constrained to fall within sensible bounds, and the shape and shift
+        variables are set to zero where the amplitude is zero.
 
     """
 
-    proxies = proxies.reshape(proxies.shape[0], 3, -1)
-    
-    if add_z_dim:
-        proxies = proxies[..., None]
-
     amp, shape, shift = proxies.transpose(0, 1)
 
-    amp = torch.softmax(amp, dim=1)
+    amp = nn.functional.relu(amp)
+    amp = amp / amp.sum(dim=1)[:, None]
     shape = nn.functional.softplus(shape)
     shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
-    return amp, shape, shift
+    idx = amp == 0
+    shape[idx] = shift[idx] = 0
+
+    return torch.stack((amp, shape, shift), dim=1)
 
 def _basis_func(z: torch.Tensor, basis_type: str) -> torch.Tensor:
     """

@@ -12,7 +12,7 @@ from ..utils import (
     get_overrides,
     get_workload,
     load_data,
-    parse_proxies
+    postprocess_proxies
 )
 
 def save_proxies(
@@ -44,8 +44,7 @@ def save_proxies(
 
     Y = abs(load_data(f'flux-{grain}')[-1])
     start, end = get_workload(Y.shape[0])
-    start, end = 0, hp.n_packets
-    shape = (end - start, 3 * hp.n_basis)
+    shape = (end - start, 3, hp.n_basis)
     Y = Y[start:end]
 
     proxies = torch.rand(*shape, dtype=torch.float64, requires_grad=True)
@@ -59,7 +58,8 @@ def save_proxies(
         while n_step < max_steps + 1 and ((time() - start) / 3600) < max_hours:
             optimizer.zero_grad()
 
-            output = apply_basis(proxies, basis_type=basis_type)
+            post = postprocess_proxies(proxies)
+            output = apply_basis(post, basis_type=basis_type)
             loss = loss_func(output, Y)
 
             loss.backward()
@@ -81,12 +81,13 @@ def save_proxies(
 
             n_step = n_step + 1
 
-    proxies = proxies.detach()
-    *_, shift = parse_proxies(proxies)
+    proxies = postprocess_proxies(proxies.detach())
+    amp, _, shift = proxies.transpose(0, 1)
+    shift = shift.clone()
 
-    jdx = torch.argsort(shift, dim=1)
-    jdx = torch.hstack((jdx, jdx + hp.n_basis, jdx + 2 * hp.n_basis))
-    proxies = torch.take_along_dim(proxies, jdx, dim=1)
+    shift[amp == 0] = torch.inf
+    jdx = torch.argsort(shift, dim=1)[:, None]
+    proxies = torch.take_along_dim(proxies, jdx, dim=2)
 
     fname = f'proxies-{grain}-{basis_type}.npy'
     path = add_task_info(f'data/{config.name}/training/{fname}')
