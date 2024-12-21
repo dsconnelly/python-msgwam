@@ -1,6 +1,6 @@
 from hashlib import sha1
 
-from .bases import apply_basis, postprocess_proxies
+from .bases import apply_basis, transform_proxies
 from .distributed import add_task_info, combine_data, get_workload
 from .io import get_indices, load_data
 from .overrides import get_overrides, with_overrides
@@ -15,8 +15,8 @@ __all__ = [
     'get_workload',
     'load_data',
     'make_seed',
-    'postprocess_proxies',
     'standardize',
+    'transform_proxies',
     'with_overrides'
 ]
 

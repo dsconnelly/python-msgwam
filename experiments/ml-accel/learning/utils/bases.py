@@ -20,7 +20,7 @@ def apply_basis(
     Parameters
     ----------
     proxies
-        Three-dimensional tensor, as returned by `postprocess_proxies`.
+        Three-dimensional tensor, as returned by `transform_proxies`.
     n_grid
         Number of points in the coordinate grid on which to evaluate the basis
         functions. If `None`, uses the the value set in `config`.
@@ -45,47 +45,45 @@ def apply_basis(
     amp, shape, shift = proxies[..., None].transpose(0, 1)
     curves = amp * _basis_func(shape * (z - shift), basis_type)
 
-    return curves.sum(dim=1)
+    return torch.nansum(curves, dim=1)
 
-def postprocess_proxies(
+def transform_proxies(
     proxies: torch.Tensor,
-    training: bool=False
+    amp_only: bool=False,
+    alpha: float=0
 ) -> torch.Tensor:
     """
-    Transform unconstrained data into amplitude, shape, and shift parameters.
+    Transform unconstrained proxy variables to appropriately bounded amplitude,
+    shape, and shift parameters.
 
     Parameters
     ----------
     proxies
         Three-dimensional tensor whose first dimension ranges over samples,
-        whose second dimension ranges over the three kinds of proxy variable,
-        and whose third dimension ranges over basis functions.
-    training
-        If `True`, then the amplitudes will be set to positive using a leaky
-        ReLU, and the other parameters will not be zeroed out, to facilitate
-        better neural network training.
+        whose second dimension ranges over to the three kinds of parameter, and
+        whose third dimension ranges over individual basis function.
+    amp_only
+        Whether to process all three variable kinds or only the amplitudes. The
+        latter is only necessary during coefficient fitting.
+    alpha
+        The amplitudes are transformed with a leaky ReLU unit, and `alpha` is
+        the negative slope of this transformation. Should be zero at inference
+        time, but can be varied during coefficient fitting if necessary.
 
     Returns
     -------
     torch.Tensor
-        Postprocessed tensor of the same shape as `proxies`. Variables are
-        constrained to fall within sensible bounds, and the shape and shift
-        variables are set to zero where the amplitude is zero.
+        Tensor of the same shape as `proxies` but with transformed data.
 
     """
 
     amp, shape, shift = proxies.transpose(0, 1)
-    func = nn.functional.leaky_relu if training else nn.functional.relu
-
-    amp = func(amp)
+    amp = nn.functional.leaky_relu(amp, alpha)
     amp = amp / amp.sum(dim=1)[:, None]
-    shape = nn.functional.softplus(shape)
-    shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
-    if not training:
-        idx = amp == 0
-        shape[idx] = 0
-        shift[idx] = 0
+    if not amp_only:
+        shape = nn.functional.softplus(shape)
+        shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
     return torch.stack((amp, shape, shift), dim=1)
 

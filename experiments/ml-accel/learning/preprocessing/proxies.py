@@ -12,16 +12,17 @@ from ..utils import (
     get_overrides,
     get_workload,
     load_data,
-    postprocess_proxies
+    transform_proxies
 )
 
 def save_proxies(
     grain: str,
     basis_type: str='logistic',
+    max_steps: int=8000,
     max_hours: int=5,
-    max_steps: int=5000,
-    patience: int=100,
-    stop_loss: float=0.00001
+    rolloff_start: int=500,
+    rolloff_end: int=1500,
+    patience: int=600,
 ) -> None:
     """
     Compute the best representation of the momentum flux profiles with a given
@@ -31,21 +32,26 @@ def save_proxies(
     ----------
     grain
         Whether to work with `'coarse'` or `'fine'` packets.
-    max_hours
-        How long the optimization can run before terminating.
     max_steps
         How many steps to take before terminating.
+    max_hours
+        How long the optimization can run before terminating.
+    rolloff_start, rolloff_end
+        Fitting proceeds in three stages. First, the amplitudes are normalized
+        with a leaky ReLU with constant negative slope. Next, the negative slope
+        is rolled off (decreased linearly to zero). Finally, fitting continues
+        with a hard ReLU until the loss fails to decrease for sufficiently many
+        steps. These two arguments set the start and end of the rolloff phase.    
     patience
-        How many steps can occur without lowering the loss before termination.
-    stop_loss
-        Loss value below which the optimization will terminate early.
+        How many steps can occur without lowering the loss before termination
+        after the negative slope has reached zero.
 
     """
 
     Y = abs(load_data(f'flux-{grain}')[-1])
     start, end = get_workload(Y.shape[0])
     shape = (end - start, 3, hp.n_basis)
-    Y = Y[start:end]
+    Y = torch.clamp(Y[start:end], max=1)
 
     proxies = torch.rand(*shape, dtype=torch.float64, requires_grad=True)
     optimizer = torch.optim.Adam([proxies], lr=0.1)
@@ -53,12 +59,16 @@ def save_proxies(
 
     n_step, start = 1, time()
     min_loss, n_stuck = torch.inf, 0
+    best_proxies = torch.zeros_like(proxies)
+
+    alpha = 1e-2
+    decrement = alpha / (rolloff_end - rolloff_start)
 
     with config.override(n_grid=get_overrides()['n_grid']):
         while n_step < max_steps + 1 and ((time() - start) / 3600) < max_hours:
             optimizer.zero_grad()
 
-            post = postprocess_proxies(proxies)
+            post = transform_proxies(proxies, alpha=alpha)
             output = apply_basis(post, basis_type=basis_type)
             loss = loss_func(output, Y)
 
@@ -66,26 +76,30 @@ def save_proxies(
             optimizer.step()
             print(f'step {n_step}: loss = {loss.item():.6f}')
 
-            n_stuck += 1
-            if loss < min_loss:
-                min_loss = loss
-                n_stuck = 0
+            if rolloff_start <= n_step < rolloff_end:
+                alpha = max(alpha - decrement, 0)
 
-            if n_stuck > patience:
-                print('Patience exceeded, terminating early')
-                break
+            if rolloff_end <= n_step:
+                n_stuck = n_stuck + 1
 
-            if loss < stop_loss:
-                print('Stop loss achieved, terminating early')
-                break
+                if loss < min_loss:
+                    best_proxies = proxies.clone()
+                    min_loss = loss
+                    n_stuck = 0
+
+                if n_stuck > patience:
+                    print('Patience exceeded, terminating early')
+                    break
 
             n_step = n_step + 1
 
-    proxies = postprocess_proxies(proxies.detach())
-    amp, _, shift = proxies.transpose(0, 1)
-    shift = shift.clone()
+    proxies = transform_proxies(best_proxies.detach(), amp_only=True)
+    amp, shape, shift = proxies.transpose(0, 1)
 
-    shift[amp == 0] = torch.inf
+    idx = amp == 0
+    shape[idx] = torch.nan
+    shift[idx] = torch.nan
+
     jdx = torch.argsort(shift, dim=1)[:, None]
     proxies = torch.take_along_dim(proxies, jdx, dim=2)
 
