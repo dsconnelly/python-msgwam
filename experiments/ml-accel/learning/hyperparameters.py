@@ -59,7 +59,7 @@ def load(path: str, i: Optional[int]=None, verbose: bool=False) -> None:
     """
 
     if i is None:
-        i = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
+        i = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
 
     globals()['grid_path'] = path
     globals()['task_id'] = i

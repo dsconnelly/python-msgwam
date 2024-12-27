@@ -3,7 +3,7 @@ import torch, torch.nn as nn
 from msgwam import config
 
 from .. import hyperparameters as hp
-from ..utils import postprocess_proxies
+from ..utils import get_proxy_statistics, transform_proxies
 
 from .base import SourceNet
 
@@ -16,6 +16,20 @@ class Surrogate(SourceNet):
     parameters to be passed to a family of basis functions satisfying certain
     properties, which are then used to compute the profile.
     """
+
+    def init_stats(self, *Xs):
+        """
+        
+        """
+
+        if hp.basis_type == 'none':
+            return super().init_stats(*Xs)
+        
+        super().init_stats(Xs[0])
+        means, stds = get_proxy_statistics(Xs[1])
+
+        self.means.append(means)
+        self.stds.append(stds)
 
     @property
     def _n_final(self) -> int:
@@ -40,7 +54,8 @@ class Surrogate(SourceNet):
             output = torch.clamp(output, min=0, max=1)
 
         if hp.basis_type != 'none':
+            alpha = 0.01 if self.training else 0
             output = output.reshape(-1, 3, hp.n_basis)
-            output = postprocess_proxies(output, self.training)
+            output = transform_proxies(output, alpha=alpha)
 
         return output

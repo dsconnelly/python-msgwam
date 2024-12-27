@@ -11,6 +11,7 @@ from ..utils import (
     apply_basis,
     get_overrides,
     get_workload,
+    init_proxies,
     load_data,
     transform_proxies
 )
@@ -18,10 +19,10 @@ from ..utils import (
 def save_proxies(
     grain: str,
     basis_type: str='logistic',
-    max_steps: int=8000,
+    max_steps: int=20000,
     max_hours: int=5,
-    rolloff_start: int=500,
-    rolloff_end: int=1500,
+    rolloff_start: int=1500,
+    rolloff_end: int=2500,
     patience: int=600,
 ) -> None:
     """
@@ -50,11 +51,12 @@ def save_proxies(
 
     Y = abs(load_data(f'flux-{grain}')[-1])
     start, end = get_workload(Y.shape[0])
+    start, end = 0, hp.n_packets
     shape = (end - start, 3, hp.n_basis)
     Y = torch.clamp(Y[start:end], max=1)
 
-    proxies = torch.rand(*shape, dtype=torch.float64, requires_grad=True)
-    optimizer = torch.optim.Adam([proxies], lr=0.1)
+    proxies = init_proxies(end - start)
+    optimizer = torch.optim.Adam([proxies], lr=0.01)
     loss_func = nn.MSELoss()
 
     n_step, start = 1, time()
@@ -74,7 +76,7 @@ def save_proxies(
 
             loss.backward()
             optimizer.step()
-            print(f'step {n_step}: loss = {loss.item():.6f}')
+            print(f'step {n_step}: loss = {loss.item():.8f}')
 
             if rolloff_start <= n_step < rolloff_end:
                 alpha = max(alpha - decrement, 0)
@@ -93,7 +95,8 @@ def save_proxies(
 
             n_step = n_step + 1
 
-    proxies = transform_proxies(best_proxies.detach(), amp_only=True)
+    print(f'Best loss was {min_loss:.8f}')
+    proxies = transform_proxies(best_proxies.detach())
     amp, shape, shift = proxies.transpose(0, 1)
 
     idx = amp == 0

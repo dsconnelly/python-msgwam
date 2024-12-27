@@ -1,12 +1,14 @@
 from typing import Optional
+from warnings import catch_warnings
 
 import torch, torch.nn as nn
 
 from msgwam import config
 
 from .. import hyperparameters as hp
+from .statistics import nanstd
 
-_Z_MAX = 3
+_Z_MAX = 0.5
 
 def apply_basis(
     proxies: torch.Tensor,
@@ -47,9 +49,71 @@ def apply_basis(
 
     return torch.nansum(curves, dim=1)
 
+def get_proxy_statistics(
+    proxies: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Calculate the correct mean and standard deviation for unconstrained proxy
+    variables. The main complication is that the amplitudes should be treated as
+    though the mean is zero, to avoid bias from the ReLU transformation.
+
+    Parameters
+    ----------
+    proxies
+        Tensor of proxy variables, as passed to `transform_proxies`.
+
+    Returns
+    -------
+    torch.Tensor, torch.Tensor
+        Tensors of means and standard deviations, each two-dimensional with the
+        first dimension ranging over the three kinds of proxy variables, and the
+        second dimension ranging over individual basis functions.
+
+    """
+
+    amp, *_ = proxies.transpose(0, 1)
+    with catch_warnings(action='ignore', category=RuntimeWarning):
+        means = torch.nanmean(proxies, dim=0)
+        stds = nanstd(proxies, dim=0)
+        
+    means[0] = 0
+    amp = amp.clone()
+    amp[amp == 0] = torch.nan
+    # stds[0] = torch.sqrt(torch.nanmean(amp ** 2, dim=0))
+    stds[0] = nanstd(amp, dim=0)
+
+    return torch.nan_to_num(means), torch.nan_to_num(stds)
+
+def init_proxies(n_packets: int) -> torch.Tensor:
+    """
+    Generate a good initial guess for the (unconstrained) proxies that is likely
+    to allow fitting to converge faster.
+
+    Parameters
+    ----------
+    n_packets
+        Number of packets to generate guesses for.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of proxy variables, as passed to `transform_proxies`. Has
+        `requires_grad` set to `True`.
+
+    """
+
+    amp = torch.ones(hp.n_basis) / hp.n_basis
+    shape = torch.log(20 * torch.ones(hp.n_basis))
+    shift = torch.atanh(torch.linspace(-_Z_MAX, _Z_MAX, hp.n_basis))
+
+    proxies = torch.vstack((amp, shape, shift)).double()
+    proxies = proxies[None].expand(n_packets, -1, -1).clone()
+    proxies.requires_grad_(True)
+
+    return proxies
+
 def transform_proxies(
     proxies: torch.Tensor,
-    amp_only: bool=False,
     alpha: float=0
 ) -> torch.Tensor:
     """
@@ -78,12 +142,12 @@ def transform_proxies(
     """
 
     amp, shape, shift = proxies.transpose(0, 1)
-    amp = nn.functional.leaky_relu(amp, alpha)
-    amp = amp / amp.sum(dim=1)[:, None]
 
-    if not amp_only:
-        shape = nn.functional.softplus(shape)
-        shift = 1.1 * _Z_MAX * torch.tanh(shift)
+    amp = nn.functional.leaky_relu(amp, alpha)
+    amp = amp / torch.clamp(amp.sum(dim=1)[:, None], min=1e-12)
+
+    shape = torch.exp(shape)
+    shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
     return torch.stack((amp, shape, shift), dim=1)
 

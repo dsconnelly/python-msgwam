@@ -19,6 +19,7 @@ from .utils import (
     get_indices,
     get_overrides,
     load_data,
+    transform_proxies
 )
 
 if TYPE_CHECKING:
@@ -70,6 +71,8 @@ def _train_network(
         Interval, in epochs, at which to print training and evaluation losses.
 
     """
+
+    torch.autograd.set_detect_anomaly(True)
 
     loader_tr, loader_ev = _load_datasets(target_type, eval_type)
     model, optimizer = load_model(target_type, eval_type, restart)
@@ -146,6 +149,9 @@ def _load_datasets(
 
     if target_type.startswith('flux'):
         targets = abs(targets)
+
+    else:
+        targets = torch.nan_to_num(targets)
 
     loaders = []
     for idx in (idx_tr, idx_ev):

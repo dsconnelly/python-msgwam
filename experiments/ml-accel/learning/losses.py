@@ -1,7 +1,12 @@
 import torch, torch.nn as nn
 
 from . import hyperparameters as hp
-from .utils import apply_basis, standardize
+from .utils import (
+    apply_basis,
+    get_proxy_statistics,
+    standardize,
+    transform_proxies
+)
 
 class FluxLoss(nn.Module):
     """
@@ -25,12 +30,8 @@ class FluxLoss(nn.Module):
         super().__init__()
 
         if hp.basis_type != 'none':
-            amp, shape, shift = Y.transpose(0, 1)
-
-            self.std_amp = amp[amp != 0].std()
-            self.std_shape = shape[shape != 0].std()
-            self.std_shift = shift[shift != 0].std()
-
+            self.means, self.stds = get_proxy_statistics(Y)
+            self.stds[self.stds == 0] = 1
 
     def forward(
         self,
@@ -56,19 +57,28 @@ class FluxLoss(nn.Module):
 
         """
 
-        if (hp.basis_type != 'none'):
+        if hp.basis_type != 'none':
+            
             if self.training:
-                errors = (targets - output).transpose(0, 1)
-                err_amp, err_shape, err_shift = errors                
-                idx = targets[:, 0] != 0
+                mask = (targets[:, 0] > 0).int()
+                errors = (targets - output) / self.stds
+                loss = (errors[:, 0] ** 2).sum()
 
-                loss_amp = ((err_amp / self.std_amp) ** 2).mean()
-                loss_shape = ((err_shape[idx] / self.std_shape) ** 2).mean()
-                loss_shift = ((err_shift[idx] / self.std_shift) ** 2).mean()
+                for i in range(1, 3):
+                    loss = loss + ((errors[:, i] * mask) ** 2).sum()
 
-                return loss_amp + loss_shape + loss_shift
+                return loss / (mask.numel() + 2 * mask.sum()).item()
 
             else:
+                error = ((output - targets) / self.stds) ** 2
+
+                keep = output[:, 0] > 0
+                error[:, 1][~keep] = torch.nan
+                error[:, 2][~keep] = torch.nan
+
+                e1, e2, e3 = torch.nanmean(error, dim=(0, 2))
+                print(e1.item(), e2.item(), e3.item())
+                
                 targets = apply_basis(targets)
                 output = apply_basis(output)
 

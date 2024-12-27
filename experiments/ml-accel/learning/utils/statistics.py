@@ -1,6 +1,15 @@
 from typing import Optional
 
+import numpy as np
 import torch
+
+def nanstd(a: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+    """
+    
+    """
+
+    kwargs['axis'] = kwargs.pop('dim', None)
+    return torch.as_tensor(np.nanstd(a.numpy(), *args, **kwargs))
 
 def standardize(
     a: torch.Tensor,
@@ -37,8 +46,19 @@ def standardize(
     if stds is None:
         stds = a.std(dim=0)
 
+    shape = a.shape
+    if len(shape) > 2:
+        a = a.flatten(1, -1)
+        means = means.flatten(0, -1)
+        stds = stds.flatten(0, -1)
+
     sdx = stds > 0
     output = torch.zeros_like(a)
     output[:, sdx] = (a - means)[:, sdx] / stds[sdx]
+
+    if len(shape) > 2:
+        output = output.reshape(shape)
+        means = means.reshape(shape[1:])
+        stds = stds.reshape(shape[1:])
 
     return output, means, stds

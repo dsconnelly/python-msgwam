@@ -8,7 +8,7 @@ from msgwam import config
 
 from .. import hyperparameters as hp
 
-from .bases import apply_basis
+from .proxies import apply_basis
 from .overrides import get_overrides
 
 def get_indices(
