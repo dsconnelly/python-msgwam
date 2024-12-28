@@ -38,6 +38,8 @@ batch_size: int
 learning_rate: float
 max_epochs: int
 max_hours: int
+rolloff_start: int
+rolloff_end: int
 stop_loss: float
 weight_decay: float
 
@@ -59,7 +61,7 @@ def load(path: str, i: Optional[int]=None, verbose: bool=False) -> None:
     """
 
     if i is None:
-        i = int(os.environ.get('SLURM_ARRAY_TASK_ID', 1))
+        i = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
 
     globals()['grid_path'] = path
     globals()['task_id'] = i

@@ -1,12 +1,10 @@
 from typing import Optional
-from warnings import catch_warnings
 
 import torch, torch.nn as nn
 
 from msgwam import config
 
 from .. import hyperparameters as hp
-from .statistics import nanstd
 
 _Z_MAX = 0.5
 
@@ -49,41 +47,6 @@ def apply_basis(
 
     return torch.nansum(curves, dim=1)
 
-def get_proxy_statistics(
-    proxies: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Calculate the correct mean and standard deviation for unconstrained proxy
-    variables. The main complication is that the amplitudes should be treated as
-    though the mean is zero, to avoid bias from the ReLU transformation.
-
-    Parameters
-    ----------
-    proxies
-        Tensor of proxy variables, as passed to `transform_proxies`.
-
-    Returns
-    -------
-    torch.Tensor, torch.Tensor
-        Tensors of means and standard deviations, each two-dimensional with the
-        first dimension ranging over the three kinds of proxy variables, and the
-        second dimension ranging over individual basis functions.
-
-    """
-
-    amp, *_ = proxies.transpose(0, 1)
-    with catch_warnings(action='ignore', category=RuntimeWarning):
-        means = torch.nanmean(proxies, dim=0)
-        stds = nanstd(proxies, dim=0)
-        
-    means[0] = 0
-    amp = amp.clone()
-    amp[amp == 0] = torch.nan
-    # stds[0] = torch.sqrt(torch.nanmean(amp ** 2, dim=0))
-    stds[0] = nanstd(amp, dim=0)
-
-    return torch.nan_to_num(means), torch.nan_to_num(stds)
-
 def init_proxies(n_packets: int) -> torch.Tensor:
     """
     Generate a good initial guess for the (unconstrained) proxies that is likely
@@ -103,7 +66,7 @@ def init_proxies(n_packets: int) -> torch.Tensor:
     """
 
     amp = torch.ones(hp.n_basis) / hp.n_basis
-    shape = torch.log(20 * torch.ones(hp.n_basis))
+    shape = _inv_softplus(20 * torch.ones(hp.n_basis))
     shift = torch.atanh(torch.linspace(-_Z_MAX, _Z_MAX, hp.n_basis))
 
     proxies = torch.vstack((amp, shape, shift)).double()
@@ -126,9 +89,6 @@ def transform_proxies(
         Three-dimensional tensor whose first dimension ranges over samples,
         whose second dimension ranges over to the three kinds of parameter, and
         whose third dimension ranges over individual basis function.
-    amp_only
-        Whether to process all three variable kinds or only the amplitudes. The
-        latter is only necessary during coefficient fitting.
     alpha
         The amplitudes are transformed with a leaky ReLU unit, and `alpha` is
         the negative slope of this transformation. Should be zero at inference
@@ -144,9 +104,10 @@ def transform_proxies(
     amp, shape, shift = proxies.transpose(0, 1)
 
     amp = nn.functional.leaky_relu(amp, alpha)
-    amp = amp / torch.clamp(amp.sum(dim=1)[:, None], min=1e-12)
+    total = torch.clamp(amp.sum(dim=1), min=1e-12)
+    amp = amp / total[:, None]
 
-    shape = torch.exp(shape)
+    shape = nn.functional.softplus(shape)
     shift = 1.1 * _Z_MAX * torch.tanh(shift)
 
     return torch.stack((amp, shape, shift), dim=1)
@@ -177,3 +138,21 @@ def _basis_func(z: torch.Tensor, basis_type: str) -> torch.Tensor:
         return (1 + 2 * z / torch.sqrt(1 + (2 * z) ** 2)) / 2
 
     raise ValueError(f'Unknown basis type: {basis_type}')
+
+def _inv_softplus(a: torch.Tensor) -> torch.Tensor:
+    """
+    Invert the softplus function.
+
+    Parameters
+    ----------
+    a
+        Tensor of positive values to invert.
+
+    Returns
+    -------
+    torch.Tensor
+        Inverted values.
+
+    """
+
+    return a + torch.log(-torch.expm1(-a))

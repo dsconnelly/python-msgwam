@@ -3,12 +3,7 @@ from hashlib import sha1
 from .distributed import add_task_info, combine_data, get_workload
 from .io import get_indices, load_data
 from .overrides import get_overrides, with_overrides
-from .proxies import (
-    apply_basis,
-    get_proxy_statistics,
-    init_proxies,
-    transform_proxies
-)
+from .proxies import apply_basis, init_proxies, transform_proxies
 from .statistics import standardize
 
 __all__ = [
@@ -17,7 +12,6 @@ __all__ = [
     'combine_data',
     'get_indices',
     'get_overrides',
-    'get_proxy_statistics',
     'get_workload',
     'init_proxies',
     'load_data',

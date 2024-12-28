@@ -18,8 +18,7 @@ from .utils import (
     apply_basis,
     get_indices,
     get_overrides,
-    load_data,
-    transform_proxies
+    load_data
 )
 
 if TYPE_CHECKING:
@@ -38,9 +37,8 @@ def train_network(
     function's docstring for explanations of each argument.
     """
 
-    p = 'flux' if hp.basis_type == 'none' else 'proxies'
     with config.override(n_grid=get_overrides()['n_grid']):
-        _train_network(f'{p}-{grain}', eval_type, restart, n_print)
+        _train_network(f'flux-{grain}', eval_type, restart, n_print)
 
 def _train_network(
     target_type: str,
@@ -72,11 +70,9 @@ def _train_network(
 
     """
 
-    torch.autograd.set_detect_anomaly(True)
-
     loader_tr, loader_ev = _load_datasets(target_type, eval_type)
     model, optimizer = load_model(target_type, eval_type, restart)
-    loss_func = FluxLoss(loader_tr.dataset.tensors[-1])
+    loss_func = FluxLoss()
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'Model {hp.task_id} has {n_params} trainable parameters.\n')
@@ -84,8 +80,13 @@ def _train_network(
     if not restart:
         model.init_stats(*loader_tr.dataset.tensors)
 
+    best_loss = torch.inf
+    state = {'task_id' : hp.task_id}
+
     n_epoch, start = 1, time()
     while n_epoch <= hp.max_epochs and (time() - start) / 3600 < hp.max_hours:
+        model.step(n_epoch)
+
         _ = _run_epoch(model, loader_tr, loss_func, optimizer)
         loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
@@ -95,17 +96,19 @@ def _train_network(
             print(f'loss_tr = {loss_tr:.6f}')
             print(f'loss_ev = {loss_ev:.6f}')
 
+        if loss_ev < best_loss:
+            state['model'] = model.state_dict()
+            state['optimizer'] = optimizer.state_dict()
+            best_loss = loss_ev
+
         if loss_ev < hp.stop_loss:
             print(f'Stopping early at epoch {n_epoch}')
             break
 
         n_epoch = n_epoch + 1
 
-    state = {
-        'model' : model.state_dict(),
-        'optimizer' : optimizer.state_dict(),
-        'task_id' : hp.task_id
-    }
+    print(f'Best loss was {best_loss:.6f}')
+    model.load_state_dict(state['model'])
 
     model.eval()
     for p in model.parameters():
@@ -148,10 +151,7 @@ def _load_datasets(
     idx_tr, idx_ev = get_indices(eval_type)
 
     if target_type.startswith('flux'):
-        targets = abs(targets)
-
-    else:
-        targets = torch.nan_to_num(targets)
+        targets = torch.clamp(abs(targets), max=1)
 
     loaders = []
     for idx in (idx_tr, idx_ev):

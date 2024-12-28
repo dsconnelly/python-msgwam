@@ -67,6 +67,20 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         subs = cls.__subclasses__()
         i = [s.__name__ for s in subs].index(name)
         return subs[i]()
+    
+    def step(self, n_epoch: int) -> None:
+        """
+        Inform the model of the current epoch during training. By default, does
+        nothing, but subclasses may wish to schedule certain behavior. 
+
+        Parameters
+        ----------
+        n_epoch
+            Current epoch.
+
+        """
+        
+        pass
 
     @staticmethod
     def _get_block(sizes: list[int], final: bool=False) -> nn.Sequential:

@@ -3,7 +3,7 @@ import torch, torch.nn as nn
 from msgwam import config
 
 from .. import hyperparameters as hp
-from ..utils import get_proxy_statistics, transform_proxies
+from ..utils import init_proxies, transform_proxies
 
 from .base import SourceNet
 
@@ -17,19 +17,51 @@ class Surrogate(SourceNet):
     properties, which are then used to compute the profile.
     """
 
-    def init_stats(self, *Xs):
+    def __init__(self):
         """
         
         """
 
-        if hp.basis_type == 'none':
-            return super().init_stats(*Xs)
+        super().__init__()
         
-        super().init_stats(Xs[0])
-        means, stds = get_proxy_statistics(Xs[1])
+        if hp.basis_type != 'none':
+            guess = init_proxies(1).flatten()
+            layer: nn.Linear = self._blocks[-1][-1]
 
-        self.means.append(means)
-        self.stds.append(stds)
+            with torch.no_grad():
+                nn.init.zeros_(layer.weight)
+                layer.bias.data.copy_(guess)
+
+            self._alpha = 0.01
+            self._decrement = self.alpha / (hp.rolloff_end - hp.rolloff_start)
+
+    def step(self, n_epoch: int):
+        """
+        If this `Surrogate` is constrained, then the negative slope used to
+        transform proxy amplitudes is gradually zeroed out during training.
+
+        Parameters
+        ----------
+        n_epoch
+            Current epoch.
+
+        """
+
+        if hp.basis_type != 'none':
+            if hp.rolloff_start <= n_epoch <= hp.rolloff_end:
+                self._alpha = max(self._alpha - self._decrement, 0)
+
+    @property
+    def alpha(self) -> float:
+        """
+        Get the negative slope that should be used in transforming the proxy
+        amplitudes, if the network is constrained.
+        """
+
+        if self.training and (hp.basis_type != 'none'):
+            return self._alpha
+        
+        return 0
 
     @property
     def _n_final(self) -> int:
@@ -54,8 +86,7 @@ class Surrogate(SourceNet):
             output = torch.clamp(output, min=0, max=1)
 
         if hp.basis_type != 'none':
-            alpha = 0.01 if self.training else 0
             output = output.reshape(-1, 3, hp.n_basis)
-            output = transform_proxies(output, alpha=alpha)
+            output = transform_proxies(output, alpha=self.alpha)
 
         return output

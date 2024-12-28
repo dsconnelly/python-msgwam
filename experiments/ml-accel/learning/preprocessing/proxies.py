@@ -51,7 +51,6 @@ def save_proxies(
 
     Y = abs(load_data(f'flux-{grain}')[-1])
     start, end = get_workload(Y.shape[0])
-    start, end = 0, hp.n_packets
     shape = (end - start, 3, hp.n_basis)
     Y = torch.clamp(Y[start:end], max=1)
 
