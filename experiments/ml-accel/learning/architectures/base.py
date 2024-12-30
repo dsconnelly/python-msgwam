@@ -5,7 +5,7 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from ...hyperparameters import architectures as hp
+from ... import hyperparameters as hp
 
 from .standardizer import StandardizerMixin
 from .utils import xavier_init
@@ -107,18 +107,18 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         for a, b in zip(sizes[:-1], sizes[1:]):
             args.append(nn.Linear(a, b))
 
-            if hp.batch_norm_pos == -1:
+            if hp.architectures.batch_norm_pos == -1:
                 args.append(nn.BatchNorm1d(b))
 
             args.append(nn.ReLU())
 
-            if hp.batch_norm_pos == 1:
+            if hp.architectures.batch_norm_pos == 1:
                 args.append(nn.BatchNorm1d(b))
 
-            args.append(nn.Dropout(hp.dropout_rate))
+            args.append(nn.Dropout(hp.architectures.dropout_rate))
 
         if final:
-            n_drop = 2 + abs(hp.batch_norm_pos)
+            n_drop = 2 + abs(hp.architectures.batch_norm_pos)
             args = args[:-n_drop]
 
         return nn.Sequential(*args)
@@ -132,12 +132,14 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         """
 
         self._blocks = nn.ModuleList()
-        length = hp.layers_per_block - 1
+        length = hp.architectures.layers_per_block - 1
         
-        for i in range(hp.n_blocks):
-            final = i == hp.n_blocks - 1
+        for i in range(hp.architectures.n_blocks):
+            final = i == hp.architectures.n_blocks - 1
             n_last = self._n_final if final else self._n_inputs
-            sizes = [self._n_inputs] + [hp.layer_size] * length + [n_last]
+
+            layer_size = hp.architectures.layer_size
+            sizes = [self._n_inputs] + [layer_size] * length + [n_last]
             self._blocks.append(self._get_block(sizes, final))
 
     @property
@@ -157,7 +159,7 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         and one for each ray volume property considered.
         """
 
-        return (config.n_grid - 1) + 3
+        return hp.generation.n_history * (config.n_grid - 1) + 3
 
     def _predict(self, X: torch.Tensor) -> torch.Tensor:
         """

@@ -111,13 +111,11 @@ def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
         mean.step(None, n_step)
         data, _ = source.launch(mean, n_step)
         n_add = min(data.shape[1], n_packets - i)
+        rays[i:(i + n_add)] = data.T[:n_add]
 
         for k in range(hp.generation.n_history):
             if n_step - k * n_lookback >= 0:
                 u[i:(i + n_add), k] = mean._wind[n_step - k * n_lookback, 0]
-
-        u[i:(i + n_add)] = mean.u
-        rays[i:(i + n_add)] = data.T[:n_add]
 
         i = i + n_add
         if i == n_packets:

@@ -185,7 +185,7 @@ def _make_inputs(u: torch.Tensor, rays: torch.Tensor) -> torch.Tensor:
 
     k, l, m, dk, dl, dm, dens = rays.T
     log_A = torch.log(dens * dk * dl * dm)
-    u = u * torch.sign(k)[:, None]
+    u = u.flatten(1, 2) * torch.sign(k)[:, None]
 
     omega_hat = get_omega_hat(k, l, m, config.N_ref)
     T_hat = 2 * torch.pi / omega_hat
