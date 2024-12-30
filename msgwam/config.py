@@ -72,7 +72,7 @@ shapiro_filter: bool
 # 'network' propagator
 ################################################################################
 network_path: str
-time_horizon: int
+time_horizon: float
 
 ################################################################################
 # 'packet' source

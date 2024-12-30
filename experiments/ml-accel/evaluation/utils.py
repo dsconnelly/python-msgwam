@@ -64,7 +64,7 @@ def load_data(
     """
 
     if not path.endswith('.nc'):
-        path = f'data/{config.name}/{path}.nc'
+        path = f'data/{config.name}/strategies/{path}.nc'
 
     with open_dataset(path) as ds:
         z_faces, z_centers = get_vertical_grids()

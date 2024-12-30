@@ -32,24 +32,10 @@ class NetworkPropagator(Propagator):
 
         self.step(mean, 0)
 
-    def get_fluxes(
-        self,
-        mean: MeanState,
-        net: bool=True
-    ) -> np.ndarray:
+    def get_fluxes(self, _, net: bool=True) -> np.ndarray:
         """
         
         """
-
-        X = torch.as_tensor(self._to_launch.T)
-        u = torch.as_tensor(mean.u[None]).expand(X.shape[0], -1)
-
-        output = self.model(u, X).numpy()
-        output = self._dimensionalize(self._to_launch.T, output)
-        idxs = [self._to_launch[0] > 0, self._to_launch[0] < 0]
-
-        for i, idx in enumerate(idxs):
-            self._forecast[i] += output[idx].sum(axis=0)
 
         zonal = self._forecast[:, 0]
         meridional = np.zeros((2, config.n_grid))
@@ -62,9 +48,6 @@ class NetworkPropagator(Propagator):
         if config.shapiro_filter:
             fluxes[:, 1:-1] = shapiro_filter(fluxes.T).T
 
-        self._forecast = np.roll(self._forecast, -1, axis=1)
-        self._forecast[:, -1] = 0
-
         return fluxes
 
     def step(self, mean: MeanState, n_step: int) -> Self:
@@ -73,13 +56,26 @@ class NetworkPropagator(Propagator):
         querying of the potentially time-variable source.
         """
 
+        self._forecast = np.roll(self._forecast, -1, axis=1)
+        self._forecast[:, -1] = 0
+
         self._until_next -= 1
         cdx = self._until_next == 0
-        self._to_launch, _ = self._source.launch(mean, n_step, cdx)
+        to_launch, _ = self._source.launch(mean, n_step, cdx)
 
-        k, l, m, *_ = self._to_launch
-        cg_r = get_cg_r(k, l, m, config.N_ref)
+        k, l, m, *_ = to_launch
+        cg_r = get_cg_r(k, l, m, mean.N[0])
         self._until_next[cdx] = np.ceil(config.dr_init / cg_r / config.dt)
+
+        X = torch.as_tensor(to_launch.T)
+        u = torch.as_tensor(mean.u[None]).expand(X.shape[0], -1)
+        
+        output = self.model(u, X).numpy()
+        output = self._dimensionalize(to_launch, output)
+        idxs = [to_launch[0] > 0, to_launch[0] < 0]
+
+        for i, idx in enumerate(idxs):
+            self._forecast[i] += output[idx].sum(axis=0)
 
         return self
 
@@ -88,7 +84,7 @@ class NetworkPropagator(Propagator):
         
         """
 
-        k, l, m, dk, dl, dm, dens = X.T
+        k, l, m, dk, dl, dm, dens = X
         cg_r = get_cg_r(k, l, m, config.N_ref)
         T = (config.z_max - config.z_min) / cg_r
         T = np.minimum(T, config.time_horizon * 86400)
