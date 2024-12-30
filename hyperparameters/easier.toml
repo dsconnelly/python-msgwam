@@ -1,6 +1,6 @@
 [evaluation]
-period_min = 1
-period_max = 5
+period_min = 4
+period_max = 4
 wvl_min = 5e3
 wvl_max = 30e3
 z_decay = 45e3
@@ -10,7 +10,7 @@ z_turn = 55e3
 dt_launch = 3600
 lookback = 10800
 max_days = 10
-n_history = 2
+n_history = 1
 n_packets = 1000000
 speedup = 25
 

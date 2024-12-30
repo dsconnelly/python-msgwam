@@ -5,7 +5,7 @@ import numpy as np
 
 from msgwam import config
 from msgwam.integration import integrate
-from msgwam.means import MeanState
+from msgwam.means import PrescribedWind
 from msgwam.sources import Source
 from msgwam.sources.spectra import _gaussians
 from msgwam.utils import shapiro_filter
@@ -17,6 +17,7 @@ from ..utils import add_task_info, get_overrides, get_workload, make_seed
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
+    from msgwam.means import MeanState
     from msgwam.propagators import TransientPropagator
 
 class EnoughPackets(Exception):
@@ -65,10 +66,11 @@ def save_training_data() -> None:
 
     datas = [u, rays, Y_coarse, Y_fine]
     names = ['u', 'rays', 'flux-coarse', 'flux-fine']
+    keep = np.isnan(u).sum(axis=(1, 2)) == 0
 
     for data, name in zip(datas, names):
         path = f'data/{config.name}/training/{name}.npy'
-        np.save(add_task_info(path), data)
+        np.save(add_task_info(path), data[keep])
 
 def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -93,11 +95,13 @@ def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
 
     """
 
-    u = np.zeros((n_packets, config.n_grid - 1))
+    shape = (n_packets, hp.generation.n_history, config.n_grid - 1)
+    u = np.full(shape, fill_value=np.nan)
     rays = np.zeros((n_packets, 7))
 
-    mean = MeanState.from_name('prescribed')
+    mean = PrescribedWind()
     source = Source.from_name('packet')
+    n_lookback = int(hp.generation.lookback // config.dt)
 
     i = 0
     for n_step in range(config.n_steps):
@@ -107,6 +111,10 @@ def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
         mean.step(None, n_step)
         data, _ = source.launch(mean, n_step)
         n_add = min(data.shape[1], n_packets - i)
+
+        for k in range(hp.generation.n_history):
+            if n_step - k * n_lookback >= 0:
+                u[i:(i + n_add), k] = mean._wind[n_step - k * n_lookback, 0]
 
         u[i:(i + n_add)] = mean.u
         rays[i:(i + n_add)] = data.T[:n_add]
