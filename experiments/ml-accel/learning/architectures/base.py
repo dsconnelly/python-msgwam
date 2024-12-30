@@ -5,7 +5,7 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ...hyperparameters import architectures as hp
 
 from .standardizer import StandardizerMixin
 from .utils import xavier_init

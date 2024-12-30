@@ -3,7 +3,7 @@ from os import environ, listdir
 import numpy as np
 import torch
 
-from .. import hyperparameters as hp
+from ... import hyperparameters as hp
 
 N_TASKS = int(environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 

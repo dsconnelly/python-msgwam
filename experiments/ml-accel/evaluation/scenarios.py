@@ -9,10 +9,7 @@ from msgwam.constants import EPOCH
 from msgwam.sources.spectra import _gaussians
 from msgwam.utils import get_vertical_grids, make_colored_noise, shapiro_filter
 
-_PERIOD_BOUNDS = [1, 5]
-_WVL_BOUNDS = [5e3, 30e3]
-_Z_DECAY = 45e3
-_Z_TURN = 55e3
+from ..hyperparameters import evaluation as hp
 
 def save_descending_jets() -> None:
     """
@@ -70,19 +67,20 @@ def _get_descending_jets(
 
     rng = np.random.default_rng(seed)
     args = [seconds, 5 * 86400, 5 * 86400]
-    period = make_colored_noise(*args, *_PERIOD_BOUNDS, rng) * 86400
+    period_bounds = [hp.period_min, hp.period_max]
+    period = make_colored_noise(*args, *period_bounds, rng) * 86400
     
-    wvl = _WVL_BOUNDS[1] * np.ones_like(z)
-    fade = (z - _Z_TURN) / (config.z_max - _Z_TURN)
-    wvl[z > _Z_TURN] += (_WVL_BOUNDS[0] - _WVL_BOUNDS[1]) * fade[z > _Z_TURN]
+    wvl = hp.wvl_max * np.ones_like(z)
+    fade = (z - hp.z_turn) / (config.z_max - hp.z_turn)
+    wvl[z > hp.z_turn] += (hp.wvl_min - hp.wvl_max) * fade[z > hp.z_turn]
 
     dz = z[1] - z[0]
     k = np.cumsum(1 / period) * config.dt
     ell = np.cumsum(1 / wvl)[:, None] * dz
 
-    decay = np.exp(-((z - _Z_DECAY) / 10e3) ** 2)
-    env = 1 + (z - _Z_DECAY) / (config.z_max - _Z_DECAY)
-    env[z < _Z_DECAY] = decay[z < _Z_DECAY]
+    decay = np.exp(-((z - hp.z_decay) / 10e3) ** 2)
+    env = 1 + (z - hp.z_decay) / (config.z_max - hp.z_decay)
+    env[z < hp.z_decay] = decay[z < hp.z_decay]
 
     wave = np.exp(2j * np.pi * (k + ell)).real.T
     args = [[seconds, z], [86400, 15e3], [3600, 500]]

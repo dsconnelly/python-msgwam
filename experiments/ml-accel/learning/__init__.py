@@ -1,4 +1,3 @@
-from . import hyperparameters as hp
 from .plotting import plot_training_samples
 from .preprocessing import (
     invert_surrogate,
@@ -10,7 +9,6 @@ from .training import train_network
 from .utils import combine_data
 
 __all__ = [
-    'hp',
     'combine_data',
     'invert_surrogate',
     'plot_training_samples',

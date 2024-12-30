@@ -1,6 +1,6 @@
 import torch, torch.nn as nn
 
-from . import hyperparameters as hp
+from .. import hyperparameters as hp
 from .utils import apply_basis
 
 class FluxLoss(nn.Module):
@@ -33,7 +33,7 @@ class FluxLoss(nn.Module):
 
         """
 
-        if hp.basis_type != 'none':
+        if hp.architectures.basis_type != 'none':
             output = apply_basis(output)
 
         return ((targets - output) ** 2).mean()

@@ -1,30 +1,32 @@
-################################################################################
-# generation
-################################################################################
-dt_launch = [3600]
-max_days = [10]
-n_packets = [1000000]
-speedup = [25]
+[evaluation]
+period_min = 1
+period_max = 5
+wvl_min = 5e3
+wvl_max = 30e3
+z_decay = 45e3
+z_turn = 55e3
 
-################################################################################
-# architectures
-################################################################################
+[generation]
+dt_launch = 3600
+max_days = 10
+n_packets = 1000000
+speedup = 25
+
+[architectures]
 basis_type = ['none', 'logistic']
 batch_norm_pos = [-1, 0, 1]
 dropout_rate = [0, 0.5]
-layer_size = [256]
+layer_size = 256
 layers_per_block = [3, 6]
-n_basis = [16]
+n_basis = 16
 n_blocks = [2, 5, 8]
 
-################################################################################
-# training
-################################################################################
-batch_size = [32]
-learning_rate = [1e-4]
-max_epochs = [200]
-max_hours = [5]
-rolloff_start = [50]
-rolloff_end = [150]
-stop_loss = [0.0001]
-weight_decay = [0.05]
+[training]
+batch_size = 32
+learning_rate = 1e-4
+max_epochs = 200
+max_hours = 5
+rolloff_start = 50
+rolloff_end = 150
+stop_loss = 0.0001
+weight_decay = [0, 0.05]

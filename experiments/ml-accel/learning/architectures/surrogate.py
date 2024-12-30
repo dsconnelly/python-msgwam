@@ -2,7 +2,7 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ... import hyperparameters as hp
 from ..utils import init_proxies, transform_proxies
 
 from .base import SourceNet
@@ -24,7 +24,7 @@ class Surrogate(SourceNet):
 
         super().__init__()
         
-        if hp.basis_type != 'none':
+        if hp.architectures.basis_type != 'none':
             guess = init_proxies(1).flatten()
             layer: nn.Linear = self._blocks[-1][-1]
 
@@ -33,7 +33,8 @@ class Surrogate(SourceNet):
                 layer.bias.data.copy_(guess)
 
             self._alpha = 0.01
-            self._decrement = self.alpha / (hp.rolloff_end - hp.rolloff_start)
+            n_rolloff = hp.training.rolloff_end - hp.training.rolloff_start
+            self._decrement = self.alpha / n_rolloff
 
     def step(self, n_epoch: int):
         """
@@ -47,8 +48,8 @@ class Surrogate(SourceNet):
 
         """
 
-        if hp.basis_type != 'none':
-            if hp.rolloff_start <= n_epoch <= hp.rolloff_end:
+        if hp.architectures.basis_type != 'none':
+            if hp.training.rolloff_start <= n_epoch <= hp.training.rolloff_end:
                 self._alpha = max(self._alpha - self._decrement, 0)
 
     @property
@@ -58,7 +59,7 @@ class Surrogate(SourceNet):
         amplitudes, if the network is constrained.
         """
 
-        if self.training and (hp.basis_type != 'none'):
+        if self.training and (hp.architectures.basis_type != 'none'):
             return self._alpha
         
         return 0
@@ -82,11 +83,11 @@ class Surrogate(SourceNet):
         sign-definite and respect momentum conservation.
         """
 
-        if (hp.basis_type == 'none') and (not self.training):
+        if (hp.architectures.basis_type == 'none') and (not self.training):
             output = torch.clamp(output, min=0, max=1)
 
-        if hp.basis_type != 'none':
-            output = output.reshape(-1, 3, hp.n_basis)
+        if hp.architectures.basis_type != 'none':
+            output = output.reshape(-1, 3, hp.architectures.n_basis)
             output = transform_proxies(output, alpha=self.alpha)
 
         return output

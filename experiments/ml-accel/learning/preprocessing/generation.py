@@ -12,7 +12,7 @@ from msgwam.utils import shapiro_filter
 
 from ...evaluation.scenarios import _get_descending_jets
 
-from .. import hyperparameters as hp
+from ... import hyperparameters as hp
 from ..utils import add_task_info, get_overrides, get_workload, make_seed
 
 if TYPE_CHECKING:
@@ -53,7 +53,7 @@ def save_training_data() -> None:
     averaged momentum flux profiles for each fine and coarse packet.
     """
 
-    start, end = get_workload(hp.n_packets)
+    start, end = get_workload(hp.generation.n_packets)
     n_packets = end - start
 
     with config.override(**get_overrides()):
@@ -146,7 +146,7 @@ def _generate_outputs(n_packets: int) -> np.ndarray:
         _ = integrate(callback)
 
     except EnoughPackets:
-        return config.dt * Y / (hp.max_days * 86400)
+        return config.dt * Y / (hp.generation.max_days * 86400)
     
     raise NotEnoughPackets
 

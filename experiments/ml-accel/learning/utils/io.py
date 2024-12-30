@@ -6,7 +6,7 @@ import torch
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ... import hyperparameters as hp
 
 from .proxies import apply_basis
 from .overrides import get_overrides
@@ -37,7 +37,7 @@ def get_indices(
     """
 
     if n_packets is None:
-        n_packets = hp.n_packets
+        n_packets = hp.generation.n_packets
 
     a = int(0.7 * n_packets)
     b = int(0.85 * n_packets)
@@ -88,7 +88,7 @@ def load_data(
         Y = torch.as_tensor(np.load(f'{data_dir}/flux-{grain}.npy'))
 
         if kwargs.get('nondimensional', True):
-            T = hp.max_days * 86400
+            T = hp.generation.max_days * 86400
             k, *_, dk, dl, dm, dens = rays.T
             action = dens * dk * dl * dm
 
@@ -96,7 +96,7 @@ def load_data(
             Y = Y / factor[:, None]
 
     elif target_type == 'proxies':
-        fname = f'proxies-{grain}-{hp.basis_type}.npy'
+        fname = f'proxies-{grain}-{hp.architectures.basis_type}.npy'
         Y = torch.as_tensor(np.load(f'{data_dir}/{fname}'))
 
         if kwargs.get('reconstructed', False):

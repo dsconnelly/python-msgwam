@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, TensorDataset
 from msgwam import config
 from msgwam.dispersion import get_omega_hat
 
-from . import hyperparameters as hp
+from .. import hyperparameters as hp
 from .architectures import Surrogate, get_model_dir, load_model
 from .losses import FluxLoss
 from .utils import (
@@ -83,12 +83,15 @@ def _train_network(
     best_loss = torch.inf
     state = {'task_id' : hp.task_id}
 
+    max_epochs = hp.training.max_epochs
+    max_hours = hp.training.max_hours
     n_epoch, start = 1, time()
-    while n_epoch <= hp.max_epochs and (time() - start) / 3600 < hp.max_hours:
+
+    while n_epoch <= max_epochs and (time() - start) / 3600 < max_hours:
         model.step(n_epoch)
 
-        _ = _run_epoch(model, loader_tr, loss_func, optimizer)
-        loss_tr = _run_epoch(model, loader_tr, loss_func)
+        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        # loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
 
         if n_epoch % n_print == 0:
@@ -101,7 +104,7 @@ def _train_network(
             state['optimizer'] = optimizer.state_dict()
             best_loss = loss_ev
 
-        if loss_ev < hp.stop_loss:
+        if loss_ev < hp.training.stop_loss:
             print(f'Stopping early at epoch {n_epoch}')
             break
 
@@ -157,7 +160,7 @@ def _load_datasets(
     for idx in (idx_tr, idx_ev):
         X = _make_inputs(u[idx], rays[idx])
         data = TensorDataset(X, targets[idx])
-        loaders.append(DataLoader(data, hp.batch_size, shuffle=True))
+        loaders.append(DataLoader(data, hp.training.batch_size, shuffle=True))
 
     return tuple(loaders)
 
@@ -218,7 +221,7 @@ def _make_trace_func(model) -> _TraceFunc:
             signs = torch.sign(rays[:, 0])[:, None]
             Y = model(_make_inputs(u, rays))
 
-            if hp.basis_type != 'none':
+            if hp.architectures.basis_type != 'none':
                 Y = apply_basis(Y)
 
             return signs * Y

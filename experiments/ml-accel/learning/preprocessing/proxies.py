@@ -5,7 +5,7 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ...hyperparameters import architectures as hp
 from ..utils import (
     add_task_info,
     apply_basis,

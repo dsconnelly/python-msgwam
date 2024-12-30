@@ -7,7 +7,7 @@ from torch.optim import Adam
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ... import hyperparameters as hp
 
 from .base import SourceNet
 
@@ -79,11 +79,11 @@ def load_model(
 
     cls_name = _get_class_name(target_type)
     model = SourceNet.from_name(cls_name.capitalize())
-    weight_decay = hp.weight_decay * hp.learning_rate
+    weight_decay = hp.training.weight_decay * hp.training.learning_rate
 
     optimizer = Adam(
         model.parameters(),
-        lr=hp.learning_rate,
+        lr=hp.training.learning_rate,
         weight_decay=weight_decay
     )
 

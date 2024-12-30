@@ -4,7 +4,7 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ...hyperparameters import architectures as hp
 
 _Z_MAX = 0.5
 

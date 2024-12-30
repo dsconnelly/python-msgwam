@@ -5,7 +5,7 @@ import numpy as np
 
 from msgwam import config
 
-from .. import hyperparameters as hp
+from ...hyperparameters import generation as hp
 
 from .distributed import N_TASKS, add_task_info
 
