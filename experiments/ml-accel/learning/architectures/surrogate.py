@@ -74,7 +74,10 @@ class Surrogate(SourceNet):
         be passed to the basis functions.
         """
 
-        return config.n_grid if hp.basis_type == 'none' else 3 * hp.n_basis
+        if hp.architectures.basis_type == 'none':
+            return config.n_grid
+        
+        return 3 * hp.architectures.n_basis
 
     def _postprocess(self, _, output: torch.Tensor) -> torch.Tensor:
         """
