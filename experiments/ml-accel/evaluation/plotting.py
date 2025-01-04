@@ -155,7 +155,7 @@ def plot_mean_state() -> None:
     with open_dataset(config.prescribed_wind_file) as ds:
         u = ds['u']
 
-    _, cbar = plot_time_series(u, 50, axes[1:], cmap='PuOr_r')
+    _, cbar = plot_time_series(u, 60, axes[1:], cmap='PuOr_r')
     cbar.set_label('$\\bar{u}$ (m / s)')
 
     z = u['z_centers'].values / 1000

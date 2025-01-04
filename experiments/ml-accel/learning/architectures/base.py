@@ -67,20 +67,6 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         subs = cls.__subclasses__()
         i = [s.__name__ for s in subs].index(name)
         return subs[i]()
-    
-    def step(self, n_epoch: int) -> None:
-        """
-        Inform the model of the current epoch during training. By default, does
-        nothing, but subclasses may wish to schedule certain behavior. 
-
-        Parameters
-        ----------
-        n_epoch
-            Current epoch.
-
-        """
-        
-        pass
 
     @staticmethod
     def _get_block(sizes: list[int], final: bool=False) -> nn.Sequential:
@@ -131,15 +117,33 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         more complex behavior may extend this function.
         """
 
-        self._blocks = nn.ModuleList()
+        n_encoded = hp.architectures.n_encoded
+        kernel_size = hp.architectures.kernel_size
+        n_history = hp.generation.n_history
+
+        sizes = [n_history, 64]
+        while len(sizes) < hp.architectures.n_convs + 1:
+            sizes.append(2 * sizes[-1])
+
+        args = []
+        for a, b in zip(sizes[:-1], sizes[1:]):
+            conv = nn.Conv1d(a, b, kernel_size, padding=1)
+            args.extend([conv, nn.ReLU(), nn.MaxPool1d(kernel_size=2)])
+            args.append(nn.Dropout(hp.architectures.dropout_rate))
+
+        norm = nn.BatchNorm1d(n_encoded)
+        conv = nn.Conv1d(sizes[-1], n_encoded, 1)
+        self._encoder = nn.Sequential(*args, conv, _GlobalMaxPool(), norm)
+
+        n_input = (config.n_grid - 1) + n_encoded + 3
         length = hp.architectures.layers_per_block - 1
-        
+        layer_size = hp.architectures.layer_size
+
+        self._blocks = nn.ModuleList()
         for i in range(hp.architectures.n_blocks):
             final = i == hp.architectures.n_blocks - 1
-            n_last = self._n_final if final else self._n_inputs
-
-            layer_size = hp.architectures.layer_size
-            sizes = [self._n_inputs] + [layer_size] * length + [n_last]
+            n_last = self._n_final if final else n_input
+            sizes = [n_input] + [layer_size] * length + [n_last]
             self._blocks.append(self._get_block(sizes, final))
 
     @property
@@ -179,6 +183,13 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
 
         """
 
+        n_wind = hp.generation.n_history * (config.n_grid - 1)
+        wind = X[:, :n_wind].reshape(X.shape[0], hp.generation.n_history, -1)
+        convolved = self._encoder(wind)
+
+        spectra = X[:, n_wind:]
+        X = torch.hstack((wind[:, 0], convolved, spectra))
+
         output = X
         for block in self._blocks[:-1]:
             output = block(output) + X
@@ -208,3 +219,11 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
 
         """
         ...
+
+class _GlobalMaxPool(nn.Module):
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """
+        
+        """
+
+        return X.max(dim=-1)[0]

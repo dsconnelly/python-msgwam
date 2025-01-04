@@ -19,7 +19,7 @@ def save_descending_jets() -> None:
     """
 
     with config.override(dt=30, n_grid=501):
-        path = f'data/{config.name}/descending-jets.nc'
+        path = f'data/{config.name}/input/descending-jets.nc'
         _get_descending_jets().to_netcdf(path)
 
 def save_spectrum() -> None:
@@ -67,7 +67,7 @@ def _get_descending_jets(
 
     rng = np.random.default_rng(seed)
     args = [seconds, 5 * 86400, 5 * 86400]
-    period_bounds = [hp.period_min, hp.period_max]
+    period_bounds = [hp.osc_period_min, hp.osc_period_max]
     period = make_colored_noise(*args, *period_bounds, rng) * 86400
     
     wvl = hp.wvl_max * np.ones_like(z)
@@ -77,16 +77,18 @@ def _get_descending_jets(
     dz = z[1] - z[0]
     k = np.cumsum(1 / period) * config.dt
     ell = np.cumsum(1 / wvl)[:, None] * dz
-
-    decay = np.exp(-((z - hp.z_decay) / 10e3) ** 2)
-    env = 1 + (z - hp.z_decay) / (config.z_max - hp.z_decay)
-    env[z < hp.z_decay] = decay[z < hp.z_decay]
-
     wave = np.exp(2j * np.pi * (k + ell)).real.T
+
+    env = np.exp(-((z - hp.z_decay) / 25e3) ** 2)
+    env_lo = np.exp(-((z - hp.z_decay) / 10e3) ** 2)
+    env[z < hp.z_decay] = env_lo[z < hp.z_decay]
+
+    k = seconds / (hp.jet_period * 86400)
+    jet = np.exp(2j * np.pi * (k + rng.random())).real[:, None]
     args = [[seconds, z], [86400, 15e3], [3600, 500]]
     noise = make_colored_noise(*args, rng=rng)
 
-    u = 25 * env * wave + 10 * noise
+    u = 10 * jet + 65 * env * wave + 15 * noise
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

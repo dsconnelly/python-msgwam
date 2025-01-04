@@ -1,21 +1,22 @@
 [evaluation]
-period_min = 1
-period_max = 5
+jet_period = 14
+osc_period_min = 1
+osc_period_max = 5
 wvl_min = 5e3
-wvl_max = 30e3
-z_decay = 45e3
+wvl_max = 25e3
+z_decay = 40e3
 z_turn = 55e3
 
 [generation]
-dt_launch = 3600
-lookback = 10800
+dt_launch = 10800
+lookback = 7200
 max_days = 10
-n_history = 2
-n_packets = 1000000
-speedup = 25
+n_history = 4
+n_packets = 10000000
+speedup = 100
 
 [architectures]
-basis_type = ['none', 'logistic']
+basis_type = ['none', 'increment', 'logistic']
 batch_norm_pos = [-1, 0, 1]
 dropout_rate = [0, 0.5]
 layer_size = 256

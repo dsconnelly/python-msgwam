@@ -2,6 +2,7 @@ import os
 import tomllib
 
 from numpy import meshgrid, stack
+from types import ModuleType
 from typing import Optional
 from warnings import warn
 
@@ -12,6 +13,8 @@ task_id: int
 
 __all__ = [
     'architectures',
+    'display',
+    'evaluation',
     'generation',
     'grid_path',
     'load',
@@ -19,7 +22,20 @@ __all__ = [
     'training'
 ]
 
-def load(path: str, i: Optional[int]=None, verbose: bool=True) -> None:
+def display() -> None:
+    """Display the currently-loaded hyperparameter settings."""
+
+    for sub_name in __all__:
+        submodule = globals()[sub_name]
+        if not isinstance(submodule, ModuleType):
+            continue
+
+        for name in submodule.__annotations__:
+            print(f'{sub_name}.{name} = {getattr(submodule, name)}')
+
+        print()
+
+def load(path: str, i: Optional[int]=None) -> None:
     """
     Load hyperparameter settings from a TOML file. Parameters that are passed as
     lists of values instead of individual values will be assigned based on the
@@ -33,8 +49,6 @@ def load(path: str, i: Optional[int]=None, verbose: bool=True) -> None:
     i
         Index into flattened array, denoting the combination of hyperparameters
         to be used. If `None`, determined by the Slurm task.
-    verbose
-        Whether to print the hyperparameters after assignment.
     
     """
 
@@ -63,18 +77,9 @@ def load(path: str, i: Optional[int]=None, verbose: bool=True) -> None:
         warn('more jobs than hyperparameter settings')
         i = 0
 
-    last_name = None
     for name, value in zip(names, params[:, i]):
         sub_name, var_name = name.split('.')
         submodule = globals()[sub_name]
 
         value = submodule.__annotations__[var_name](value)
         setattr(submodule, var_name, value)
-
-        if verbose:
-            if (last_name is not None) and (last_name != sub_name):
-                print()
-            
-            print(f'{name} = {value}')
-            last_name = sub_name
-    

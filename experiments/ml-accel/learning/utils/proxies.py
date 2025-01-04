@@ -39,7 +39,7 @@ def apply_basis(
         n_grid = config.n_grid
 
     if basis_type is None:
-        basis_type = hp.basis_type
+        basis_type = hp.constraint
 
     z = -torch.linspace(-_Z_MAX, _Z_MAX, n_grid)
     amp, shape, shift = proxies[..., None].transpose(0, 1)
@@ -67,7 +67,7 @@ def init_proxies(n_packets: int) -> torch.Tensor:
 
     amp = torch.ones(hp.n_basis) / hp.n_basis
     shape = _inv_softplus(20 * torch.ones(hp.n_basis))
-    shift = torch.atanh(torch.linspace(-_Z_MAX, _Z_MAX, hp.n_basis))
+    shift = torch.atanh(torch.linspace(-1, 1, hp.n_basis))
 
     proxies = torch.vstack((amp, shape, shift)).double()
     proxies = proxies[None].expand(n_packets, -1, -1).clone()

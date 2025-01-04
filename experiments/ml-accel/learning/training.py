@@ -15,7 +15,6 @@ from .. import hyperparameters as hp
 from .architectures import Surrogate, get_model_dir, load_model
 from .losses import FluxLoss
 from .utils import (
-    apply_basis,
     get_indices,
     get_overrides,
     load_data
@@ -37,6 +36,7 @@ def train_network(
     function's docstring for explanations of each argument.
     """
 
+    hp.display()
     with config.override(n_grid=get_overrides()['n_grid']):
         _train_network(f'flux-{grain}', eval_type, restart, n_print)
 
@@ -88,8 +88,6 @@ def _train_network(
     n_epoch, start = 1, time()
 
     while n_epoch <= max_epochs and (time() - start) / 3600 < max_hours:
-        model.step(n_epoch)
-
         loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
         # loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
@@ -152,6 +150,9 @@ def _load_datasets(
 
     u, rays, targets = load_data(target_type)
     idx_tr, idx_ev = get_indices(eval_type)
+
+    # noise = torch.normal(0, 0.1, size=u.shape)
+    # u[idx_tr] = u[idx_tr] + noise[idx_tr]
 
     if target_type.startswith('flux'):
         targets = torch.clamp(abs(targets), max=1)
@@ -220,9 +221,6 @@ def _make_trace_func(model) -> _TraceFunc:
 
             signs = torch.sign(rays[:, 0])[:, None]
             Y = model(_make_inputs(u, rays))
-
-            if hp.architectures.basis_type != 'none':
-                Y = apply_basis(Y)
 
             return signs * Y
         

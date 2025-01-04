@@ -1,96 +1,80 @@
+from __future__ import annotations
 import torch, torch.nn as nn
 
 from msgwam import config
 
 from ... import hyperparameters as hp
-from ..utils import init_proxies, transform_proxies
+from ..utils import apply_basis, init_proxies, transform_proxies
 
 from .base import SourceNet
 
 class Surrogate(SourceNet):
     """
-    A `Surrogate` accepts a zonal wind profile along with a set of ray volume
-    properties and predicts the time-mean nondimensional momentum flux profile
-    associated with the corresponding packet over the integration period. If the
-    model is configured to be constrained, it makes this prediction by returning
-    parameters to be passed to a family of basis functions satisfying certain
-    properties, which are then used to compute the profile.
+    A `Surrogate` accepts information about the zonal wind and the source ray
+    volume properties, and predicts the time-mean nondimensional momentum flux
+    profile associated with the corresponding packet over the integration. This
+    class can behave in various ways, depending on the constraint strategy set
+    in the hyperparameters.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
-        
+        If the model is constrained, we initialize the last bias vector to give
+        reasonable guesses, in the hopes that this speeds convergence.
         """
 
         super().__init__()
+        if hp.architectures.constraint == 'none':
+            return
         
-        if hp.architectures.basis_type != 'none':
+        if hp.architectures.constraint == 'increment':
+            guess = torch.log(torch.ones(self._n_final) / self._n_final)
+
+        elif hp.architectures.constraint == 'logistic':
             guess = init_proxies(1).flatten()
+
+        with torch.no_grad():
             layer: nn.Linear = self._blocks[-1][-1]
-
-            with torch.no_grad():
-                nn.init.zeros_(layer.weight)
-                layer.bias.data.copy_(guess)
-
-            self._alpha = 0.01
-            n_rolloff = hp.training.rolloff_end - hp.training.rolloff_start
-            self._decrement = self.alpha / n_rolloff
-
-    def step(self, n_epoch: int):
-        """
-        If this `Surrogate` is constrained, then the negative slope used to
-        transform proxy amplitudes is gradually zeroed out during training.
-
-        Parameters
-        ----------
-        n_epoch
-            Current epoch.
-
-        """
-
-        if hp.architectures.basis_type != 'none':
-            if hp.training.rolloff_start <= n_epoch <= hp.training.rolloff_end:
-                self._alpha = max(self._alpha - self._decrement, 0)
-
-    @property
-    def alpha(self) -> float:
-        """
-        Get the negative slope that should be used in transforming the proxy
-        amplitudes, if the network is constrained.
-        """
-
-        if self.training and (hp.architectures.basis_type != 'none'):
-            return self._alpha
-        
-        return 0
+            nn.init.zeros_(layer.weight)
+            layer.bias.data.copy_(guess)
 
     @property
     def _n_final(self) -> int:
         """
-        If the `Surrogate` is not constrained to be monotonic, then the output
-        of the last block is the neural network output, and so it should have
-        one value for each vertical grid point. If the model is constrained,
-        then the last layer provides amplitude, shape, and shift parameters to
-        be passed to the basis functions.
+        If the `Surrogate` is predicting the fluxes directly, it needs one
+        output for each point in the vertical grid. If it is predicting the
+        increments, it needs one fewer point than that, and if it is predicting
+        fluxes by means of basis functions, it needs three outputs for each
+        function in the expansion.
         """
 
-        if hp.architectures.basis_type == 'none':
-            return config.n_grid
+        if hp.architectures.constraint == 'logistic':
+            return 3 * hp.architectures.n_basis
         
-        return 3 * hp.architectures.n_basis
+        return config.n_grid
 
     def _postprocess(self, _, output: torch.Tensor) -> torch.Tensor:
         """
-        At inference time, if the model is predicting flux profiles directly,
-        outputs are clamped to fall between zero and one, so that they both are
-        sign-definite and respect momentum conservation.
+        This function ensures that the `Surrogate` returns an (unsigned) flux
+        profile for each sample. For unconstrained models, this is as simple as
+        clamping the data in evaluation mode, but for constrained models here is
+        where the constraint strategies are applied.
         """
 
-        if (hp.architectures.basis_type == 'none') and (not self.training):
+        if hp.architectures.constraint == 'none' and not self.training:
             output = torch.clamp(output, min=0, max=1)
 
-        if hp.architectures.basis_type != 'none':
+        elif hp.architectures.constraint == 'increment':
+            output = torch.exp(output)
+            norms = output.sum(dim=1, keepdim=True)
+            norms = torch.clamp(norms, min=1)
+
+            output = torch.cumsum(output / norms, dim=1)
+            output = torch.flip(output, dims=(1,))
+
+        elif hp.architectures.constraint == 'logistic':
             output = output.reshape(-1, 3, hp.architectures.n_basis)
-            output = transform_proxies(output, alpha=self.alpha)
+            output = transform_proxies(output, 1e-3 if self.training else 0)
+            output = apply_basis(output)
 
         return output

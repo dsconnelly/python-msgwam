@@ -65,10 +65,17 @@ class NetworkPropagator(Propagator):
 
         k, l, m, *_ = to_launch
         cg_r = get_cg_r(k, l, m, mean.N[0])
-        self._until_next[cdx] = np.ceil(config.dr_init / cg_r / config.dt)
+        # self._until_next[cdx] = np.ceil(config.dr_init / cg_r / config.dt)
+        self._until_next[cdx] = 1
 
         X = torch.as_tensor(to_launch.T)
-        u = torch.as_tensor(mean.u[None]).expand(X.shape[0], -1)
+        # u = torch.as_tensor(mean.u[None]).expand(X.shape[0], -1)
+
+        from ..means import PrescribedWind
+        assert isinstance(mean, PrescribedWind)
+        n_lookback = min(n_step - int(3 * 3600 // config.dt), 0)
+        u = torch.as_tensor(mean._wind[[n_step, n_lookback], 0])
+        u = u[None].expand(X.shape[0], -1, -1)
         
         output = self.model(u, X).numpy()
         output = self._dimensionalize(to_launch, output)
@@ -87,12 +94,14 @@ class NetworkPropagator(Propagator):
         k, l, m, dk, dl, dm, dens = X
         cg_r = get_cg_r(k, l, m, config.N_ref)
         T = (config.z_max - config.z_min) / cg_r
-        T = np.minimum(T, config.time_horizon * 86400)
+        # T = np.minimum(T, config.time_horizon * 86400)
+        T = T * 0 + config.dt
 
         action = dens * dk * dl * dm
-        factor = abs(k) * action * config.dr_init / T
+        # factor = abs(k) * action * config.dr_init / T
+        factor = abs(k) * action * cg_r
 
-        n_persist = np.round(T / config.dt).astype(int)
+        n_persist = np.round(T / config.dt).astype(int) * 0 + 1
         weights = np.zeros((len(T), self._n_ahead))
 
         for j, n in enumerate(n_persist):

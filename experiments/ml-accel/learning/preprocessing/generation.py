@@ -196,7 +196,7 @@ def _make_callback(Y: np.ndarray) -> _Callback:
         profiles, = prop._project(flux[None], prop._z_padded, pdx)
         profiles[:, 1:-1] = shapiro_filter(profiles.T).T
 
-        keep = labels < Y.shape[0]        
+        keep = labels < Y.shape[0]
         if keep.sum() == 0:
             raise EnoughPackets
         

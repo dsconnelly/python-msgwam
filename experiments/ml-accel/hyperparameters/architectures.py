@@ -1,7 +1,10 @@
-basis_type: str
+constraint: str
 batch_norm_pos: int
 dropout_rate: float
+kernel_size: int
 layer_size: int
 layers_per_block: int
 n_basis: int
 n_blocks: int
+n_convs: int
+n_encoded: int

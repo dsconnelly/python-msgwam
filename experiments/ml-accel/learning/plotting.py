@@ -88,16 +88,16 @@ def plot_training_samples(*args: str) -> None:
         ax.tick_params('both', direction='in')
 
         ax = ax.twiny()
-        line, = ax.plot(u[n], z_centers, color='k')
+        line, = ax.plot(u[n, 0], z_centers, color='k')
         handles.append(line)
 
         k, l, m, *_ = rays[n]
         ones = np.ones_like(z_centers)
-        cp_x = get_cp_x(k, l, m, config.N_ref) * ones + u[n, 0]
+        cp_x = get_cp_x(k, l, m, config.N_ref) * ones + u[n, 0, 0]
         line, = ax.plot(cp_x, z_centers, color='gray', ls='dashed')
         handles.append(line)
 
-        ax.set_xlim(-50, 50)
+        ax.set_xlim(-60, 60)
         ax.set_xlabel('$\\bar{u}$ (m / s)')
 
         if n == 0:

@@ -8,8 +8,6 @@ from msgwam.integration import integrate as _integrate
 from msgwam.means import InteractiveWind
 from msgwam.propagators import TransientPropagator
 
-from .. import hyperparameters as hp
-
 _N_SAMPLES = 25
 
 def get_overrides(strategy: str) -> dict[str, Any]:
@@ -112,15 +110,10 @@ def _get_reference_overrides() -> dict[str, Any]:
 def _get_surrogate_overrides() -> dict[str, Any]:
     """Use a pretrained surrogate as the propagator."""
 
-    root = int(hp.generation.speedup ** 0.5)
-
     return {
         'propagator_type' : 'network',
         'network_path' : f'data/{config.name}/surrogate-fine/model-best.jit',
         'time_horizon' : 2,
-
-        'dr_init' : config.dr_init / root,
-        'n_source' : int(config.n_source * root)
     }
 
 def _get_stochastic_overrides() -> dict[str, Any]:

@@ -55,27 +55,27 @@ combine_id=$(sbatch \
 #         "combine-data:data/${name}/training/proxies-fine-logistic.npy"
 # )
 
-train_id=$(sbatch \
-    --parsable \
-    --ntasks=1 \
-    --cpus-per-task=2 \
-    --time=12:00:00 \
-    --mem=16G \
-    -J train-network \
-    --array=0-71 \
-    --dependency=afterok:${combine_id} \
-    -o logs/ml-accel/train-surrogate-fine-%a.out \
-    ml-accel.slurm $config train-network:fine
-)
+# train_id=$(sbatch \
+#     --parsable \
+#     --ntasks=1 \
+#     --cpus-per-task=2 \
+#     --time=12:00:00 \
+#     --mem=16G \
+#     -J train-network \
+#     --array=0-71 \
+#     --dependency=afterok:${combine_id} \
+#     -o logs/ml-accel/train-surrogate-fine-%a.out \
+#     ml-accel.slurm $config train-network:fine
+# )
 
-best_id=$(sbatch \
-    --parsable \
-    --ntasks=1 \
-    --cpus-per-task=2 \
-    --time=12:00:00 \
-    --mem=16G \
-    -J train-best-network \
-    --dependency=afterok:${train_id} \
-    -o logs/ml-accel/train-best-surrogate-fine.out \
-    ml-accel.slurm $config train-network:fine:test
-)
+# best_id=$(sbatch \
+#     --parsable \
+#     --ntasks=1 \
+#     --cpus-per-task=2 \
+#     --time=12:00:00 \
+#     --mem=16G \
+#     -J train-best-network \
+#     --dependency=afterok:${train_id} \
+#     -o logs/ml-accel/train-best-surrogate-fine.out \
+#     ml-accel.slurm $config train-network:fine:test
+# )
