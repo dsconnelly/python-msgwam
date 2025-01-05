@@ -1,4 +1,5 @@
 from typing import Any
+from warnings import warn
 
 import numpy as np
 import xarray as xr
@@ -93,18 +94,21 @@ def _get_reference_overrides() -> dict[str, Any]:
 
     overrides = {
         'dt' : 30,
-        'n_source' : 200,
-        'n_max' : int(50e3),
-        'n_increment' : int(10e3),
+        'dr_init' : 50,
+        'n_source' : 125,
+        'n_max' : int(250e3),
         'prune_by' : 'none'
     }
 
     with config.override(**overrides):
         mean = InteractiveWind()
         cg = TransientPropagator(mean)._get_cg_r(mean)
-        dr = np.ceil(np.nanmax(cg * config.dt) / 25) * 25
+        dr_min = np.ceil(np.nanmax(cg * config.dt) / 25) * 25
 
-    overrides['dr_init'] = dr
+        if overrides['dr'] < dr_min:
+            warn(f'Changing dr to {dr_min}')
+            overrides['dr'] = dr_min
+
     return overrides
 
 def _get_surrogate_overrides() -> dict[str, Any]:

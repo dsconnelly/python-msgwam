@@ -12,11 +12,11 @@ dt_launch = 10800
 lookback = 7200
 max_days = 10
 n_history = 4
-n_packets = 10000000
+n_packets = 1000000
 speedup = 100
 
 [architectures]
-basis_type = ['none', 'increment', 'logistic']
+constraint = ['none', 'increment', 'logistic']
 batch_norm_pos = [-1, 0, 1]
 dropout_rate = [0, 0.5]
 layer_size = 256

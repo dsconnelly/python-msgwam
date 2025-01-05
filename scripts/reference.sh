@@ -9,11 +9,12 @@ reference_id=$(sbatch \
     --ntasks=1 \
     --cpus-per-task=8 \
     --time=36:00:00 \
-    --mem=32G \
+    --mem=128G \
     -J reference \
     -o logs/ml-accel/reference.out \
     ml-accel.slurm $config \
         save-descending-jets \
+        save-spectrum \
         integrate:reference \
-        integrate:stochastic
+        save-coarsenings
 )

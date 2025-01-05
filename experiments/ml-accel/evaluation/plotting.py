@@ -224,7 +224,7 @@ def plot_summary(strategy: str) -> None:
         if config.propagator_type == 'transient':
             count = load_data(strategy, 0, None, var='n_rays')
 
-            ymax = 800e3 if strategy == 'reference' else 300
+            ymax = int(1.2 * config.n_max)
             days = cftime.date2num(flux['time'], f'days since {EPOCH}')
             line = config.n_max * np.ones_like(days)
 
