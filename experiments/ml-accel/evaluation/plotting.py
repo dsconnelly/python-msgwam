@@ -114,7 +114,7 @@ def plot_error_profiles() -> None:
     zipped = zip(names, units, factors, axes)
     for i, (name, unit, factor, ax) in enumerate(zipped):
         z = get_vertical_grids()[i] / 1000
-        ref = load_data('reference', var=name, resample=86400)
+        ref = load_data('reference', var=name, resample=10800)
 
         for strategy, color in _COLORS.items():
             data = load_data(strategy, var=name)

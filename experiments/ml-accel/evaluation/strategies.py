@@ -9,7 +9,7 @@ from msgwam.integration import integrate as _integrate
 from msgwam.means import InteractiveWind
 from msgwam.propagators import TransientPropagator
 
-_N_SAMPLES = 25
+from ..hyperparameters import strategies as hp
 
 def get_overrides(strategy: str) -> dict[str, Any]:
     """
@@ -83,7 +83,7 @@ def _get_integration(strategy: str) -> xr.Dataset:
         return _integrate()
     
     datasets = []
-    for i in range(_N_SAMPLES):
+    for i in range(hp.stochastic_samples):
         ds = _integrate().assign_coords(sample=i)
         datasets.append(ds)
 
@@ -124,9 +124,12 @@ def _get_surrogate_overrides() -> dict[str, Any]:
 def _get_stochastic_overrides() -> dict[str, Any]:
     """Use a stochastic source that launches nine times less often."""
 
+    speedup = hp.stochastic_speedup
+    root = int(speedup ** 0.5)
+
     return {
-        'epsilon' : 1 / 9,
-        'dr_init' : config.dr_init / 3,
-        'n_source' : int(config.n_source * 3),
+        'epsilon' : 1 / speedup,
+        'dr_init' : config.dr_init / root,
+        'n_source' : int(config.n_source * root),
         'source_type' : 'stochastic'
     }

@@ -6,7 +6,7 @@ from types import ModuleType
 from typing import Optional
 from warnings import warn
 
-from . import architectures, evaluation, generation, training
+from . import architectures, evaluation, generation, strategies, training
 
 grid_path: str
 task_id: int
@@ -19,6 +19,7 @@ __all__ = [
     'grid_path',
     'load',
     'task_id',
+    'strategies'
     'training'
 ]
 

@@ -8,7 +8,7 @@ generate_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --cpus-per-task=2 \
-    --time=12:00:00 \
+    --time=6:00:00 \
     --mem=16G \
     -J generate \
     --array=0-39 \

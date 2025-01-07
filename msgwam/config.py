@@ -71,6 +71,8 @@ shapiro_filter: bool
 ################################################################################
 # 'network' propagator
 ################################################################################
+lookback: int
+n_history: int
 network_path: str
 time_horizon: float
 

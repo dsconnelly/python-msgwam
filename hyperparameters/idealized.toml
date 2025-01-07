@@ -7,6 +7,10 @@ wvl_max = 25e3
 z_decay = 40e3
 z_turn = 55e3
 
+[strategies]
+stochastic_samples = 25
+stochastic_speedup = 25
+
 [generation]
 dt_launch = 10800
 lookback = 7200
