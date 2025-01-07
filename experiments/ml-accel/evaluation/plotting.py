@@ -57,7 +57,7 @@ def plot_coarse_errors() -> None:
     axes[1].set_yticks(np.arange(len(n_sources)), labels=dcs)
 
     axes[1].set_xlabel('$\\delta z$ (m)')
-    axes[1].set_ylabel('$\\delta c_{\mathrm{p}}$ (m / s)')
+    axes[1].set_ylabel('$\\delta c_{\\mathrm{p}}$ (m / s)')
 
     cbar = plt.colorbar(img, cax=cax)
     cbar.set_ticks(np.linspace(1 - width, 1 + width, 5))

@@ -12,7 +12,7 @@ generate_id=$(sbatch \
     --mem=16G \
     -J generate \
     --array=0-39 \
-    -o logs/ml-accel/generate-%a.out \
+    -o logs/${name}/generate-%a.out \
     ml-accel.slurm $config save-training-context save-training-data
 )
 
