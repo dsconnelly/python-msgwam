@@ -97,6 +97,7 @@ def _get_reference_overrides() -> dict[str, Any]:
         'dr_init' : 50,
         'n_source' : 125,
         'n_max' : int(250e3),
+        'n_increment' : 1000,
         'prune_by' : 'none'
     }
 
@@ -105,9 +106,9 @@ def _get_reference_overrides() -> dict[str, Any]:
         cg = TransientPropagator(mean)._get_cg_r(mean)
         dr_min = np.ceil(np.nanmax(cg * config.dt) / 25) * 25
 
-        if overrides['dr'] < dr_min:
+        if overrides['dr_init'] < dr_min:
             warn(f'Changing dr to {dr_min}')
-            overrides['dr'] = dr_min
+            overrides['dr_init'] = dr_min
 
     return overrides
 
