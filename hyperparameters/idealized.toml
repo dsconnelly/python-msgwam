@@ -23,10 +23,13 @@ speedup = 25
 constraint = ['none', 'increment', 'logistic']
 batch_norm_pos = [-1, 1]
 dropout_rate = [0, 0.5]
+kernel_size = 3
 layer_size = 256
 layers_per_block = [3, 6]
 n_basis = 16
 n_blocks = [2, 5, 8]
+n_convs = 3
+n_encoded = 20
 
 [training]
 batch_size = 32
