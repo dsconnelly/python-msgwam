@@ -151,8 +151,8 @@ def _load_datasets(
     u, rays, targets = load_data(target_type)
     idx_tr, idx_ev = get_indices(eval_type)
 
-    # noise = torch.normal(0, 0.1, size=u.shape)
-    # u[idx_tr] = u[idx_tr] + noise[idx_tr]
+    noise = torch.normal(0, 0.1, size=u.shape)
+    u[idx_tr] = u[idx_tr] + noise[idx_tr]
 
     if target_type.startswith('flux'):
         targets = torch.clamp(abs(targets), max=1)
