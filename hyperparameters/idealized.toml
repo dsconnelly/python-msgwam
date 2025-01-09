@@ -15,23 +15,23 @@ stochastic_speedup = 25
 dt_launch = 10800
 lookback = 21600
 max_days = 10
-n_packets = 1000000
+n_packets = 500000
 speedup = 25
 
 [architectures]
 dropout_rate = [0.2, 0.5]
-max_kernel = 9
-n_hidden_c = 16
-n_hidden_d = 64
-n_hidden_s = 256
-n_layers_c = 3
-n_layers_d = 3
-n_layers_s = 3
+max_kernel = [5, 13]
+n_hidden_c = [8, 24]
+n_hidden_d = [32, 128]
+n_hidden_s = [256, 512]
+n_layers_c = 2
+n_layers_d = 2
+n_layers_s = [2, 4]
 
 [training]
-batch_size = 128
-learning_rate = [1e-3, 1e-4]
+batch_size = [32, 128]
+learning_rate = 1e-3
 max_epochs = 50
-max_hours = 8
-noise_scale = 0
+max_hours = 3
+noise_scale = 0.1
 weight_decay = 0
