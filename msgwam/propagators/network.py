@@ -68,12 +68,15 @@ class NetworkPropagator(Propagator):
         self._forecast[:, -1] = 0
 
         cdx = self._until_next == 0
+        if cdx.sum() == 0:
+            return self
+        
         to_launch, _ = self._source.launch(mean, n_step, cdx)
         cg_r = get_cg_r(*to_launch[:3], mean.N[0])
 
         p, n_steps = np.modf(config.dr_init / cg_r / config.dt)
         n_steps[np.random.rand(len(n_steps)) < p] += 1
-        self._until_next = n_steps.astype(int)
+        self._until_next[cdx] = 1
 
         rays = torch.as_tensor(to_launch.T)
         u = self._get_wind(mean, n_step).expand(rays.shape[0], -1, -1)
@@ -117,9 +120,9 @@ class NetworkPropagator(Propagator):
         cg_r = get_cg_r(k, l, m, config.N_ref)
         action = dens * (dk * dl * dm)
 
-        T = (config.z_max - config.z_min) / cg_r
-        T = np.minimum(T, config.time_horizon * 86400)
-        factor = abs(k) * action * config.dr_init / T
+        dr = cg_r * config.dt
+        factor = abs(k) * action * cg_r
+        T = config.dt * np.ones_like(dr)
 
         weights = np.zeros((len(T), self._n_ahead))
         n_persist = np.round(T / config.dt).astype(int)
@@ -152,6 +155,6 @@ class NetworkPropagator(Propagator):
 
         ns = []
         for k in range(config.n_history):
-            ns.append(min(n_step - int(k * config.lookback / config.dt), 0))
+            ns.append(max(n_step - int(k * config.lookback / config.dt), 0))
 
         return torch.as_tensor(mean._wind[ns, 0])[None]

@@ -13,30 +13,19 @@ stochastic_speedup = 25
 
 [generation]
 dt_launch = 10800
-lookback = 7200
+lookback = 21600
 max_days = 10
-n_history = 4
 n_packets = 1000000
 speedup = 25
 
 [architectures]
-constraint = ['none', 'increment', 'logistic']
-batch_norm_pos = [-1, 1]
 dropout_rate = [0, 0.5]
-kernel_size = 3
-layer_size = 256
-layers_per_block = [3, 6]
-n_basis = 16
-n_blocks = [2, 5, 8]
-n_convs = 3
-n_encoded = 20
 
 [training]
-batch_size = 32
-learning_rate = 1e-4
-max_epochs = 200
+batch_size = 128
+learning_rate = [1e-3, 1e-4]
+max_epochs = 100
 max_hours = 8
-rolloff_start = 50
-rolloff_end = 150
+noise_scale = 0.1
 stop_loss = 0.0001
-weight_decay = 0.05
+weight_decay = 0

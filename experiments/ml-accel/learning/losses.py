@@ -2,8 +2,8 @@ import torch, torch.nn as nn
 
 class FluxLoss(nn.Module):
     """
-    Flexible loss module for training `Surrogate` models, both those that learn
-    the fluxes directly and those that learn proxies instead.
+    Loss module for training `Surrogates` that only enforce physical constraints
+    at inference time.
     """
 
     def forward(
@@ -12,9 +12,8 @@ class FluxLoss(nn.Module):
         output: torch.Tensor
     ) -> torch.Tensor:
         """
-        Calculate the mean squared error. If the model is learning proxies, we
-        convert to actual flux profiles so that the scores are comparable to
-        those of the unconstrained models.
+        Calculate the mean squared error. Avoids penalizing entries where the
+        evaluation-time flux will be clamped to the correct value.
 
         Parameters
         ----------
@@ -30,4 +29,11 @@ class FluxLoss(nn.Module):
 
         """
 
-        return ((targets - output) ** 2).mean()
+        errors = targets - output
+
+        if self.training:
+            under = (targets <= 0) & (output <= 0)
+            over = (1 <= targets) & (1 <= output)
+            errors = errors[~(under | over)]
+
+        return (errors ** 2).mean()

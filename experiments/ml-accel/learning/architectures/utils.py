@@ -1,4 +1,27 @@
+from typing import Optional
+
 import torch, torch.nn as nn
+
+def standardize(
+    a: torch.Tensor,
+    means: Optional[torch.Tensor]=None,
+    stds: Optional[torch.Tensor]=None
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    
+    """
+
+    if means is None:
+        means = a.mean(dim=0)
+
+    if stds is None:
+        stds = a.std(dim=0)
+
+    sdx = stds > 0
+    output = torch.zeros_like(a)
+    output[:, sdx] = (a - means)[:, sdx] / stds[sdx]
+
+    return output, means, stds
 
 def xavier_init(a: nn.Module | torch.Tensor) -> None:
     """

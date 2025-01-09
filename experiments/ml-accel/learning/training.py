@@ -78,7 +78,8 @@ def _train_network(
     print(f'Model {hp.task_id} has {n_params} trainable parameters.\n')
 
     if not restart:
-        model.init_stats(*loader_tr.dataset.tensors)
+        u_tr, X_tr, _ = loader_tr.dataset.tensors
+        model.init_stats(u_tr, X_tr)
 
     best_loss = torch.inf
     state = {'task_id' : hp.task_id}
@@ -89,7 +90,7 @@ def _train_network(
 
     while n_epoch <= max_epochs and (time() - start) / 3600 < max_hours:
         loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        # loss_tr = _run_epoch(model, loader_tr, loss_func)
+        loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
 
         if n_epoch % n_print == 0:
@@ -151,21 +152,20 @@ def _load_datasets(
     u, rays, targets = load_data(target_type)
     idx_tr, idx_ev = get_indices(eval_type)
 
-    noise = torch.normal(0, 0.1, size=u.shape)
-    u[idx_tr] = u[idx_tr] + noise[idx_tr]
-
     if target_type.startswith('flux'):
         targets = torch.clamp(abs(targets), max=1)
 
     loaders = []
     for idx in (idx_tr, idx_ev):
-        X = _make_inputs(u[idx], rays[idx])
-        data = TensorDataset(X, targets[idx])
+        data = TensorDataset(*_make_inputs(u[idx], rays[idx]), targets[idx])
         loaders.append(DataLoader(data, hp.training.batch_size, shuffle=True))
 
     return tuple(loaders)
 
-def _make_inputs(u: torch.Tensor, rays: torch.Tensor) -> torch.Tensor:
+def _make_inputs(
+    u: torch.Tensor,
+    rays: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Preprocess input data to be passed to a `SourceNet`. Extracts spectral
     features from ray volume data, and handles the sign of the zonal wind.
@@ -180,19 +180,21 @@ def _make_inputs(u: torch.Tensor, rays: torch.Tensor) -> torch.Tensor:
     Returns
     -------
     torch.Tensor
-        Tensor of extracted input features.
+        Tensor of sign-modified zonal wind data.
+    torch.Tensor
+        Tensor of extracted spectral properties.
 
     """
 
     k, l, m, dk, dl, dm, dens = rays.T
     log_A = torch.log(dens * dk * dl * dm)
-    u = u.flatten(1, 2) * torch.sign(k)[:, None]
+    u = u * torch.sign(k)[:, None, None]
 
     omega_hat = get_omega_hat(k, l, m, config.N_ref)
     T_hat = 2 * torch.pi / omega_hat
     cp_x = omega_hat / abs(k)
 
-    return torch.column_stack((u, cp_x, T_hat, log_A))
+    return u, torch.column_stack((cp_x, T_hat, log_A))
 
 def _make_trace_func(model) -> _TraceFunc:
     """
@@ -220,7 +222,8 @@ def _make_trace_func(model) -> _TraceFunc:
             """
 
             signs = torch.sign(rays[:, 0])[:, None]
-            Y = model(_make_inputs(u, rays))
+            u, X = _make_inputs(u, rays)
+            Y = model(u, X)
 
             return signs * Y
         
@@ -262,8 +265,8 @@ def _run_epoch(
         loss_func.eval()
 
         with torch.no_grad():
-            X, targets = loader.dataset.tensors
-            loss = loss_func(targets, model(X))
+            u, X, targets = loader.dataset.tensors
+            loss = loss_func(targets, model(u, X))
 
         return loss.item()
 
@@ -271,10 +274,12 @@ def _run_epoch(
     loss_func.train()
 
     weight_sum, total = 0, 0
-    for X, targets in loader:
+    for u, X, targets in loader:
         optimizer.zero_grad()
         weight = X.shape[0]
-        output = model(X)
+
+        noise = torch.normal(0, hp.training.noise_scale, u.shape)
+        output = model(u + noise, X)
 
         loss = loss_func(targets, output)
         total = total + weight * loss.item()

@@ -3,7 +3,7 @@ import tomllib
 
 from numpy import meshgrid, stack
 from types import ModuleType
-from typing import Optional
+from typing import Any, Optional
 from warnings import warn
 
 from . import architectures, evaluation, generation, strategies, training
@@ -19,7 +19,7 @@ __all__ = [
     'grid_path',
     'load',
     'task_id',
-    'strategies'
+    'strategies',
     'training'
 ]
 
@@ -66,7 +66,8 @@ def load(path: str, i: Optional[int]=None) -> None:
     for sub_name, subgrid in grid.items():
         for var_name, value in subgrid.items():
             if not isinstance(value, list):
-                value = [value]
+                _set_hyperparameter(sub_name, var_name, value)
+                continue
 
             names.append(f'{sub_name}.{var_name}')
             to_mesh.append(value)
@@ -79,8 +80,23 @@ def load(path: str, i: Optional[int]=None) -> None:
         i = 0
 
     for name, value in zip(names, params[:, i]):
-        sub_name, var_name = name.split('.')
-        submodule = globals()[sub_name]
+        _set_hyperparameter(*name.split('.'), value)
 
-        value = submodule.__annotations__[var_name](value)
-        setattr(submodule, var_name, value)
+def _set_hyperparameter(sub_name: str, var_name: str, value: Any) -> None:
+    """
+    Set a hyperparameter in a given submodule.
+
+    Parameters
+    ----------
+    sub_name
+        Name of the submodule within which to assign.
+    var_name
+        Name of the hyperparameter to assign.
+    value
+        Value to assign to the selected hyperparameter.
+
+    """
+
+    submodule = globals()[sub_name]
+    value = submodule.__annotations__[var_name](value)
+    setattr(submodule, var_name, value)

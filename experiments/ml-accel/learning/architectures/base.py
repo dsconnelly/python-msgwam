@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import Any
 
 import torch, torch.nn as nn
 
@@ -7,13 +8,12 @@ from msgwam import config
 
 from ... import hyperparameters as hp
 
-from .standardizer import StandardizerMixin
-from .utils import xavier_init
+from .utils import standardize, xavier_init
 
-class SourceNet(nn.Module, StandardizerMixin, ABC):
+class SourceNet(nn.Module, ABC):
     """
-    Abstract base class for architectures with residual connections. Requires
-    subclasses to implement a postprocessing function.
+    Abstract base class for architectures accepting zonal wind and source ray
+    volume properties as inputs.
     """
 
     def __init__(self) -> None:
@@ -27,25 +27,32 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         self.apply(xavier_init)
         self.to(torch.double)
 
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def forward(self, u: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
         """
         Apply the whole forward model, including standardization, application of
         the neural network layers, and postprocessing.
 
         Parameters
         ----------
+        u
+            Three-dimensional array of zonal wind profiles whose first dimension
+            ranges over samples, whose second dimension is of length two and
+            ranges over historical snapshots, and whose third dimension ranges
+            over vertical grid points.
         X
-            Two-dimensional array of input features.
+            Two-dimensional array of source ray volume properties.
 
         Returns
         -------
         torch.Tensor
-            Postprocessed neural network output
+            Postprocessed neural network output.
 
         """
 
-        output = self._predict(self._standardize(X, 0))
-        return self._postprocess(X, output)
+        u, X = self._standardize(u, X)
+        output = self._predict(u, X)
+
+        return self._postprocess(output)
 
     @classmethod
     def from_name(cls, name: str) -> SourceNet:
@@ -68,149 +75,107 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         i = [s.__name__ for s in subs].index(name)
         return subs[i]()
 
-    @staticmethod
-    def _get_block(sizes: list[int], final: bool=False) -> nn.Sequential:
+    def get_extra_state(self) -> dict[str, Any]:
         """
-        Construct a block of fully connected layers. Residual connections will
-        presumably be applied between blocks of the type returned here.
-
-        Parameters
-        ----------
-        sizes
-            Size of each hidden layer in the block.
-        final
-            Whether or not this block will be the last in the network, in which
-            case the block will end with a bare linear layer.
+        Return the state related to input standardization.
 
         Returns
         -------
-        nn.Sequential
-            Constructed block of fully connected layers.
+        dict[str]
+            Dictionary containing mean and standard deviation tensors.
 
         """
 
-        args = []
-        for a, b in zip(sizes[:-1], sizes[1:]):
-            args.append(nn.Linear(a, b))
-
-            if hp.architectures.batch_norm_pos == -1:
-                args.append(nn.BatchNorm1d(b))
-
-            args.append(nn.ReLU())
-
-            if hp.architectures.batch_norm_pos == 1:
-                args.append(nn.BatchNorm1d(b))
-
-            args.append(nn.Dropout(hp.architectures.dropout_rate))
-
-        if final:
-            n_drop = 2 + abs(hp.architectures.batch_norm_pos)
-            args = args[:-n_drop]
-
-        return nn.Sequential(*args)
+        return {'means' : self.means, 'stds' : self.stds}
     
+    def init_stats(self, u: torch.Tensor, X: torch.Tensor) -> None:
+        """
+        Save the means and standard deviations to be used later. Must be called
+        before `_standardize` can be called.
+
+        Parameters
+        ----------
+        u
+            Tensor of zonal wind profiles, including past snapshots. The zonal
+            wind statistics will be calculated over both the current wind and
+            the historical profiles.
+        X
+            Tensor of source ray volume properties.
+
+        """
+
+        args = [u.flatten(0, 1), X]
+        self.means = [a.mean(dim=0) for a in args]
+        self.stds = [a.std(dim=0) for a in args]
+
+    def set_extra_state(self, state: dict[str]) -> None:
+        """
+        Set the state related to input standardization.
+
+        Parameters
+        ----------
+        state
+            Dictionary containing mean and standard deviation tensors.
+
+        """
+
+        self.means = state['means']
+        self.stds = state['stds']
+
     def _init_layers(self) -> None:
         """
         Create the layers of the neural network, as specified by the loaded set
-        of hyperparameters, and pack them in a `ModuleList`. This implementation
-        creates the blocks between residual connections, though subclasses with
-        more complex behavior may extend this function.
+        of hyperparameters. This includes the convolutional part to process the
+        wind, the dense layers to process the ray volume properties, and the
+        dense layers to process the combined hidden states.
         """
 
-        n_encoded = hp.architectures.n_encoded
-        kernel_size = hp.architectures.kernel_size
-        n_history = hp.generation.n_history
+        dropout_rate = hp.architectures.dropout_rate
 
-        sizes = [n_history, 64]
-        while len(sizes) < hp.architectures.n_convs + 1:
-            sizes.append(2 * sizes[-1])
-
+        channels = [2, 8, 2]
+        kernel_sizes = [11, 5]
         args = []
+
+        for a, b, size in zip(channels[:-1], channels[1:], kernel_sizes):
+            conv = nn.Conv1d(a, b, kernel_size=size, padding='same')
+            args.extend([conv, nn.ReLU(), nn.Dropout(dropout_rate)])
+
+        args.append(_SeqBatchNorm(config.n_grid - 1))
+        self._conv = nn.Sequential(*args)
+
+        sizes, args = [3, 32, 3], []
         for a, b in zip(sizes[:-1], sizes[1:]):
-            conv = nn.Conv1d(a, b, kernel_size, padding=1)
-            args.extend([conv, nn.ReLU(), nn.MaxPool1d(kernel_size=2)])
-            args.append(nn.Dropout(hp.architectures.dropout_rate))
+            args.extend([nn.Linear(a, b), nn.ReLU(), nn.Dropout(dropout_rate)])
 
-        norm = nn.BatchNorm1d(n_encoded)
-        conv = nn.Conv1d(sizes[-1], n_encoded, 1)
-        self._encoder = nn.Sequential(*args, conv, _GlobalMaxPool(), norm)
+        args.append(nn.BatchNorm1d(3))
+        self._dense = nn.Sequential(*args)
 
-        n_input = (config.n_grid - 1) + n_encoded + 3
-        length = hp.architectures.layers_per_block - 1
-        layer_size = hp.architectures.layer_size
+        n_first = 2 * (config.n_grid - 1) + 3
+        sizes = [n_first, 256, self._n_outputs]
+        args = []
 
-        self._blocks = nn.ModuleList()
-        for i in range(hp.architectures.n_blocks):
-            final = i == hp.architectures.n_blocks - 1
-            n_last = self._n_final if final else n_input
-            sizes = [n_input] + [layer_size] * length + [n_last]
-            self._blocks.append(self._get_block(sizes, final))
+        for a, b in zip(sizes[:-1], sizes[1:]):
+            args.extend([nn.Linear(a, b), nn.ReLU(), nn.Dropout(dropout_rate)])
+
+        self._shared = nn.Sequential(*args[:-2])
 
     @property
     @abstractmethod
-    def _n_final(self) -> int:
+    def _n_outputs(self) -> int:
         """
-        Return the number of outputs the final block should have. In most cases,
-        this corresponds to the number of outputs the network has.
+        Return the number of outputs the final neural network layer should have.
         """
         ...
 
-    @property
-    def _n_inputs(self) -> int:
-        """
-        Return the number of input features each block has. All subclasses have
-        blocks taking in one feature for each value in the zonal wind profile
-        and one for each ray volume property considered.
-        """
-
-        return hp.generation.n_history * (config.n_grid - 1) + 3
-
-    def _predict(self, X: torch.Tensor) -> torch.Tensor:
-        """
-        Apply the neural network to the standardized input data. Includes the
-        basic application of the blocks and residual connections. Subclasses
-        with more complex behavior can override or extend this function.
-
-        Parameters
-        ----------
-        X
-            Standardized input data.
-
-        Returns
-        -------
-        torch.Tensor
-            Output of the neural network layers underlying this model.
-
-        """
-
-        n_wind = hp.generation.n_history * (config.n_grid - 1)
-        wind = X[:, :n_wind].reshape(X.shape[0], hp.generation.n_history, -1)
-        convolved = self._encoder(wind)
-
-        spectra = X[:, n_wind:]
-        X = torch.hstack((wind[:, 0], convolved, spectra))
-
-        output = X
-        for block in self._blocks[:-1]:
-            output = block(output) + X
-
-        return self._blocks[-1](output)
-
     @abstractmethod
-    def _postprocess(
-        self,
-        X: torch.Tensor,
-        output: torch.Tensor
-    ) -> torch.Tensor:
+    def _postprocess(self, output: torch.Tensor) -> torch.Tensor:
         """
-        Apply any postprocessing to the network layer output.
+        Apply any necessary postprocessing to the neural network output.
 
         Parameters
         ----------
-        X
-            Tensor of input features.
         output
-            Tensor of outputs obtained by applying the neural network to `X`.
+            Tensor of outputs from the neural network layers.
 
         Returns
         -------
@@ -220,10 +185,64 @@ class SourceNet(nn.Module, StandardizerMixin, ABC):
         """
         ...
 
-class _GlobalMaxPool(nn.Module):
-    def forward(self, X: torch.Tensor) -> torch.Tensor:
+    def _predict(self, u: torch.Tensor, X: torch.Tensor) -> torch.Tensor:
         """
-        
+        Apply the neural network to the standardized input data.
+
+        Parameters
+        ----------
+        u
+            Standardized zonal wind data.
+        X
+            Standardized source ray volume properties.
+
+        Returns
+        -------
+        torch.Tensor
+            Output of the neural network layers underlying this model.
+
         """
 
-        return X.max(dim=-1)[0]
+        p = self._conv(u) + u
+        q = self._dense(X) + X
+
+        output = torch.hstack((p.flatten(1, 2), q))
+        return self._shared(output)
+
+    def _standardize(
+        self,
+        u: torch.Tensor,
+        X: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Standardize input wind profiles and ray volume properties to zero mean
+        and unit variance.
+
+        Parameters
+        ----------
+        u
+            Tensor of zonal wind profiles.
+        X
+            Tensor of source ray volume properties.
+
+        """
+
+        u = u.flatten(0, 1)
+        u, *_ = standardize(u, self.means[0], self.stds[0])
+        X, *_ = standardize(X, self.means[1], self.stds[1])
+
+        return u.reshape(X.shape[0], 2, -1), X
+    
+class _SeqBatchNorm(nn.BatchNorm1d):
+    """
+    Batch norm variant that normalizes over the sequence dimension rather than
+    over the channel dimension when the input is three-dimensional.
+    """
+
+    def forward(self, a: torch.Tensor) -> torch.Tensor:
+        """
+        Call the parent class implentation with the last two dimensions swapped,
+        then swap the dimensions back before returning.
+        """
+
+        return super().forward(a.transpose(1, 2)).transpose(1, 2)

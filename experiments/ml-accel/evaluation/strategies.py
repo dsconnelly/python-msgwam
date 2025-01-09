@@ -117,8 +117,10 @@ def _get_surrogate_overrides() -> dict[str, Any]:
 
     return {
         'propagator_type' : 'network',
-        'network_path' : f'data/{config.name}/surrogate-fine/model-best.jit',
-        'time_horizon' : 2,
+        'network_path' : f'data/{config.name}/surrogate-fine/model-37.jit',
+        'time_horizon' : 0.5,
+        'lookback' : 7200,
+        'n_history' : 4
     }
 
 def _get_stochastic_overrides() -> dict[str, Any]:
