@@ -8,7 +8,27 @@ def standardize(
     stds: Optional[torch.Tensor]=None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    
+    Standardize a tensor along the first dimension.
+
+    Parameters
+    ----------
+    a
+        Tensor containing data to standardize.
+    means
+        Means to use during standardization. If `None`, the mean along the first
+        dimension will be computed and used.
+    stds
+        Standard deviations to use during standardization. If `None`, the
+        standard deviation along the first dimension will be computed and used.
+
+    Returns
+    -------
+    torch.Tensor
+        Standardized data.
+    torch.Tensor, torch.Tensor
+        Means and standard deviations used during standardization. If either of
+        these statistics was provided, they will be returned as is.
+
     """
 
     if means is None:
@@ -35,7 +55,7 @@ def xavier_init(a: nn.Module | torch.Tensor) -> None:
 
     """
 
-    if isinstance(a, nn.Linear):
+    if isinstance(a, (nn.Linear, nn.Conv1d)):
         a = a.weight
 
     if isinstance(a, torch.Tensor):

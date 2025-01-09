@@ -74,6 +74,7 @@ def _train_network(
     model, optimizer = load_model(target_type, eval_type, restart)
     loss_func = FluxLoss()
 
+    print(model, '\n')
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f'Model {hp.task_id} has {n_params} trainable parameters.\n')
 
@@ -102,10 +103,6 @@ def _train_network(
             state['model'] = model.state_dict()
             state['optimizer'] = optimizer.state_dict()
             best_loss = loss_ev
-
-        if loss_ev < hp.training.stop_loss:
-            print(f'Stopping early at epoch {n_epoch}')
-            break
 
         n_epoch = n_epoch + 1
 

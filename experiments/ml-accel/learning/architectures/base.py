@@ -1,12 +1,12 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Optional
 
 import torch, torch.nn as nn
 
 from msgwam import config
 
-from ... import hyperparameters as hp
+from ...hyperparameters import architectures as hp
 
 from .utils import standardize, xavier_init
 
@@ -122,6 +122,53 @@ class SourceNet(nn.Module, ABC):
         self.means = state['means']
         self.stds = state['stds']
 
+    def _get_block(
+        self,
+        sizes: list[int],
+        kernels: Optional[list[int]]=None,
+        final: bool=False
+    ) -> nn.Sequential:
+        """
+        Generate a subblock of the neural network, using either fully-connected
+        or convolutional layers.
+
+        Parameters
+        ----------
+        sizes
+            List of layer sizes. For convolutional layers, these are the numbers
+            of channels in each hidden state.
+        kernels
+            List of kernel sizes. If `None`, linear layers will be used.
+            Otherwise, should have one fewer entry than `sizes`.
+        final
+            Whether this is the last block of the neural network, in which case
+            the activation, dropout, and normalization will be omitted.
+
+        Returns
+        -------
+        nn.Sequential
+            Module containing the layers specified by the arguments.
+
+        """
+
+        if kernels is None:
+            cls = nn.Linear
+            zipped = zip(sizes[:-1], sizes[1:])
+            norm = nn.BatchNorm1d(sizes[-1])
+
+        else:
+            cls = lambda *args: nn.Conv1d(*args, padding='same')
+            zipped = zip(sizes[:-1], sizes[1:], kernels)
+            norm = _SeqBatchNorm(config.n_grid - 1)
+
+        mods = []
+        for args in zipped:
+            mods.extend([cls(*args), nn.ReLU()])
+            mods.append(nn.Dropout(hp.dropout_rate))
+
+        mods = mods[:-2] if final else mods[:-1] + [norm]
+        return nn.Sequential(*mods)
+
     def _init_layers(self) -> None:
         """
         Create the layers of the neural network, as specified by the loaded set
@@ -130,34 +177,16 @@ class SourceNet(nn.Module, ABC):
         dense layers to process the combined hidden states.
         """
 
-        dropout_rate = hp.architectures.dropout_rate
+        sizes = [2] + [hp.n_hidden_c] * (hp.n_layers_c - 1) + [2]
+        kernels = [max(hp.max_kernel - 2 * i, 3) for i in range(hp.n_layers_c)]
+        self._conv = self._get_block(sizes, kernels)
 
-        channels = [2, 8, 2]
-        kernel_sizes = [11, 5]
-        args = []
+        sizes = [3] + [hp.n_hidden_d] * (hp.n_layers_d - 1) + [3]
+        self._dense = self._get_block(sizes)
 
-        for a, b, size in zip(channels[:-1], channels[1:], kernel_sizes):
-            conv = nn.Conv1d(a, b, kernel_size=size, padding='same')
-            args.extend([conv, nn.ReLU(), nn.Dropout(dropout_rate)])
-
-        args.append(_SeqBatchNorm(config.n_grid - 1))
-        self._conv = nn.Sequential(*args)
-
-        sizes, args = [3, 32, 3], []
-        for a, b in zip(sizes[:-1], sizes[1:]):
-            args.extend([nn.Linear(a, b), nn.ReLU(), nn.Dropout(dropout_rate)])
-
-        args.append(nn.BatchNorm1d(3))
-        self._dense = nn.Sequential(*args)
-
-        n_first = 2 * (config.n_grid - 1) + 3
-        sizes = [n_first, 256, self._n_outputs]
-        args = []
-
-        for a, b in zip(sizes[:-1], sizes[1:]):
-            args.extend([nn.Linear(a, b), nn.ReLU(), nn.Dropout(dropout_rate)])
-
-        self._shared = nn.Sequential(*args[:-2])
+        hidden = [hp.n_hidden_s] * (hp.n_layers_s - 1)
+        sizes = [2 * (config.n_grid - 1) + 3, *hidden, self._n_outputs]
+        self._shared = self._get_block(sizes, final=True)
 
     @property
     @abstractmethod

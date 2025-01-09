@@ -13,7 +13,8 @@ class Surrogate(SourceNet):
 
     def __init__(self) -> None:
         """
-        
+        At initialization, the bias of the last layer is set to a reasonable
+        guess for the flux profile.
         """
 
         super().__init__()
