@@ -1,11 +1,9 @@
-from typing import Optional
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
 from msgwam import config
-from msgwam.dispersion import get_cp_x
+from msgwam.dispersion import get_cp_x, get_omega_hat
 from msgwam.utils import get_vertical_grids
 
 from .utils import get_indices, get_overrides, load_data
@@ -20,6 +18,75 @@ _MODEL_COLORS = [
     'darkviolet',
     'tab:red'
 ]
+
+def plot_network_errors(model_path: str) -> None:
+    """
+    Plot some diagnostics of neural network errors. The left panel shows RMSEs
+    as a function of height, while the right panel decomposes RMSE over zonal
+    phase speed as a histogram.
+
+    Parameters
+    ----------
+    model_path
+        Path where JITted neural network is saved.
+
+    """
+
+    widths = [3, 1.5 * 4.5]
+    fig, axes = plt.subplots(ncols=2, width_ratios=widths)
+    fig.set_size_inches(sum(widths), 4.5)
+
+    idx_tr, idx_ev = get_indices('validation')
+    idx_tr = np.random.choice(idx_tr, 50000, replace=False)
+    idx_ev = np.random.choice(idx_ev, 50000, replace=False)
+
+    colors = ['forestgreen', 'tab:red']
+    labels = ['training', 'validation']
+
+    with config.override(n_grid=get_overrides()['n_grid']):
+        z = get_vertical_grids()[0] / 1e3
+
+    u, rays, targets = load_data('flux-fine')
+    model = torch.jit.load(model_path)
+    
+    for idx, color, label in zip([idx_tr, idx_ev], colors, labels):
+        error = targets[idx] - model(u[idx], rays[idx])
+        rmse = torch.sqrt((error ** 2).mean(dim=0))
+        axes[0].plot(rmse, z, color=color, label=label)
+
+    axes[0].set_xlim(0, .2)
+    axes[0].set_ylim(z.min(), z.max())
+
+    axes[0].legend(loc='lower right')
+    axes[0].set_xlabel('normalized RMSE')
+    axes[0].set_ylabel('height (km)')
+
+    axes[0].grid(color='lightgray')
+    axes[0].tick_params('both', direction='in')
+
+    u, rays = u[idx_tr], rays[idx_tr]
+    k, l, m, dk, dl, dm, dens = rays.T
+    omega_hat = get_omega_hat(k, l, m, config.N_ref)
+    cp_x = omega_hat / k + u[:, 0, 0]
+
+    error = targets[idx_tr] - model(u, rays)
+    rmse = torch.sqrt((error ** 2).mean(dim=1))
+
+    coord = cp_x
+    edges = np.linspace(coord.min(), coord.max(), 21)
+    h, _ = np.histogram(coord, bins=edges, weights=rmse)
+    count, _ = np.histogram(coord, bins=edges)
+
+    width = edges[1] - edges[0]
+    x = (edges[:-1] + edges[1:]) / 2
+    axes[1].bar(x, h / count, width=width, fc='lightgray', ec='k')
+    axes[1].twinx().plot(x, count, color='k')
+
+    axes[1].set_xlim(edges[0], edges[-1])
+    axes[1].set_ylim(0, 0.2)
+
+    plt.tight_layout()
+    plt.savefig(f'plots/{config.name}/network-errors.png', dpi=400)
 
 def plot_training_samples(*args: str) -> None:
     """

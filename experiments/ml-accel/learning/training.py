@@ -185,11 +185,11 @@ def _make_inputs(
 
     k, l, m, dk, dl, dm, dens = rays.T
     log_A = torch.log(dens * dk * dl * dm)
-    u = u * torch.sign(k)[:, None, None]
-
     omega_hat = get_omega_hat(k, l, m, config.N_ref)
+
     T_hat = 2 * torch.pi / omega_hat
-    cp_x = omega_hat / abs(k)
+    cp_x = torch.sign(k) * (omega_hat / k + u[:, 0, 0])
+    u = u * torch.sign(k)[:, None, None]
 
     return u, torch.column_stack((cp_x, T_hat, log_A))
 

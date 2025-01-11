@@ -1,4 +1,4 @@
-from .plotting import plot_training_samples
+from .plotting import plot_network_errors, plot_training_samples
 from .preprocessing import (
     invert_surrogate,
     save_proxies,
@@ -11,6 +11,7 @@ from .utils import combine_data
 __all__ = [
     'combine_data',
     'invert_surrogate',
+    'plot_network_errors',
     'plot_training_samples',
     'save_proxies',
     'save_training_context',

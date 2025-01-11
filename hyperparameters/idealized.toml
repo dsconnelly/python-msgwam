@@ -19,19 +19,19 @@ n_packets = 500000
 speedup = 25
 
 [architectures]
-dropout_rate = [0.2, 0.5]
-max_kernel = [5, 13]
-n_hidden_c = [8, 24]
-n_hidden_d = [32, 128]
-n_hidden_s = [256, 512]
-n_layers_c = 2
-n_layers_d = 2
-n_layers_s = [2, 4]
+dropout_rate = 0
+max_kernel = 5
+n_hidden_c = 4
+n_hidden_d = 32
+n_hidden_s = 256
+n_layers_c = 4
+n_layers_d = 3
+n_layers_s = 3
 
 [training]
-batch_size = [32, 128]
+batch_size = [128]
 learning_rate = 1e-3
-max_epochs = 50
+max_epochs = 200
 max_hours = 3
 noise_scale = 0.1
 weight_decay = 0
