@@ -151,6 +151,7 @@ def _load_datasets(
 
     if target_type.startswith('flux'):
         targets = torch.clamp(abs(targets), max=1)
+        targets = torch.cummin(targets, dim=1)[0]
 
     loaders = []
     for idx in (idx_tr, idx_ev):
@@ -184,14 +185,14 @@ def _make_inputs(
     """
 
     k, l, m, dk, dl, dm, dens = rays.T
-    log_A = torch.log(dens * dk * dl * dm)
+    action = (dens * dk * dl * dm) ** (1 / 3)
     omega_hat = get_omega_hat(k, l, m, config.N_ref)
 
     T_hat = 2 * torch.pi / omega_hat
     cp_x = torch.sign(k) * (omega_hat / k + u[:, 0, 0])
     u = u * torch.sign(k)[:, None, None]
 
-    return u, torch.column_stack((cp_x, T_hat, log_A))
+    return u, torch.column_stack((cp_x, T_hat, action))
 
 def _make_trace_func(model) -> _TraceFunc:
     """

@@ -37,8 +37,8 @@ def plot_network_errors(model_path: str) -> None:
     fig.set_size_inches(sum(widths), 4.5)
 
     idx_tr, idx_ev = get_indices('validation')
-    idx_tr = np.random.choice(idx_tr, 50000, replace=False)
-    idx_ev = np.random.choice(idx_ev, 50000, replace=False)
+    idx_tr = np.random.choice(idx_tr, min(50000, len(idx_tr)), replace=False)
+    idx_ev = np.random.choice(idx_ev, min(50000, len(idx_ev)), replace=False)
 
     colors = ['forestgreen', 'tab:red']
     labels = ['training', 'validation']
@@ -46,7 +46,7 @@ def plot_network_errors(model_path: str) -> None:
     with config.override(n_grid=get_overrides()['n_grid']):
         z = get_vertical_grids()[0] / 1e3
 
-    u, rays, targets = load_data('flux-fine')
+    u, rays, targets = load_data('flux-coarse')
     model = torch.jit.load(model_path)
     
     for idx, color, label in zip([idx_tr, idx_ev], colors, labels):

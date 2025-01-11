@@ -15,7 +15,7 @@ stochastic_speedup = 25
 dt_launch = 10800
 lookback = 21600
 max_days = 10
-n_packets = 500000
+n_packets = 10000
 speedup = 25
 
 [architectures]
@@ -31,7 +31,7 @@ n_layers_s = 3
 [training]
 batch_size = [128]
 learning_rate = 1e-3
-max_epochs = 200
+max_epochs = 30
 max_hours = 3
-noise_scale = 0.1
+noise_scale = 0
 weight_decay = 0
