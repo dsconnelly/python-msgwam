@@ -276,9 +276,11 @@ def _run_epoch(
         optimizer.zero_grad()
         weight = X.shape[0]
 
-        noise = torch.normal(0, hp.training.noise_scale, u.shape)
-        output = model(u + noise, X)
+        c_noise = torch.normal(0, hp.training.noise_scale_c, X[:, 0].shape)
+        u_noise = torch.normal(0, hp.training.noise_scale_u, u.shape)
+        X[:, 0], u = X[:, 0] + c_noise, u + u_noise
 
+        output = model(u, X)
         loss = loss_func(targets, output)
         total = total + weight * loss.item()
         weight_sum = weight_sum + weight
