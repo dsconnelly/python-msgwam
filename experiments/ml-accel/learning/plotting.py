@@ -69,7 +69,8 @@ def plot_network_errors(model_path: str) -> None:
     omega_hat = get_omega_hat(k, l, m, config.N_ref)
     cp_x = omega_hat / k + u[:, 0, 0]
 
-    error = targets[idx_tr] - model(u, rays)
+    targets = targets[idx_tr]
+    error = targets - model(u, rays)
     rmse = torch.sqrt((error ** 2).mean(dim=1))
 
     coord = cp_x

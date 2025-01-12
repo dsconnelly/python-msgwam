@@ -7,7 +7,7 @@ import torch
 from .. import config
 from ..dispersion import get_cg_r
 from ..means import PrescribedWind
-from ..utils import shapiro_filter
+from ..utils import shapiro_filter, get_vertical_grids
 from .base import Propagator
 
 if TYPE_CHECKING:
@@ -26,7 +26,7 @@ class NetworkPropagator(Propagator):
         super().__init__(mean)
 
         self._model = torch.jit.load(config.network_path)
-        self._n_ahead = int(config.time_horizon * 86400 / config.dt)
+        self._n_ahead = int(max(config.time_horizon, config.dt) / config.dt)
         self._forecast = np.zeros((2, self._n_ahead, config.n_grid))
         self._until_next = np.ones(self._source._data.shape[-1])
 
@@ -72,11 +72,15 @@ class NetworkPropagator(Propagator):
             return self
         
         to_launch, _ = self._source.launch(mean, n_step, cdx)
-        cg_r = get_cg_r(*to_launch[:3], mean.N[0])
 
-        p, n_steps = np.modf(config.dr_init / cg_r / config.dt)
-        n_steps[np.random.rand(len(n_steps)) < p] += 1
-        self._until_next[cdx] = 1
+        if config.dr_init < 0:
+            self._until_next[cdx] = 1
+
+        else:
+            cg_r = get_cg_r(*to_launch[:3], mean.N[0])
+            p, n_steps = np.modf(config.dr_init / cg_r / config.dt)
+            n_steps[np.random.rand(len(n_steps)) < p] += 1
+            self._until_next[cdx] = n_steps
 
         rays = torch.as_tensor(to_launch.T)
         u = self._get_wind(mean, n_step).expand(rays.shape[0], -1, -1)
@@ -120,9 +124,21 @@ class NetworkPropagator(Propagator):
         cg_r = get_cg_r(k, l, m, config.N_ref)
         action = dens * (dk * dl * dm)
 
-        dr = cg_r * config.dt
-        factor = abs(k) * action * cg_r
-        T = config.dt * np.ones_like(dr)
+        if config.dr_init < 0:
+            T = config.dt * np.ones_like(cg_r)
+            factor = abs(k) * action * cg_r
+
+        else:
+            broken = abs(output) < 0.3
+            z, _ = get_vertical_grids()
+
+            z_break = z[np.argmax(broken, axis=1)]
+            z_break[broken.sum(axis=1) == 0] = config.z_max
+            z_break = np.maximum(z_break, 20e3)
+
+            T = (z_break - config.z_min) / cg_r
+            T = np.minimum(T, config.time_horizon)
+            factor = abs(k) * action * config.dr_init / T
 
         weights = np.zeros((len(T), self._n_ahead))
         n_persist = np.round(T / config.dt).astype(int)
@@ -154,7 +170,7 @@ class NetworkPropagator(Propagator):
         """
 
         ns = []
-        for k in range(config.n_history):
+        for k in range(2):
             ns.append(max(n_step - int(k * config.lookback / config.dt), 0))
 
         return torch.as_tensor(mean._wind[ns, 0])[None]

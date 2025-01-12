@@ -19,7 +19,7 @@ _COLORS = {
     'coarse' : 'k',
     'stochastic' : 'gold',
     'instantaneous' : 'tab:red',
-    # 'surrogate' : 'royalblue'
+    'surrogate' : 'royalblue'
 }
 
 def plot_coarse_errors() -> None:
@@ -99,10 +99,21 @@ def plot_coarse_errors() -> None:
     
     plt.savefig(f'plots/{config.name}/coarse-errors.png', dpi=400)
 
-def plot_error_profiles() -> None:
+def plot_error_profiles(resample_str: str='1d') -> None:
     """
     Plot the RMS errors as a function of height for each strategy.
+
+    Parameters
+    ----------
+    resample_str
+        Specification for the width of the Gaussian filter that should be used.
+        Should consist of a number followed by `'h'` or `'d'` for hours or days.
+
     """
+
+    i = [i for i, c in enumerate(resample_str) if c.isalpha()][0]
+    resample, tag = float(resample_str[:i]), resample_str[i:]
+    resample *= {'h' : 3600, 'd' : 86400}[tag]
 
     names = ['flux', 'acceleration']
     units = ['mPa', 'm / s / day']
@@ -114,7 +125,7 @@ def plot_error_profiles() -> None:
     zipped = zip(names, units, factors, axes)
     for i, (name, unit, factor, ax) in enumerate(zipped):
         z = get_vertical_grids()[i] / 1000
-        ref = load_data('reference', var=name, resample=10800)
+        ref = load_data('reference', var=name, resample=resample)
 
         for strategy, color in _COLORS.items():
             data = load_data(strategy, var=name)
