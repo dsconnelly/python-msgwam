@@ -72,6 +72,9 @@ def load(path: str, i: Optional[int]=None) -> None:
             names.append(f'{sub_name}.{var_name}')
             to_mesh.append(value)
 
+    if not to_mesh:
+        return
+
     mesh = meshgrid(*to_mesh, indexing='ij')
     params = stack(mesh, axis=0).reshape(len(to_mesh), -1)
 

@@ -180,7 +180,7 @@ def plot_mean_state() -> None:
     axes[0].set_ylabel('height (km)')
     axes[0].legend()
 
-    axes[0].set_xlim(0, 60)
+    axes[0].set_xlim(0, 100)
     axes[0].set_ylim(z.min(), z.max())
     axes[0].tick_params('both', direction='in')
     axes[0].grid(color='lightgray')

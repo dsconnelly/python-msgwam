@@ -58,7 +58,7 @@ def combine_data(path: str) -> None:
     fnames = [f'{dir_name}/{fname}' for fname in fnames]
 
     if len(fnames) == 0:
-        return
+        raise RuntimeError('No valid data was found to combine')
 
     lib = {'npy' : np, 'pkl' : torch}[suffix]
     data = lib.vstack(list(map(lib.load, fnames)))

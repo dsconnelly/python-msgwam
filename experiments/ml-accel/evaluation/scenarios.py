@@ -79,16 +79,19 @@ def _get_descending_jets(
     ell = np.cumsum(1 / wvl)[:, None] * dz
     wave = np.exp(2j * np.pi * (k + ell)).real.T
 
-    env = np.exp(-((z - hp.z_decay) / 25e3) ** 2)
-    env_lo = np.exp(-((z - hp.z_decay) / 10e3) ** 2)
+    env = np.exp(-((z - hp.z_decay) / 40e3) ** 2)
+    env_lo = np.exp(-((z - hp.z_decay) / 25e3) ** 2)
     env[z < hp.z_decay] = env_lo[z < hp.z_decay]
+    wave = env * wave
 
     k = seconds / (hp.jet_period * 86400)
     jet = np.exp(2j * np.pi * (k + rng.random())).real[:, None]
+    jet = jet * np.exp(-(((z - config.z_min) / 40e3) ** 2))
+
     args = [[seconds, z], [86400, 15e3], [3600, 500]]
     noise = make_colored_noise(*args, rng=rng)
 
-    u = 10 * jet + 65 * env * wave + 15 * noise
+    u = 10 * jet + 90 * env * wave + 15 * noise
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

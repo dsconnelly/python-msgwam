@@ -40,6 +40,9 @@ def save_training_context() -> None:
     kwargs['seed'] = make_seed(config.name, 'spectrum', hp.task_id)
     wind_seed = make_seed(config.name, 'wind', hp.task_id)
 
+    hp.evaluation.osc_period_max = 14
+    hp.evaluation.osc_period_min = 14
+
     with config.override(**kwargs):
         ds = _get_descending_jets(seed=wind_seed)
         ds.to_netcdf(config.prescribed_wind_file)
