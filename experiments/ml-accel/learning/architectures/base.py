@@ -152,21 +152,34 @@ class SourceNet(nn.Module, ABC):
         """
 
         if kernels is None:
-            cls = nn.Linear
             zipped = zip(sizes[:-1], sizes[1:])
-            norm = nn.BatchNorm1d(sizes[-1])
+            cls = nn.Linear
 
         else:
-            cls = lambda *args: nn.Conv1d(*args, padding='same')
             zipped = zip(sizes[:-1], sizes[1:], kernels)
-            norm = _SeqBatchNorm(config.n_grid - 1)
+            cls = lambda *args: nn.Conv1d(*args, padding='same')
 
         mods = []
-        for args in zipped:
-            mods.extend([cls(*args), nn.ReLU()])
-            mods.append(nn.Dropout(hp.dropout_rate))
+        for i, args in enumerate(zipped):
+            mods.append(cls(*args))
 
-        mods = mods[:-2] if final else mods[:-1] + [norm]
+            if hp.batch_norm_pos == -1:
+                mods.append(nn.BatchNorm1d(args[1]))
+
+            mods.append(nn.ReLU())
+
+            pre_res = hp.has_residual and i == len(sizes) - 2
+            if hp.batch_norm_pos == 1 or (hp.batch_norm_pos == 0 and pre_res):
+                mods.append(nn.BatchNorm1d(args[1]))
+
+            if kernels is None:
+                mods.append(nn.Dropout(hp.dropout_rate))
+
+        if final or hp.has_residual:
+            accept = type(mods[0]) if final else nn.BatchNorm1d
+            i = [i for i, m in enumerate(mods) if isinstance(m, accept)][-1]
+            mods = mods[:(i + 1)]
+
         return nn.Sequential(*mods)
 
     def _init_layers(self) -> None:
@@ -232,8 +245,12 @@ class SourceNet(nn.Module, ABC):
 
         """
 
-        p = self._conv(u) + u
-        q = self._dense(X) + X
+        p = self._conv(u)
+        q = self._dense(X)
+
+        if hp.has_residual:
+            p = p + u
+            q = q + X
 
         output = torch.hstack((p.flatten(1, 2), q))
         return self._shared(output)
@@ -261,17 +278,3 @@ class SourceNet(nn.Module, ABC):
         X, *_ = standardize(X, self.means[1], self.stds[1])
 
         return u.reshape(X.shape[0], 2, -1), X
-    
-class _SeqBatchNorm(nn.BatchNorm1d):
-    """
-    Batch norm variant that normalizes over the sequence dimension rather than
-    over the channel dimension when the input is three-dimensional.
-    """
-
-    def forward(self, a: torch.Tensor) -> torch.Tensor:
-        """
-        Call the parent class implentation with the last two dimensions swapped,
-        then swap the dimensions back before returning.
-        """
-
-        return super().forward(a.transpose(1, 2)).transpose(1, 2)

@@ -4,6 +4,8 @@ from msgwam import config
 
 from .base import SourceNet
 
+from ...hyperparameters import architectures as hp
+
 class Surrogate(SourceNet):
     """
     A `Surrogate` accepts information about the zonal wind and the source ray
@@ -39,8 +41,8 @@ class Surrogate(SourceNet):
         constrained to be in [0, 1] (in nondimensional terms) and decreasing as
         a function of height.
         """
-        
-        if not self.training:
+
+        if not self.training and hp.constrained:
             output = torch.clamp(output, min=0, max=1)
             output = torch.cummin(output, dim=1)[0]
 

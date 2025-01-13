@@ -19,12 +19,17 @@ n_packets = 10000
 speedup = 25
 
 [architectures]
-dropout_rate = 0
+constrained = true
+batch_norm_pos = 0
+dropout_rate = 0.5
+has_residual = true
 max_kernel = 5
+
 n_hidden_c = 4
 n_hidden_d = 32
 n_hidden_s = 256
-n_layers_c = 4
+
+n_layers_c = 6
 n_layers_d = 3
 n_layers_s = 3
 
@@ -33,6 +38,6 @@ batch_size = [128]
 learning_rate = 1e-3
 max_epochs = 30
 max_hours = 3
-noise_scale_c = 0.5
+noise_scale_c = 0
 noise_scale_u = 0
 weight_decay = 0
