@@ -18,9 +18,12 @@ def save_coarsenings() -> None:
     `config.n_max`, saving the output of each configuration.
     """
 
-    base = _get_stochastic_overrides('1')
+    overrides = _get_stochastic_overrides('1')
     for dr, n_source in product(*_get_grid()):
-        with config.override(**base, dr_init=float(dr), n_source=n_source):
+        overrides['dr_init'] = float(dr)
+        overrides['n_source'] = n_source
+
+        with config.override(**overrides):
             _get_integration('stochastic').to_netcdf(_get_path(dr, n_source))
 
 def update_config(*names: str) -> None:
