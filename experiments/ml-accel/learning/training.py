@@ -91,7 +91,7 @@ def _train_network(
 
     while n_epoch <= max_epochs and (time() - start) / 3600 < max_hours:
         loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        loss_tr = _run_epoch(model, loader_tr, loss_func)
+        # loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
 
         if n_epoch % n_print == 0:
@@ -147,7 +147,8 @@ def _load_datasets(
     """
 
     u, rays, targets = load_data(target_type)
-    idx_tr, idx_ev = get_indices(eval_type)
+    n_packets = min(hp.generation.n_packets, u.shape[0])
+    idx_tr, idx_ev = get_indices(eval_type, n_packets)
 
     if target_type.startswith('flux'):
         targets = torch.clamp(abs(targets), max=1)

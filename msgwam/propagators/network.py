@@ -80,7 +80,7 @@ class NetworkPropagator(Propagator):
             cg_r = get_cg_r(*to_launch[:3], mean.N[0])
             p, n_steps = np.modf(config.dr_init / cg_r / config.dt)
             n_steps[np.random.rand(len(n_steps)) < p] += 1
-            self._until_next[cdx] = n_steps
+            self._until_next[cdx] = np.maximum(1, n_steps)
 
         rays = torch.as_tensor(to_launch.T)
         u = self._get_wind(mean, n_step).expand(rays.shape[0], -1, -1)

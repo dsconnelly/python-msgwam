@@ -148,7 +148,8 @@ def plot_error_profiles(resample_str: str='1d') -> None:
 
     axes[0].legend()
     plt.tight_layout()
-    plt.savefig(f'plots/{config.name}/error-profiles.png', dpi=400)
+    fname = f'error-profiles-{resample_str}.png'
+    plt.savefig(f'plots/{config.name}/{fname}', dpi=400)
 
 def plot_mean_state() -> None:
     """

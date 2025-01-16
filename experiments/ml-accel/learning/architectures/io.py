@@ -113,22 +113,20 @@ def _get_best_task_id(target_type: str) -> int:
     best_id = None
     best_score = np.inf
 
-    log_dir = 'logs/ml-accel'
+    log_dir = f'logs/{config.name}'
     _, grain = target_type.split('-')
 
     for fname in listdir(log_dir):
-        if not fname.startswith('train-'):
-            continue
-
-        if not grain in fname:
+        if not fname.startswith(f'train-surrogate-{grain}'):
             continue
 
         with open(f'{log_dir}/{fname}') as f:
-            for line in f:
-                if not line.startswith('loss_ev'):
-                    continue
+            line = f.readlines()[-1]
+            
+        if not 'Best loss' in line:
+            continue
 
-                score = float(line.strip().split(' = ')[1])
+        score = float(line.strip().split()[-1])
 
         if score < best_score:
             best_id = int(fname.split('.')[0].split('-')[-1])

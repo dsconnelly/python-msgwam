@@ -34,7 +34,7 @@ n_layers_d = [3, 6]
 n_layers_s = [3, 8]
 
 [training]
-batch_size = [128, 512]
+batch_size = 128
 learning_rate = 1e-3
 max_epochs = 100
 max_hours = 3
