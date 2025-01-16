@@ -20,7 +20,7 @@ def save_coarsenings() -> None:
         with config.override(dr_init=float(dr), n_source=n_source):
             integrate().to_netcdf(_get_path(dr, n_source))
 
-def update_config(names: Optional[list[str]]=None) -> None:
+def update_config(*names: str) -> None:
     """
     Update the values of `dr_init` and `n_source` in the specified configuration
     files to the best values found during the grid search.
@@ -28,9 +28,9 @@ def update_config(names: Optional[list[str]]=None) -> None:
     Parameters
     ----------
     names
-        List of configuration names to update. If `None`, only the file for the
-        currently loaded configuration will be changed, but other names can be
-        included if multiple experiments should use the same coarsening.
+        List of configuration names to update. If not passed, only the file for
+        the currently loaded configuration will be changed, but other names can
+        be included if multiple experiments should use the same coarsening.
 
     """
 
@@ -38,7 +38,7 @@ def update_config(names: Optional[list[str]]=None) -> None:
     errors = _get_normalized_errors()
     i, j = np.unravel_index(np.argmin(errors), errors.shape)
 
-    if names is None:
+    if not names:
         names = [config.name]
 
     for name in names:
