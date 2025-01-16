@@ -8,8 +8,7 @@ z_decay = 50e3
 z_turn = 55e3
 
 [strategies]
-stochastic_samples = 25
-stochastic_speedup = 25
+n_samples = 25
 
 [generation]
 dt_launch = 3600

@@ -30,8 +30,9 @@ def get_overrides(strategy: str) -> dict[str, Any]:
 
     """
 
+    strategy, *args = strategy.split('-')
     func_name = f'_get_{strategy}_overrides'
-    return globals()[func_name]()
+    return globals()[func_name](*args)
 
 def integrate(strategy: str) -> None:
     """
@@ -79,11 +80,11 @@ def _get_integration(strategy: str) -> xr.Dataset:
 
     """
 
-    if strategy != 'stochastic':
+    if not strategy.startswith('stochastic'):
         return _integrate()
-    
+
     datasets = []
-    for i in range(hp.strategies.stochastic_samples):
+    for i in range(hp.strategies.n_samples):
         ds = _integrate().assign_coords(sample=i)
         datasets.append(ds)
 
@@ -124,10 +125,20 @@ def _get_surrogate_overrides() -> dict[str, Any]:
         'dr_init' : -1,
     }
 
-def _get_stochastic_overrides() -> dict[str, Any]:
-    """Use a stochastic source that launches nine times less often."""
+def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:
+    """
+    Use a stochastic source that launches less often.
 
-    speedup = hp.strategies.stochastic_speedup
+    Parameters
+    ----------
+    speedup_str
+        The speedup that should be targeted. Its square root is the factor by
+        which each dimension will be refined. Accepted as a string so that this
+        parameter can be provided at the command line.
+    
+    """
+
+    speedup = int(speedup_str)
     root = int(speedup ** 0.5)
 
     return {

@@ -17,7 +17,8 @@ from .utils import get_rmse, load_data
 
 _COLORS = {
     'coarse' : 'k',
-    'stochastic' : 'gold',
+    'stochastic-1' : 'forestgreen',
+    'stochastic-25' : 'gold',
     'instantaneous' : 'tab:red',
     'surrogate' : 'royalblue'
 }
