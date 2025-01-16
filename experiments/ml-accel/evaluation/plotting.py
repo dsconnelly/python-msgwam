@@ -138,7 +138,7 @@ def plot_error_profiles(resample_str: str='1d') -> None:
 
         xmax = [1, 50][i]
         ax.set_xlim(0, xmax)
-        ax.set_ylim(z.min(), z.max())
+        ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
 
         ax.set_xlabel(f'{name} RMSE ({unit})')
         ax.set_ylabel('height (km)')
