@@ -1,4 +1,5 @@
 from itertools import product
+from typing import Optional
 
 import numpy as np
 
@@ -19,29 +20,41 @@ def save_coarsenings() -> None:
         with config.override(dr_init=float(dr), n_source=n_source):
             integrate().to_netcdf(_get_path(dr, n_source))
 
-def update_config() -> None:
+def update_config(names: Optional[list[str]]=None) -> None:
     """
-    Update the values of `dr_init` and `n_source` in the loaded configuration
-    file to the best values found during the grid search.
+    Update the values of `dr_init` and `n_source` in the specified configuration
+    files to the best values found during the grid search.
+
+    Parameters
+    ----------
+    names
+        List of configuration names to update. If `None`, only the file for the
+        currently loaded configuration will be changed, but other names can be
+        included if multiple experiments should use the same coarsening.
+
     """
 
     drs, n_sources = _get_grid()
     errors = _get_normalized_errors()
     i, j = np.unravel_index(np.argmin(errors), errors.shape)
 
-    with open(f'config/{config.name}.toml') as f:
-        lines = f.readlines()
+    if names is None:
+        names = [config.name]
 
-    with open(f'config/{config.name}.toml', 'w') as f:
-        for line in lines:
-            if line.startswith('dr_init'):
-                f.write(f'dr_init = {drs[i]}\n')
+    for name in names:
+        with open(f'config/{name}.toml') as f:
+            lines = f.readlines()
 
-            elif line.startswith('n_source'):
-                f.write(f'n_source = {n_sources[j]}\n')
+        with open(f'config/{name}.toml', 'w') as f:
+            for line in lines:
+                if line.startswith('dr_init'):
+                    f.write(f'dr_init = {drs[i]}\n')
 
-            else:
-                f.write(line)
+                elif line.startswith('n_source'):
+                    f.write(f'n_source = {n_sources[j]}\n')
+
+                else:
+                    f.write(line)
 
 def _get_error_profiles() -> np.ndarray:
     """
