@@ -31,11 +31,24 @@ coarsenings_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --time=1:00:00 \
-    --mem=16G \
+    --mem=32G \
     -J coarsening \
     --array=0-99 \
     -o logs/${name}/coarsening-%a.out \
     ml-accel.slurm $config save-coarsenings
+)
+
+update_id=$(sbatch \
+    --parsable \
+    --ntasks=1 \
+    --time=1:00:00 \
+    --mem=32G \
+    -J coarse-update \
+    --dependency=afterok:${coarsenings_id} \
+    -o logs/${name}/coarse-update.out \
+    ml-accel.slurm $config \
+        plot-coarse-errors \
+        update-config
 )
 
 # generate_id=$(sbatch \

@@ -5,7 +5,6 @@ from itertools import product
 import numpy as np
 
 from msgwam import config
-from msgwam.integration import integrate
 
 from .strategies import _get_stochastic_overrides, _get_integration
 from .utils import get_rmse, load_data
@@ -24,7 +23,8 @@ def save_coarsenings() -> None:
         overrides['n_source'] = n_source
 
         with config.override(**overrides):
-            _get_integration('stochastic').to_netcdf(_get_path(dr, n_source))
+            ds = _get_integration('stochastic').mean('sample')
+            ds.to_netcdf(_get_path(dr, n_source))
 
 def update_config(*names: str) -> None:
     """
@@ -120,7 +120,7 @@ def _get_grid() -> tuple[list[int], list[int]]:
     """
 
     drs = [500 * i for i in range(1, 11)]
-    n_sources = [4 * i for i in range(1, 11)]
+    n_sources = [4 + 6 * i for i in range(10)]
     k = int(os.getenv('SLURM_ARRAY_TASK_ID', -1))
 
     if k > -1:
