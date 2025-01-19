@@ -60,6 +60,7 @@ n_source: int
 ################################################################################
 check_sign_changes: bool
 dr_init: float
+jitter: bool
 max_age: int
 min_flux: float
 n_chromatic: int

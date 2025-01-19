@@ -55,7 +55,7 @@ def _get_coarse_overrides() -> dict[str, Any]:
     settings for the coarse integration are already set.
     """
 
-    return {}
+    return {'jitter' : True}
 
 def _get_instantaneous_overrides() -> dict[str, Any]:
     """Use an instantaneous propagator instead of the ray tracer."""
@@ -80,7 +80,7 @@ def _get_integration(strategy: str) -> xr.Dataset:
 
     """
 
-    if not strategy.startswith('stochastic'):
+    if strategy == 'reference' or config.propagator_type != 'transient':
         return _integrate()
 
     datasets = []

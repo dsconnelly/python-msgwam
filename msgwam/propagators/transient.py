@@ -50,6 +50,10 @@ class TransientPropagator(Propagator):
         for k, data in zip(cdx, datas.T):
             self._ghosts[k] = self._add_ray(data, mean)
 
+        if config.jitter:
+            noise = np.random.rand(self._n_max) - 0.5
+            self._data[0] += config.dr_init * noise
+
         padding = (self._r_ghost, mean.z_centers[-1] + mean.dz)
         self._z_padded = np.pad(mean.z_centers, 1, constant_values=padding)
 
@@ -270,9 +274,9 @@ class TransientPropagator(Propagator):
 
         """
 
-        z_lo = self._r_init
+        z_lo = 0
         if config.source_type == 'packet':
-            z_lo = z_lo - (config.n_repeat - 1) * config.dr_init
+            z_lo = min(0, self._r_init - (config.n_repeat - 1) * config.dr_init)
 
         below = self.r < z_lo
         above = self.r - 0.5 * self.dr > config.z_max
