@@ -6,7 +6,7 @@ import numpy as np
 
 from msgwam import config
 
-from .strategies import _get_stochastic_overrides, _get_integration
+from .strategies import get_overrides, _get_integration
 from .utils import get_rmse, load_data
 
 _RESAMPLE = 6 * 3600
@@ -17,7 +17,7 @@ def save_coarsenings() -> None:
     `config.n_max`, saving the output of each configuration.
     """
 
-    overrides = _get_stochastic_overrides('coarse')
+    overrides = get_overrides('coarse')
     for dr, n_source in product(*_get_grid()):
         overrides['dr_init'] = float(dr)
         overrides['n_source'] = n_source
