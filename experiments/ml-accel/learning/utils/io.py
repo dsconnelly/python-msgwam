@@ -8,9 +8,6 @@ from msgwam import config
 
 from ... import hyperparameters as hp
 
-from .proxies import apply_basis
-from .overrides import get_overrides
-
 def get_indices(
     eval_type: str,
     n_packets: Optional[int]=None
@@ -81,11 +78,13 @@ def load_data(
     u = torch.as_tensor(np.load(f'{data_dir}/u.npy'))
     rays = torch.as_tensor(np.load(f'{data_dir}/rays.npy'))
 
-    if target_type.startswith(('flux', 'proxies')):
+    if target_type.startswith('flux'):
         target_type, grain = target_type.split('-')
 
     if target_type == 'flux':
         Y = torch.as_tensor(np.load(f'{data_dir}/flux-{grain}.npy'))
+        idx = {'fine' : slice(None, -1), 'coarse' : slice(1, None)}[grain]
+        u = u[:, idx]
 
         if kwargs.get('nondimensional', True):
             T = hp.generation.max_days * 86400
@@ -94,16 +93,5 @@ def load_data(
 
             factor = abs(k) * action * config.dr_init / T
             Y = Y / factor[:, None]
-
-    elif target_type == 'proxies':
-        fname = f'proxies-{grain}-{hp.architectures.basis_type}.npy'
-        Y = torch.as_tensor(np.load(f'{data_dir}/{fname}'))
-
-        if kwargs.get('reconstructed', False):
-            signs = torch.sign(rays[:, :1])
-            signs = signs[:Y.shape[0]]
-
-            n_grid = get_overrides()['n_grid']
-            Y = signs * apply_basis(Y, n_grid)
 
     return u, rays, Y

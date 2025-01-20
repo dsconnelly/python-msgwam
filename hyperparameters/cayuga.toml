@@ -12,6 +12,7 @@ n_samples = 25
 
 [generation]
 dt_launch = 3600
+lookahead = 86400
 lookback = 21600
 max_days = 10
 n_packets = 5000000

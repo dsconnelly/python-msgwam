@@ -98,13 +98,12 @@ def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
 
     """
 
-    shape = (n_packets, 2, config.n_grid - 1)
+    shape = (n_packets, 3, config.n_grid - 1)
     u = np.full(shape, fill_value=np.nan)
     rays = np.zeros((n_packets, 7))
 
     mean = PrescribedWind()
     source = Source.from_name('packet')
-    n_lookback = int(hp.generation.lookback // config.dt)
 
     i = 0
     for n_step in range(config.n_steps):
@@ -116,9 +115,13 @@ def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
         n_add = min(data.shape[1], n_packets - i)
         rays[i:(i + n_add)] = data.T[:n_add]
 
-        for k in range(2):
-            if n_step - k * n_lookback >= 0:
-                u[i:(i + n_add), k] = mean._wind[n_step - k * n_lookback, 0]
+        n_back = hp.generation.lookback // config.dt
+        n_ahead = hp.generation.lookahead // config.dt
+        steps = [n_step - n_back, n_step, n_step + n_ahead]
+
+        for k, step in enumerate(steps):
+            if 0 <= step < mean._wind.shape[0]:
+                u[i:(i + n_add), k] = mean._wind[step, 0]
 
         i = i + n_add
         if i == n_packets:
