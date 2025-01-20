@@ -16,7 +16,7 @@ lookahead = 86400
 lookback = 21600
 max_days = 10
 n_packets = 5000000
-speedup = 36
+speedup = 49
 
 [architectures]
 constrained = true
