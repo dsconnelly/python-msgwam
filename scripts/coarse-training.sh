@@ -12,7 +12,7 @@ fi
 
 mkdir -p data/$name/surrogate-coarse
 
-$coarse_id=$(sbatch \
+coarse_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
@@ -24,7 +24,7 @@ $coarse_id=$(sbatch \
     ml-accel.slurm $config train-network:coarse
 )
 
-$best_coarse_id=$(sbatch \
+best_coarse_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \

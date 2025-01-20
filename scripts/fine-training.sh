@@ -12,7 +12,7 @@ fi
 
 mkdir -p data/$name/surrogate-fine
 
-$fine_id=$(sbatch \
+fine_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
@@ -24,14 +24,14 @@ $fine_id=$(sbatch \
     ml-accel.slurm $config train-network:fine
 )
 
-$best_fine_id=$(sbatch \
+best_fine_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
     --time=5:00:00 \
     -J train-best-surrogate-fine \
     -o logs/$name/train-best-surrogate-fine.out \
-    --dependency=afterok:$fine_id \
+    --dependency=afterok:${fine_id} \
     ml-accel.slurm $config train-network:fine:test
 )
 
