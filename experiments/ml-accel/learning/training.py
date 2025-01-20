@@ -9,10 +9,9 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 
 from msgwam import config
-from msgwam.dispersion import get_omega_hat
 
 from .. import hyperparameters as hp
-from .architectures import Surrogate, get_model_dir, load_model
+from .architectures import Surrogate, get_model_dir, load_model, make_inputs
 from .losses import FluxLoss
 from .utils import (
     get_indices,
@@ -156,44 +155,10 @@ def _load_datasets(
 
     loaders = []
     for idx in (idx_tr, idx_ev):
-        data = TensorDataset(*_make_inputs(u[idx], rays[idx]), targets[idx])
+        data = TensorDataset(*make_inputs(u[idx], rays[idx]), targets[idx])
         loaders.append(DataLoader(data, hp.training.batch_size, shuffle=True))
 
     return tuple(loaders)
-
-def _make_inputs(
-    u: torch.Tensor,
-    rays: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Preprocess input data to be passed to a `SourceNet`. Extracts spectral
-    features from ray volume data, and handles the sign of the zonal wind.
-
-    Parameters
-    ----------
-    u
-        Tensor of zonal wind profiles.
-    rays
-        Tensor of ray volume properties.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of sign-modified zonal wind data.
-    torch.Tensor
-        Tensor of extracted spectral properties.
-
-    """
-
-    k, l, m, dk, dl, dm, dens = rays.T
-    action = (dens * dk * dl * dm) ** (1 / 3)
-    omega_hat = get_omega_hat(k, l, m, config.N_ref)
-
-    T_hat = 2 * torch.pi / omega_hat
-    cp_x = torch.sign(k) * (omega_hat / k + u[:, 0, 0])
-    u = u * torch.sign(k)[:, None, None]
-
-    return u, torch.column_stack((cp_x, T_hat, action))
 
 def _make_trace_func(model) -> _TraceFunc:
     """
@@ -221,7 +186,7 @@ def _make_trace_func(model) -> _TraceFunc:
             """
 
             signs = torch.sign(rays[:, 0])[:, None]
-            u, X = _make_inputs(u, rays)
+            u, X = make_inputs(u, rays)
             Y = model(u, X)
 
             return signs * Y

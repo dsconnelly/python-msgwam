@@ -2,6 +2,43 @@ from typing import Optional
 
 import torch, torch.nn as nn
 
+from msgwam import config
+from msgwam.dispersion import get_omega_hat
+
+def make_inputs(
+    u: torch.Tensor,
+    rays: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Preprocess input data to be passed to a `SourceNet`. Extracts spectral
+    features from ray volume data, and handles the sign of the zonal wind.
+
+    Parameters
+    ----------
+    u
+        Tensor of zonal wind profiles.
+    rays
+        Tensor of ray volume properties.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of sign-modified zonal wind data.
+    torch.Tensor
+        Tensor of extracted spectral properties.
+
+    """
+
+    k, l, m, dk, dl, dm, dens = rays.T
+    action = (dens * dk * dl * dm) ** (1 / 3)
+    omega_hat = get_omega_hat(k, l, m, config.N_ref)
+
+    T_hat = 2 * torch.pi / omega_hat
+    cp_x = torch.sign(k) * (omega_hat / k + u[:, 0, 0])
+    u = u * torch.sign(k)[:, None, None]
+
+    return u, torch.column_stack((cp_x, T_hat, action))
+
 def standardize(
     a: torch.Tensor,
     means: Optional[torch.Tensor]=None,

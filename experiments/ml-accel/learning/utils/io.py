@@ -83,7 +83,7 @@ def load_data(
 
     if target_type == 'flux':
         Y = torch.as_tensor(np.load(f'{data_dir}/flux-{grain}.npy'))
-        idx = {'fine' : slice(None, -1), 'coarse' : slice(1, None)}[grain]
+        idx = {'fine' : [1, 0], 'coarse' : [1, 2]}[grain]
         u = u[:, idx]
 
         if kwargs.get('nondimensional', True):
