@@ -9,7 +9,7 @@ from msgwam.dispersion import get_m
 from ..architectures import load_model, make_inputs
 from ..utils import load_data
 
-def invert_surrogte(n_steps: int=100) -> None:
+def invert_surrogate(n_steps: int=100) -> None:
     """
     Invert a coarse surrogate to find new wavenumbers that cause the ray volume
     to behave more like its fine constituents.
@@ -28,8 +28,8 @@ def invert_surrogte(n_steps: int=100) -> None:
     u, X_hat = make_inputs(u, rays)
     X_hat, action_cr = X_hat[:, :-1].clone(), X_hat[:, -1:]
     M = abs(rays[:, 0]) * action_cr ** 3
-    X_hat.requires_grad_(True)
 
+    X_hat.requires_grad_(True)
     optimizer = Adam([X_hat], lr=1e-1)
     loss_func = nn.MSELoss()
 
@@ -45,12 +45,9 @@ def invert_surrogte(n_steps: int=100) -> None:
         k, m = _unmake_inputs(u, X_hat.detach())
         action_cr = (M / k) ** (1 / 3)
 
-    volume = rays[:, 3:6].prod(dim=-1)
-    dens = (action_cr ** 3) / volume
-
     signs = torch.sign(rays[:, 0])
-    data = torch.column_stack((signs * k, m, dens)).numpy()
-    np.save(f'data/{config.name}/training/inverted.npy', data)
+    data = torch.column_stack((signs * k, m)).numpy()
+    np.save(f'data/{config.name}/training/adjustments.npy', data)
 
 def _unmake_inputs(
     u: torch.Tensor,

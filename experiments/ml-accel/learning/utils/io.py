@@ -77,12 +77,10 @@ def load_data(
     data_dir = f'data/{config.name}/training'
     u = torch.as_tensor(np.load(f'{data_dir}/u.npy'))
     rays = torch.as_tensor(np.load(f'{data_dir}/rays.npy'))
+    Y = torch.as_tensor(np.load(f'{data_dir}/{target_type}.npy'))
 
     if target_type.startswith('flux'):
-        target_type, grain = target_type.split('-')
-
-    if target_type == 'flux':
-        Y = torch.as_tensor(np.load(f'{data_dir}/flux-{grain}.npy'))
+        _, grain = target_type.split('-')
         idx = {'fine' : [1, 0], 'coarse' : [1, 2]}[grain]
         u = u[:, idx]
 
@@ -93,5 +91,8 @@ def load_data(
 
             factor = abs(k) * action * config.dr_init / T
             Y = Y / factor[:, None]
+
+    elif target_type == 'adjustments':
+        u = u[:, :-1]
 
     return u, rays, Y

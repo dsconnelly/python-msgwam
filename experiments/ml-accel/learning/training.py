@@ -112,6 +112,7 @@ def _train_network(
     for p in model.parameters():
         p.requires_grad = False
 
+    del loader_tr, loader_ev
     trace_func = _make_trace_func(model)
     u_ex, rays_ex, _ = load_data(target_type)
 
@@ -154,9 +155,10 @@ def _load_datasets(
         targets = torch.cummin(targets, dim=1)[0]
 
     loaders = []
-    for idx in (idx_tr, idx_ev):
+    for k, idx in enumerate((idx_tr, idx_ev)):
+        batch_size = [hp.training.batch_size, 8192][k]
         data = TensorDataset(*make_inputs(u[idx], rays[idx]), targets[idx])
-        loaders.append(DataLoader(data, hp.training.batch_size, shuffle=True))
+        loaders.append(DataLoader(data, batch_size, shuffle=True))
 
     return tuple(loaders)
 
@@ -228,30 +230,31 @@ def _run_epoch(
         model.eval()
         loss_func.eval()
 
-        with torch.no_grad():
-            u, X, targets = loader.dataset.tensors
-            loss = loss_func(targets, model(u, X))
-
-        return loss.item()
-
-    model.train()
-    loss_func.train()
+    else:
+        model.train()
+        loss_func.train()
 
     weight_sum, total = 0, 0
     for u, X, targets in loader:
-        optimizer.zero_grad()
+        if optimizer is None:
+            with torch.no_grad():
+                output = model(u, X)
+
+        else:
+            c_noise = torch.normal(0, hp.training.noise_scale_c, X[:, 0].shape)
+            u_noise = torch.normal(0, hp.training.noise_scale_u, u.shape)
+            X[:, 0], u = X[:, 0] + c_noise, u + u_noise
+
+            optimizer.zero_grad()
+            output = model(u, X)
+
         weight = X.shape[0]
-
-        c_noise = torch.normal(0, hp.training.noise_scale_c, X[:, 0].shape)
-        u_noise = torch.normal(0, hp.training.noise_scale_u, u.shape)
-        X[:, 0], u = X[:, 0] + c_noise, u + u_noise
-
-        output = model(u, X)
         loss = loss_func(targets, output)
         total = total + weight * loss.item()
         weight_sum = weight_sum + weight
 
-        loss.backward()
-        optimizer.step()
+        if optimizer is not None:
+            loss.backward()
+            optimizer.step()
 
     return total / weight_sum
