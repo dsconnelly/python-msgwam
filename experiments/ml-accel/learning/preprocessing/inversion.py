@@ -6,8 +6,12 @@ from torch.optim import Adam
 from msgwam import config
 from msgwam.utils import get_wavenumbers
 
+from ... import hyperparameters as hp
+
 from ..architectures import load_model, make_inputs
-from ..utils import load_data
+from ..utils import add_task_info, get_overrides, get_workload, load_data
+
+from .generation import _generate_outputs
 
 def invert_surrogate(n_steps: int=100) -> None:
     """
@@ -22,8 +26,8 @@ def invert_surrogate(n_steps: int=100) -> None:
     """
 
     model, _ = load_model('flux-coarse', 'test', restart=True)
-    u, rays, _ = load_data('flux-coarse')
-    *_, Y_fine = load_data('flux-fine')
+    u, rays, _ = load_data('flux-coarse', distributed=True)
+    *_, Y_fine = load_data('flux-fine', distributed=True)
 
     u, X_hat = make_inputs(u, rays)
     X_hat, action_cr = X_hat[:, :-1].clone(), X_hat[:, -1:]
@@ -45,5 +49,31 @@ def invert_surrogate(n_steps: int=100) -> None:
         k, _ = get_wavenumbers(u, X_hat.detach())
         action_cr = (M / k) ** (1 / 3)
 
+    path = f'data/{config.name}/training/candidates.npy'
+    np.save(add_task_info(path), X_hat.detach().numpy())
+
+def validate_inversion() -> None:
+    """
+    Validate the inversion by integrating with the adjusted wavenumbers and
+    keeping only those adjustments that improve errors relative to fine.
+    """
+
+    kwargs = get_overrides(fine=False)
+    path = f'data/{config.name}/training/candidates.npy'
+    kwargs['network_path'] = add_task_info(path)
+    kwargs['source_type'] = 'network'
+
+    with config.override(**kwargs):
+        a, b = get_workload(hp.generation.n_packets)
+        Y_hat = _generate_outputs(b - a)
+    
+    *_, Y_coarse = load_data('flux-coarse', distributed=True)
+    *_, Y_fine = load_data('flux-fine', distributed=True)
+
+    errors_coarse = ((Y_coarse - Y_fine) ** 2).sum(dim=1)
+    errors_hat = ((Y_hat - Y_fine) ** 2).sum(dim=1)
+    keep = errors_hat < errors_coarse
+
+    data = np.load(kwargs['network_path'])
     path = f'data/{config.name}/training/adjustments.npy'
-    np.save(path, X_hat.detach().numpy())
+    np.save(add_task_info(path), data[keep])

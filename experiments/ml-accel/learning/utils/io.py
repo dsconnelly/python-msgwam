@@ -7,6 +7,7 @@ import torch
 from msgwam import config
 
 from ... import hyperparameters as hp
+from .distributed import add_task_info
 
 def get_indices(
     eval_type: str,
@@ -51,6 +52,7 @@ def get_indices(
 
 def load_data(
     target_type: str,
+    distributed: bool=False,
     **kwargs
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -60,6 +62,8 @@ def load_data(
     ----------
     target_type
         Kind of target data to load, as passed to `train_network`.
+    distributed
+        If `True`, only load the data generated on the current Slurm task ID.
     **kwargs
         Keyword arguments for the specified target type.
 
@@ -75,9 +79,14 @@ def load_data(
     """
 
     data_dir = f'data/{config.name}/training'
-    u = torch.as_tensor(np.load(f'{data_dir}/u.npy'))
-    rays = torch.as_tensor(np.load(f'{data_dir}/rays.npy'))
-    Y = torch.as_tensor(np.load(f'{data_dir}/{target_type}.npy'))
+    load = lambda s: torch.as_tensor(np.load(s))
+
+    if distributed:
+        load = lambda s: load(add_task_info(s))
+
+    u = load(f'{data_dir}/u.npy')
+    rays = load(f'{data_dir}/rays.npy')
+    Y = load(f'{data_dir}/{target_type}.npy')
 
     if target_type.startswith('flux'):
         _, grain = target_type.split('-')
