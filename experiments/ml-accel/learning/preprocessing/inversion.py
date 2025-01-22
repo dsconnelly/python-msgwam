@@ -4,7 +4,7 @@ import torch, torch.nn as nn
 from torch.optim import Adam
 
 from msgwam import config
-from msgwam.dispersion import get_m
+from msgwam.utils import get_wavenumbers
 
 from ..architectures import load_model, make_inputs
 from ..utils import load_data
@@ -42,39 +42,8 @@ def invert_surrogate(n_steps: int=100) -> None:
         optimizer.step()
 
         print(f'step {n_step}: loss = {loss.item():.6f}')
-        k, m = _unmake_inputs(u, X_hat.detach())
+        k, _ = get_wavenumbers(u, X_hat.detach())
         action_cr = (M / k) ** (1 / 3)
 
-    signs = torch.sign(rays[:, 0])
-    data = torch.column_stack((signs * k, m)).numpy()
-    np.save(f'data/{config.name}/training/adjustments.npy', data)
-
-def _unmake_inputs(
-    u: torch.Tensor,
-    X_hat: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Return data from the neural network input space (phase speed and intrinsic
-    period) to wavenumber space.
-
-    Parameters
-    ----------
-    u
-        Tensor of wind profiles, as passed to the neural network.
-    X_hat
-        Tensor of phase speeds and intrinsic periods, as passed as the first two
-        columns of the neural network input.
-
-    Returns
-    -------
-    torch.Tensor, torch.Tensor
-        Arrays of zonal and vertical wavenumbers, respectively.
-    
-    """
-
-    cp_x, T_hat = X_hat.T
-    omega_hat = 2 * torch.pi / T_hat
-    k = omega_hat / (cp_x - u[:, 0, 0])
-    m = get_m(k, 0, omega_hat, config.N_ref)
-
-    return k, m
+    path = f'data/{config.name}/training/adjustments.npy'
+    np.save(path, X_hat.detach().numpy())

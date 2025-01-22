@@ -116,6 +116,7 @@ class Source(FactoryABC):
     @abstractmethod
     def _postprocess(
         self,
+        n_step: int,
         mean: MeanState,
         cg_r: np.ndarray,
         data: np.ndarray,

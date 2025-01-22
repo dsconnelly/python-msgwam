@@ -5,15 +5,19 @@ from typing import TYPE_CHECKING, Iterator, Optional, Self, TypeVar
 
 import cftime
 import numpy as np
+import torch
 import xarray as xr
 
 from tqdm import trange
 
 from . import config
 from .constants import EPOCH
+from .dispersion import get_m
 
 if TYPE_CHECKING:
     from numpy.random import Generator
+    from .means import PrescribedWind
+
     _T = TypeVar('T')
 
 class FactoryABC(ABC):
@@ -137,6 +141,56 @@ def get_vertical_grids() -> tuple[np.ndarray, np.ndarray]:
     centers = (faces[:-1] + faces[1:]) / 2
 
     return faces, centers
+
+def get_wavenumbers(u: torch.Tensor, output: torch.Tensor) -> torch.Tensor:
+    """
+    Return data from the neural network input space (phase speed and intrinsic
+    period) to wavenumber space.
+
+    Parameters
+    ----------
+    u
+        Tensor of wind profiles, as passed to the neural network.
+    X_hat
+        Tensor of phase speeds and intrinsic periods, as passed as the first two
+        columns of the neural network input.
+
+    Returns
+    -------
+    torch.Tensor, torch.Tensor
+        Arrays of zonal and vertical wavenumbers, respectively.
+    
+    """
+
+    cp_x, T_hat = output.T
+    omega_hat = 2 * torch.pi / T_hat
+    k = omega_hat / (cp_x - u[:, 0, 0])
+    m = get_m(k, 0, omega_hat, config.N_ref)
+
+    return k, m
+
+def get_wind_input(mean: PrescribedWind, n_step: int) -> torch.Tensor:
+    """
+    Get the zonal wind inputs to a neural network.
+
+    Parameters
+    ----------
+    mean
+        Current mean state of the system.
+    n_step
+        Current time step.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of zonal winds whose first dimension is a dummy, whose second
+        dimension ranges over past snapshots, and whose third dimension
+        ranges over vertical grid points.
+
+    """
+
+    steps = [n_step, n_step - config.lookback // config.dt]
+    return torch.as_tensor(mean._wind[steps, 0])[None]
 
 def make_colored_noise(
     xs: np.ndarray | list[np.ndarray],

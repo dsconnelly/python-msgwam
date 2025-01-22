@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from ..means import MeanState
 from .. import config
 
 from .base import Source
@@ -23,7 +22,8 @@ class StochasticSource(Source):
 
     def _postprocess(
         self,
-        _: MeanState,
+        n_step: int,
+        mean: MeanState,
         cg_r: np.ndarray,
         data: np.ndarray,
         cdx: np.ndarray,

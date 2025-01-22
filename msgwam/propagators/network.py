@@ -7,7 +7,7 @@ import torch
 from .. import config
 from ..dispersion import get_cg_r
 from ..means import PrescribedWind
-from ..utils import shapiro_filter, get_vertical_grids
+from ..utils import shapiro_filter, get_vertical_grids, get_wind_input
 from .base import Propagator
 
 if TYPE_CHECKING:
@@ -83,7 +83,7 @@ class NetworkPropagator(Propagator):
             self._until_next[cdx] = np.maximum(1, n_steps)
 
         rays = torch.as_tensor(to_launch.T)
-        u = self._get_wind(mean, n_step).expand(rays.shape[0], -1, -1)
+        u = get_wind_input(mean, n_step).expand(rays.shape[0], -1, -1)
         output = self._dimensionalize(to_launch, self._model(u, rays).numpy())
         idxs = [to_launch[0] > 0, to_launch[0] < 0]
 
@@ -146,31 +146,3 @@ class NetworkPropagator(Propagator):
             weights[i, :n] = 1
 
         return (output * factor[:, None])[:, None] * weights[..., None]
-
-    @staticmethod
-    def _get_wind(mean: PrescribedWind, n_step: int) -> torch.Tensor:
-        """
-        Get the zonal wind inputs to a neural network, including any historical
-        snapshots as determined by the loaded configuration.
-
-        Parameters
-        ----------
-        mean
-            Current mean state of the system.
-        n_step
-            Current time step.
-
-        Returns
-        -------
-        np.ndarray
-            Array of zonal winds whose first dimension is a dummy, whose second
-            dimension ranges over past snapshots, and whose third dimension
-            ranges over vertical grid points.
-
-        """
-
-        ns = []
-        for k in range(2):
-            ns.append(max(n_step - int(k * config.lookback / config.dt), 0))
-
-        return torch.as_tensor(mean._wind[ns, 0])[None]

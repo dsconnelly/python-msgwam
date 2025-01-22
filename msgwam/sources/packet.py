@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 class PacketSource(Source):
     def _postprocess(
         self,
+        n_step: int,
         mean: MeanState,
         cg_r: np.ndarray,
         data: np.ndarray,
