@@ -1,14 +1,8 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING
-
 import numpy as np
 
 from .. import config
 
 from .base import Source
-
-if TYPE_CHECKING:
-    from ..means import MeanState
 
 class PacketSource(Source):
     def _postprocess(

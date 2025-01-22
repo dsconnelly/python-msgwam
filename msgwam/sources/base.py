@@ -6,7 +6,7 @@ import numpy as np
 
 from .. import config
 from ..dispersion import get_cg_r, get_dm, get_m
-from ..utils import FactoryABC, get_time
+from ..utils import FactoryABC
 
 from .spectra import get_spectrum
 
