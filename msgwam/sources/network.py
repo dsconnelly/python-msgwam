@@ -23,12 +23,12 @@ class NetworkSource(Source):
         self._model = torch.jit.load(config.network_path)
 
     def _postprocess(
-        self,
+        self, *,
         n_step: int,
         mean: MeanState,
-        cg_r: np.ndarray,
         data: np.ndarray,
-        cdx: np.ndarray
+        cdx: np.ndarray,
+        **_
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         

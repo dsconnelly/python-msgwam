@@ -12,12 +12,10 @@ if TYPE_CHECKING:
 
 class PacketSource(Source):
     def _postprocess(
-        self,
-        n_step: int,
-        mean: MeanState,
-        cg_r: np.ndarray,
+        self, *,
         data: np.ndarray,
-        cdx: np.ndarray
+        cdx: np.ndarray,
+        **_
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         A packet source returns multiple copies of the ray properties in each

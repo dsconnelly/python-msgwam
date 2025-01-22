@@ -1,14 +1,8 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING
-
 import numpy as np
 
 from .. import config
 
 from .base import Source
-
-if TYPE_CHECKING:
-    from ..means import MeanState
 
 class StochasticSource(Source):
     def __init__(self):
@@ -21,12 +15,11 @@ class StochasticSource(Source):
         self.called = False
 
     def _postprocess(
-        self,
-        n_step: int,
-        mean: MeanState,
+        self, *,
         cg_r: np.ndarray,
         data: np.ndarray,
         cdx: np.ndarray,
+        **_
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Return an appropriately reduced and randomly sampled set of ray volumes,

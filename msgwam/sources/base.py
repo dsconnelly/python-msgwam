@@ -111,19 +111,39 @@ class Source(FactoryABC):
         dens = flux / abs(k * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))
 
-        return self._postprocess(mean, cg_r, data, cdx)
+        return self._postprocess(
+            n_step=n_step,
+            mean=mean,
+            data=data,
+            cg_r=cg_r,
+            cdx=cdx
+        )
 
     @abstractmethod
     def _postprocess(
-        self,
+        self, *,
         n_step: int,
         mean: MeanState,
-        cg_r: np.ndarray,
         data: np.ndarray,
-        cdx: np.ndarray,
+        cg_r: np.ndarray,
+        cdx: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         Apply any source-specific logic to the selected wave properties. See the
-        docstring for `launch` for more details on the return values.
+        docstring for `launch` for more details on the return values. Subclass
+        implementations can expect to have access to the parameters below.
+
+        Parameters
+        ----------
+        n_step
+            Index of the current time step.
+        mean
+            Current mean state of the system.
+        data
+            Array of properties of the ray volumes to launch.
+        cg_r
+            Already-calculated group velocities of ray volumes to launch.
+        cdx
+            Indices of the source channels selected for launch.
+
         """
-        ...
