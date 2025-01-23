@@ -86,9 +86,11 @@ def load_data(
         if distributed:
             path = add_task_info(path)
 
-        idx = slice(None, n_samples)
-        data = np.load(path, mmap_mode=mode)
-        return torch.as_tensor(data[idx])
+        a = np.load(path, mode)
+        if n_samples is not None:
+            a = a[:n_samples].copy()
+
+        return torch.as_tensor(a)
 
     u = load('u.npy')
     rays = load('rays.npy')
