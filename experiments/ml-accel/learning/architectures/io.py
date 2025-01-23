@@ -27,7 +27,7 @@ def get_model_dir(target_type: str) -> str:
 
     """
 
-    if target_type.startswith(('flux', 'proxies')):
+    if target_type.startswith('flux'):
         target_type, grain = target_type.split('-')
 
     cls_name = _get_class_name(target_type).lower()
@@ -73,9 +73,8 @@ def load_model(
 
     elif eval_type == 'test':
         task_id = _get_best_task_id(target_type)
-        print(f'Selecting hyperparameter configuration {task_id}:')
-        hp.load(hp.grid_path, task_id, verbose=True)
-        print()
+        print(f'Selecting hyperparameter configuration {task_id}.')
+        hp.load(hp.grid_path, task_id)
 
     cls_name = _get_class_name(target_type)
     model = SourceNet.from_name(cls_name.capitalize())
@@ -151,7 +150,7 @@ def _get_class_name(target_type: str) -> str:
 
     """
 
-    if target_type.startswith(('flux', 'proxies')):
+    if target_type.startswith('flux'):
         return 'Surrogate'
 
     raise ValueError(f'Unknown target type: {target_type}')
