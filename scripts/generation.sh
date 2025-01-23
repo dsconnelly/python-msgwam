@@ -10,6 +10,7 @@ else
     dep_arg=""
 fi
 
+mkdir -p data/$name/input
 mkdir -p data/$name/training
 
 generate_id=$(sbatch \
