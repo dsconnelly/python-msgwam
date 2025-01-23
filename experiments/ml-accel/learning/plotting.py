@@ -100,7 +100,7 @@ def plot_cv_scores(target_type: str) -> None:
         ))
 
     ax.spines[['left', 'right', 'top', 'bottom']].set_visible(False)
-    ax.tick_params('both', length=0)
+    ax.tick_params('both', color=[0, 0, 0, 0])
 
     ax.set_ylim(len(means) - 0.5, -0.5)
     ax.set_yticks(np.arange(len(means)))

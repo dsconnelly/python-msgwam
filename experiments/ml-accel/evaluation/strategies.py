@@ -121,7 +121,7 @@ def _get_surrogate_overrides() -> dict[str, Any]:
         'propagator_type' : 'network',
         'network_path' : f'data/{config.name}/surrogate-fine/model-best.jit',
         'lookback' : hp.generation.lookback,
-        'time_horizon' : 86400,
+        'time_horizon' : config.dt,
         'dr_init' : -1,
     }
 

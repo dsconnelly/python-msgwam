@@ -226,7 +226,7 @@ def plot_summary(strategy: str) -> None:
         z = flux['z_faces'] / 1000
         axes[1].plot(1000 * get_rmse(flux), z, color='k')
 
-        axes[1].set_xlim(0, 1)
+        axes[1].set_xlim(0, 2)
         axes[1].set_ylim(z.min(), z.max())
         axes[1].tick_params('both', direction='in')
         axes[1].grid(color='lightgray')

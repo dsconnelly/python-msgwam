@@ -189,7 +189,7 @@ def get_wind_input(mean: PrescribedWind, n_step: int) -> torch.Tensor:
 
     """
 
-    steps = [n_step, n_step - config.lookback // config.dt]
+    steps = [n_step, max(n_step - config.lookback // config.dt, 0)]
     return torch.as_tensor(mean._wind[steps, 0])[None]
 
 def make_colored_noise(
