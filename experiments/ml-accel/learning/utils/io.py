@@ -53,6 +53,7 @@ def get_indices(
 def load_data(
     target_type: str,
     distributed: bool=False,
+    n_samples: Optional[int]=None,
     **kwargs
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -78,15 +79,20 @@ def load_data(
 
     """
 
-    data_dir = f'data/{config.name}/training'
-    load = lambda s: torch.as_tensor(np.load(s))
+    def load(fname: str) -> torch.Tensor:
+        mode = None if n_samples is None else 'r'
+        path = f'data/{config.name}/training/{fname}'
 
-    if distributed:
-        load = lambda s: load(add_task_info(s))
+        if distributed:
+            path = add_task_info(path)
 
-    u = load(f'{data_dir}/u.npy')
-    rays = load(f'{data_dir}/rays.npy')
-    Y = load(f'{data_dir}/{target_type}.npy')
+        idx = slice(None, n_samples)
+        data = np.load(path, mmap_mode=mode)
+        return torch.as_tensor(data[idx])
+
+    u = load('u.npy')
+    rays = load('rays.npy')
+    Y = load(f'{target_type}.npy')
 
     if target_type.startswith('flux'):
         _, grain = target_type.split('-')

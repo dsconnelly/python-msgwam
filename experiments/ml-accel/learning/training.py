@@ -114,11 +114,11 @@ def _train_network(
 
     del loader_tr, loader_ev
     trace_func = _make_trace_func(model)
-    u_ex, rays_ex, _ = load_data(target_type)
+    u_ex, rays_ex, _ = load_data(target_type, n_samples=10)
 
     with torch.no_grad():
         with catch_warnings(action='ignore', category=torch.jit.TracerWarning):
-            traced = torch.jit.trace(trace_func, (u_ex[:10], rays_ex[:10]))
+            traced = torch.jit.trace(trace_func, (u_ex, rays_ex))
 
     model_dir = get_model_dir(target_type)
     tag = f'{"best" if eval_type == "test" else hp.task_id}'

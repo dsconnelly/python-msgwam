@@ -60,30 +60,56 @@ def load(path: str, i: Optional[int]=None) -> None:
     globals()['task_id'] = i
 
     with open(path, 'rb') as f:
-        grid = tomllib.load(f)
+        options, constants = _parse_grid(tomllib.load(f))
+    
+    for name, value in constants.items():
+        _set_hyperparameter(*name.split('.'), value)
 
-    names, to_mesh = [], []
-    for sub_name, subgrid in grid.items():
-        for var_name, value in subgrid.items():
-            if not isinstance(value, list):
-                _set_hyperparameter(sub_name, var_name, value)
-                continue
-
-            names.append(f'{sub_name}.{var_name}')
-            to_mesh.append(value)
-
-    if not to_mesh:
+    if not options:
         return
 
-    mesh = meshgrid(*to_mesh, indexing='ij')
-    params = stack(mesh, axis=0).reshape(len(to_mesh), -1)
+    mesh = meshgrid(*options.values(), indexing='ij')
+    params = stack(mesh, axis=0).reshape(len(options), -1)
 
     if i >= params.shape[1]:
         warn('more jobs than hyperparameter settings')
         i = 0
 
-    for name, value in zip(names, params[:, i]):
+    for name, value in zip(options.keys(), params[:, i]):
         _set_hyperparameter(*name.split('.'), value)
+
+def _parse_grid(grid: dict[str, Any]) -> tuple[dict[str, list], dict[str, Any]]:
+    """
+    Parse a hyperparameter dictionary loaded from a TOML file, separating those
+    parameters that are specified as constants and those that should be used to
+    form the grid during the hyperparameter sweep.
+
+    Parameters
+    ----------
+    grid
+        Hyperparameter dictionary, as returned by `tomllib.load`.
+
+    Returns
+    -------
+    dict[str, list]
+        Dictionary of hyperparameters with multiple options.
+    dict[str, Any]
+        Dictionary of hyperparameters set as constants.
+
+    """
+
+    options, constants = {}, {}
+    for sub_name, subgrid in grid.items():
+        for var_name, value in subgrid.items():
+            key = f'{sub_name}.{var_name}'
+
+            if isinstance(value, list):
+                options[key] = value
+
+            else:
+                constants[key] = value
+
+    return options, constants
 
 def _set_hyperparameter(sub_name: str, var_name: str, value: Any) -> None:
     """
