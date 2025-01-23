@@ -2,6 +2,7 @@
 jet_period = 14
 osc_period_min = 1
 osc_period_max = 5
+u_noise_scale = 15
 wvl_min = 5e3
 wvl_max = 25e3
 z_decay = 50e3
@@ -13,7 +14,7 @@ n_samples = 25
 [generation]
 dt_launch = 3600
 lookahead = 172800
-lookback = 172800
+lookback = 86400
 max_days = 10
 n_packets = 5000000
 speedup = 49

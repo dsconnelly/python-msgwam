@@ -91,7 +91,7 @@ def _get_descending_jets(
     args = [[seconds, z], [86400, 15e3], [3600, 500]]
     noise = make_colored_noise(*args, rng=rng)
 
-    u = 10 * jet + 90 * env * wave + 15 * noise
+    u = 10 * jet + 90 * env * wave + hp.u_noise_scale * noise
     u[:, 1:-1] = shapiro_filter(u.T).T
     v = np.zeros_like(u)
 

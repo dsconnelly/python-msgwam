@@ -39,6 +39,7 @@ def save_training_context() -> None:
 
     kwargs['seed'] = make_seed(config.name, 'spectrum', hp.task_id)
     wind_seed = make_seed(config.name, 'wind', hp.task_id)
+    hp.evaluation.u_noise_scale = 0.05
 
     with config.override(**kwargs):
         ds = _get_descending_jets(seed=wind_seed)

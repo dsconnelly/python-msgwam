@@ -17,7 +17,7 @@ coarse_id=$(sbatch \
     --ntasks=1 \
     --mem=32G \
     --time=5:00:00 \
-    --array=0-191 \
+    --array=0-107 \
     -J train-surrogate-coarse \
     -o logs/$name/train-surrogate-coarse-%a.out \
     $dep_arg \
