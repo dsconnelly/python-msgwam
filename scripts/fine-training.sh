@@ -17,7 +17,7 @@ fine_id=$(sbatch \
     --ntasks=1 \
     --mem=32G \
     --time=5:00:00 \
-    --array=0-767 \
+    --array=0-191 \
     -J train-surrogate-fine \
     -o logs/$name/train-surrogate-fine-%a.out \
     $dep_arg \
