@@ -1,11 +1,17 @@
+import tomllib
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+
+from matplotlib.colors import Normalize
+from matplotlib.patches import Rectangle
 
 from msgwam import config
 from msgwam.dispersion import get_cp_x, get_omega_hat
 from msgwam.utils import get_vertical_grids
 
+from .. import hyperparameters as hp
 from .utils import get_indices, get_overrides, load_data
 
 _COLORS = {
@@ -18,6 +24,91 @@ _MODEL_COLORS = [
     'darkviolet',
     'tab:red'
 ]
+
+def plot_cv_scores(target_type: str) -> None:
+    """
+    Plot the average cross-validation scores for each hyperparameters.
+
+    Parameters
+    ----------
+    target_type
+        String identifying the target type, as passed to `train_network`.
+
+    """
+
+    with open(hp.grid_path, 'rb') as f:
+        options, _ = hp._parse_grid(tomllib.load(f))
+
+    mesh = np.meshgrid(*options.values(), indexing='ij')
+    params = np.stack(mesh, axis=0).reshape(len(options), -1)
+    means = {name : np.zeros(len(v)) for name, v in options.items()}
+
+    log_dir = f'logs/{config.name}'
+    _, grain = target_type.split('-')
+    best_score, best_k = np.inf, None
+
+    for k in range(params.shape[1]):
+        with open(f'{log_dir}/train-surrogate-{grain}-{k}.out') as f:
+            line = [s for s in f.readlines() if s.startswith('Best')][0]
+            score = float(line.strip().split()[-1])
+
+            if score < best_score:
+                best_score = score
+                best_k = k
+
+        for i, (name, values) in enumerate(options.items()):
+            j = values.index(params[i, k])
+            means[name][j] += score
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(5.5, 4.5)
+    ax.invert_yaxis()
+
+    means = {name : v * len(v) / params.shape[1] for name, v in means.items()}
+    amax = max(sum([v.tolist() for v in means.values()], []))
+    norm = Normalize(0,0.01 * np.ceil(amax / 0.01))
+    cmap = plt.cm.get_cmap('Reds')
+
+    for i, (name, data) in enumerate(means.items()):
+        colors = cmap(norm(data))
+        width = 1 / len(data)
+
+        for j, color in enumerate(colors):
+            ax.add_patch(Rectangle(
+                (j * width, i - 0.5),
+                width=width, height=1,
+                ec='none', fc=color
+            ))
+
+            value = options[name][j]
+            ax.text(
+                (j + 0.5) * width, i,
+                s='$\\bf{' + f'{value}:' + '}$' + f' {data[j]:.4f}',
+                size='large',
+                ha='center',
+                va='center'
+            )
+
+        j = options[name].index(params[i, best_k])
+        ax.add_patch(Rectangle(
+            (j * width, i - 0.5),
+            width=width, height=1,
+            ec='k', fc='none',
+            linewidth=1.5,
+            clip_on=False,
+            zorder=10
+        ))
+
+    ax.spines[['left', 'right', 'top', 'bottom']].set_visible(False)
+    ax.tick_params('both', length=0)
+
+    ax.set_ylim(len(means) - 0.5, -0.5)
+    ax.set_yticks(np.arange(len(means)))
+    ax.set_yticklabels([k.split('.')[-1] for k in means.keys()])
+    ax.set_xticks([])
+
+    plt.tight_layout()
+    plt.savefig(f'plots/{config.name}/{target_type}-cv.png', dpi=400)
 
 def plot_network_errors(model_path: str) -> None:
     """
