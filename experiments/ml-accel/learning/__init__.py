@@ -1,4 +1,9 @@
-from .plotting import plot_cv_scores, plot_network_errors, plot_training_samples
+from .plotting import (
+    plot_cv_scores,
+    plot_flux_summary,
+    plot_network_errors,
+    plot_training_samples
+)
 from .preprocessing import (
     invert_surrogate,
     save_proxies,
@@ -12,6 +17,7 @@ __all__ = [
     'combine_data',
     'invert_surrogate',
     'plot_cv_scores',
+    'plot_flux_summary',
     'plot_network_errors',
     'plot_training_samples',
     'save_proxies',

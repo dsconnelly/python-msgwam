@@ -13,7 +13,7 @@ from ..utils import add_task_info, get_overrides, get_workload, load_data
 
 from .generation import _generate_outputs
 
-def invert_surrogate(n_steps: int=100) -> None:
+def invert_surrogate(n_steps: int=500) -> None:
     """
     Invert a coarse surrogate to find new wavenumbers that cause the ray volume
     to behave more like its fine constituents.
@@ -25,21 +25,32 @@ def invert_surrogate(n_steps: int=100) -> None:
 
     """
 
-    model, _ = load_model('flux-coarse', 'test', restart=True)
-    u, rays, _ = load_data('flux-coarse', distributed=True)
+    with config.override(n_grid=get_overrides()['n_grid']):
+        model, _ = load_model('flux-coarse', 'test', restart=True)
+        model.eval()
+
+    u, rays, Y_coarse = load_data('flux-coarse', distributed=True)
     *_, Y_fine = load_data('flux-fine', distributed=True)
+    Y_fine, Y_coarse = abs(Y_fine), abs(Y_coarse)
+
+    u, rays = u[:1000], rays[:1000]
+    Y_coarse = Y_coarse[:1000]
+    Y_fine = Y_fine[:1000]
 
     u, X_hat = make_inputs(u, rays)
-    X_hat, action_cr = X_hat[:, :-1].clone(), X_hat[:, -1:]
+    X_hat, action_cr = X_hat[:, :-1].clone(), X_hat[:, -1]
     M = abs(rays[:, 0]) * action_cr ** 3
 
     X_hat.requires_grad_(True)
     optimizer = Adam([X_hat], lr=1e-1)
     loss_func = nn.MSELoss()
 
+    best_X_hat = None
+    best_loss = torch.inf
+
     for n_step in range(1, n_steps + 1):
         optimizer.zero_grad()
-        output = model(u, torch.column_stack(X_hat, action_cr))
+        output = model(u, torch.column_stack((X_hat, action_cr)))
         loss = loss_func(output, Y_fine)
 
         loss.backward()
@@ -47,7 +58,14 @@ def invert_surrogate(n_steps: int=100) -> None:
 
         print(f'step {n_step}: loss = {loss.item():.6f}')
         k, _ = get_wavenumbers(u, X_hat.detach())
-        action_cr = (M / k) ** (1 / 3)
+        action_cr = abs(M / k) ** (1 / 3)
+
+        if loss.item() < best_loss:
+            best_X_hat = X_hat.detach()
+            best_loss = loss
+
+    X_hat = best_X_hat
+    print(f'Best loss was {best_loss:.6f}')
 
     path = f'data/{config.name}/training/candidates.npy'
     np.save(add_task_info(path), X_hat.detach().numpy())

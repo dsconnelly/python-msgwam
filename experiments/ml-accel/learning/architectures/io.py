@@ -66,7 +66,7 @@ def load_model(
     if restart:
         model_dir = get_model_dir(target_type)
         tag = 'best' if eval_type == 'test' else hp.task_id
-        state = torch.load(f'{model_dir}/state-{tag}.pkl')
+        state = torch.load(f'{model_dir}/state-{tag}.pkl', weights_only=True)
 
         if eval_type == 'test':
             hp.load(hp.grid_path, state['task_id'])

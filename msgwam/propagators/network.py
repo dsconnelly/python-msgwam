@@ -124,21 +124,17 @@ class NetworkPropagator(Propagator):
         cg_r = get_cg_r(k, l, m, config.N_ref)
         action = dens * (dk * dl * dm)
 
-        if config.dr_init < 0:
-            T = config.dt * np.ones_like(cg_r)
-            factor = abs(k) * action * cg_r
+        broken = abs(output) < 0.3
+        z, _ = get_vertical_grids()
 
-        else:
-            broken = abs(output) < 0.3
-            z, _ = get_vertical_grids()
+        z_break = z[np.argmax(broken, axis=1)]
+        z_break[broken.sum(axis=1) == 0] = config.z_max
+        z_break = np.maximum(z_break, 20e3)
 
-            z_break = z[np.argmax(broken, axis=1)]
-            z_break[broken.sum(axis=1) == 0] = config.z_max
-            z_break = np.maximum(z_break, 20e3)
-
-            T = (z_break - config.z_min) / cg_r
-            T = np.minimum(T, config.time_horizon)
-            factor = abs(k) * action * config.dr_init / T
+        T = (z_break - config.z_min) / cg_r
+        T = np.minimum(T, config.time_horizon)
+        dr = config.dt * cg_r if config.dr_init < 0 else config.dr_init
+        factor = abs(k) * action * dr / T
 
         weights = np.zeros((len(T), self._n_ahead))
         n_persist = np.round(T / config.dt).astype(int)

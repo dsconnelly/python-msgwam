@@ -202,7 +202,7 @@ def plot_training_samples(*args: str) -> None:
     idx_ev = np.random.choice(idx_ev, n_cols, replace=False)
     idx = np.concatenate((idx_tr, idx_ev))
 
-    u, rays, _ = load_data('flux-fine')
+    u, rays, _ = load_data('flux-coarse')
     u, rays = u[idx], rays[idx]
 
     datas, colors, labels = [], [], []
