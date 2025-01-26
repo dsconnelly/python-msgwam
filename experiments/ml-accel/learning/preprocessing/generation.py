@@ -39,8 +39,8 @@ def save_training_context() -> None:
 
     kwargs['seed'] = make_seed(config.name, 'spectrum', hp.task_id)
     wind_seed = make_seed(config.name, 'wind', hp.task_id)
-    hp.evaluation.u_noise_scale = 0.05
 
+    _set_hyperparameters()
     with config.override(**kwargs):
         ds = _get_descending_jets(seed=wind_seed)
         ds.to_netcdf(config.prescribed_wind_file)
@@ -209,3 +209,17 @@ def _make_callback(Y: np.ndarray) -> _Callback:
         Y[labels] += profiles
 
     return callback
+
+def _set_hyperparameters() -> None:
+    """
+    Temporary, to check hyperparameter options during generation.
+    """
+
+    *_, period, noise = config.name.split('-')
+    a, b = {'fast' : (3, 3), 'slow' : (14, 14), 'variable' : (1, 5)}[period]
+    noise = float(noise)
+
+    hp.evaluation.osc_period_min = a
+    hp.evaluation.osc_period_max = b
+    hp.evaluation.u_noise_scale = noise
+    print('set generation hyperparameters:', a, b, noise)

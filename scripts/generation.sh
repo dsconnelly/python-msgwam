@@ -12,13 +12,14 @@ fi
 
 mkdir -p data/$name/input
 mkdir -p data/$name/training
+mkdir -p logs/$name
 
 generate_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=16G \
     --time=24:00:00 \
-    --array=0-79 \
+    --array=0-7 \
     -J generate \
     -o logs/$name/generate-%a.out \
     $dep_arg \

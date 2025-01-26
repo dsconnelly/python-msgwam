@@ -17,7 +17,10 @@ if __name__ == '__main__':
 
     cwd = dirname(abspath(__file__))
     hp_dir = cwd + '/../../hyperparameters'
-    load(f'{hp_dir}/{config.name}.toml')
+    
+    # TODO: get rid of this later
+    fname = config.name.split('-')[0] + '.toml'
+    load(f'{hp_dir}/{fname}.toml')
 
     for task in tasks:
         func_name, *args = task.split(':')
