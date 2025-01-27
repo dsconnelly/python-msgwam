@@ -26,9 +26,7 @@ def get_overrides(fine: bool=False) -> dict[str, Any]:
 
     """
 
-    grain = 'fine' if fine else 'coarse'
-    suffix = f'-{grain}' if get_generation_mode() == 'tr' else ''
-    mean_path = f'data/{config.name}/input/descending-jets{suffix}.nc'
+    mean_path = f'data/{config.name}/input/descending-jets.nc'
     spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
     n_day = _get_n_day()
 

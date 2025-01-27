@@ -38,21 +38,17 @@ def save_training_context() -> None:
     the mean wind and source spectrum files, generated with the same processes
     but using different random seeds.
     """
-    
+
+    kwargs = get_overrides()
     wind_seed = make_seed(config.name, 'wind', hp.task_id)
 
+    if get_generation_mode() == 'tr':
+        _set_training_hyperparameters()
+    
     with config.override(**get_overrides()):
         ds = _get_descending_jets(seed=wind_seed)
         ds.to_netcdf(config.prescribed_wind_file)
 
-    if get_generation_mode() == 'tr':
-        _set_training_hyperparameters()
-
-        with config.override(**get_overrides(fine=True)):
-            ds = _get_descending_jets(seed=wind_seed)
-            ds.to_netcdf(config.prescribed_wind_file)
-
-    kwargs = get_overrides()
     kwargs['n_source'] = int(1e3)
     kwargs['spectrum_type'] = 'gaussians'
     kwargs['seed'] = make_seed(config.name, 'spectrum', hp.task_id)

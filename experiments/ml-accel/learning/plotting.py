@@ -12,7 +12,7 @@ from msgwam.dispersion import get_cp_x, get_omega_hat
 from msgwam.utils import get_vertical_grids
 
 from .. import hyperparameters as hp
-from .utils import get_indices, get_overrides, load_data
+from .utils import get_overrides, load_data
 
 _COLORS = {
     'fine' : 'forestgreen',
