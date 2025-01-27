@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 from warnings import warn
 
 import numpy as np
@@ -11,7 +11,7 @@ from msgwam.propagators import TransientPropagator
 
 from .. import hyperparameters as hp
 
-def get_overrides(strategy: str) -> dict[str, Any]:
+def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     """
     Load the configuration overrides particular to a given strategy. Implemented
     as a standalone function so that other code need not import this entire
@@ -22,7 +22,9 @@ def get_overrides(strategy: str) -> dict[str, Any]:
     strategy
         Name of the strategy to load configuration overrides for. This module
         must contain a function named `_get_{strategy}_overrides`.
-
+    args
+        Arguments to pass to the override function, if any.
+        
     Returns
     -------
     dict[str, Any]
@@ -30,11 +32,10 @@ def get_overrides(strategy: str) -> dict[str, Any]:
 
     """
 
-    strategy, *args = strategy.split('-')
     func_name = f'_get_{strategy}_overrides'
     return globals()[func_name](*args)
 
-def integrate(strategy: str) -> None:
+def integrate(strategy: str, *args: str) -> None:
     """
     Integrate with configuration settings specific to the given strategy.
 
@@ -42,11 +43,13 @@ def integrate(strategy: str) -> None:
     ----------
     strategy
         Name of configuration with which to integrate.
+    args
+        Arguments to pass to the override function, if any.
 
     """
 
     path = f'data/{config.name}/strategies/{strategy}.nc'
-    with config.override(**get_overrides(strategy)):
+    with config.override(**get_overrides(strategy, *args)):
         _get_integration(strategy).to_netcdf(path)
 
 def _get_coarse_overrides() -> dict[str, Any]:
@@ -113,13 +116,24 @@ def _get_reference_overrides() -> dict[str, Any]:
 
     return overrides
 
-def _get_surrogate_overrides() -> dict[str, Any]:
-    """Use a pretrained surrogate as the propagator."""
+def _get_surrogate_overrides(path: Optional[str]=None) -> dict[str, Any]:
+    """Use a pretrained surrogate as the propagator.
+    
+    Parameters
+    ----------
+    path
+        Path to the JITted model to use. If `None`, looks for a pretrained model
+        int the appropriate data directory for this configuration.
+    
+    """
+
+    if path is None:
+        path = f'data/{config.name}/surrogate-fine/model-best.jit'
 
     return {
         'n_grid' : 101,
+        'network_path' : path,
         'propagator_type' : 'network',
-        'network_path' : f'data/{config.name}/surrogate-fine/model-best.jit',
         'lookback' : hp.generation.lookback,
         'time_horizon' : config.dt,
         'dr_init' : -1,

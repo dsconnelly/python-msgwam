@@ -126,7 +126,7 @@ def load(path: str) -> None:
         _DEFAULTS = tomllib.load(f)
 
     name = path.split('/')[-1]
-    name = name.split('.')[0]
+    name = '.'.join(name.split('.')[:-1])
     _DEFAULTS['name'] = name
 
     _update(_DEFAULTS)

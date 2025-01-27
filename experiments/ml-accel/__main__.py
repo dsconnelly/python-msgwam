@@ -19,7 +19,7 @@ if __name__ == '__main__':
     hp_dir = cwd + '/../../hyperparameters'
     
     # TODO: get rid of this later
-    fname = config.name.split('-')[0] + '.toml'
+    fname = config.name.split('-')[0]
     load(f'{hp_dir}/{fname}.toml')
 
     for task in tasks:
