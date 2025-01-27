@@ -13,11 +13,7 @@ from msgwam import config
 from .. import hyperparameters as hp
 from .architectures import Surrogate, get_model_dir, load_model, make_inputs
 from .losses import FluxLoss
-from .utils import (
-    get_indices,
-    get_overrides,
-    load_data
-)
+from .utils import get_overrides, load_data
 
 if TYPE_CHECKING:
     from .architectures import SourceNet
@@ -114,7 +110,7 @@ def _train_network(
 
     del loader_tr, loader_ev
     trace_func = _make_trace_func(model)
-    u_ex, rays_ex, _ = load_data(target_type, n_samples=10)
+    u_ex, rays_ex, _ = load_data(target_type, 'tr', n_samples=10)
 
     with torch.no_grad():
         with catch_warnings(action='ignore', category=torch.jit.TracerWarning):
@@ -146,18 +142,24 @@ def _load_datasets(
 
     """
 
-    u, rays, targets = load_data(target_type)
-    n_packets = min(hp.generation.n_packets, u.shape[0])
-    idx_tr, idx_ev = get_indices(eval_type, n_packets)
+    if eval_type == 'validation':
+        datas = load_data(target_type, 'tr')
+        cutoff = int(0.8 * datas[0].shape[0])
+        datas_tr = [data[:cutoff] for data in datas]
+        datas_ev = [data[cutoff:] for data in datas]
 
-    if target_type.startswith('flux'):
-        targets = torch.clamp(abs(targets), max=1)
-        targets = torch.cummin(targets, dim=1)[0]
+    else:
+        datas_tr = load_data(target_type, 'tr')
+        datas_ev = load_data(target_type, 'te')
 
     loaders = []
-    for k, idx in enumerate((idx_tr, idx_ev)):
+    for k, (u, rays, Y) in enumerate((datas_tr, datas_ev)):
+        if target_type.startswith('flux'):
+            Y = torch.clamp(abs(Y), max=1)
+            Y = torch.cummin(Y, dim=1)[0]
+        
         batch_size = [hp.training.batch_size, 8192][k]
-        data = TensorDataset(*make_inputs(u[idx], rays[idx]), targets[idx])
+        data = TensorDataset(*make_inputs(u, rays), Y)
         loaders.append(DataLoader(data, batch_size, shuffle=True))
 
     return tuple(loaders)

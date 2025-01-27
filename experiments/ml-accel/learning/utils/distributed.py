@@ -1,4 +1,5 @@
 from os import environ, listdir
+from typing import Literal
 
 import numpy as np
 import torch
@@ -68,6 +69,19 @@ def combine_data(path: str) -> None:
 
     elif suffix == 'pkl':
         torch.save(data, path)
+
+def get_generation_mode() -> Literal['tr', 'te']:
+    """
+    Check whether this task should be used to generate training or test data.
+
+    Returns
+    -------
+    str
+        Either `'training'` or `'test'` to indicate the generation mode.
+
+    """
+
+    return 'tr' if hp.task_id < int(0.8 * N_TASKS) else 'te'
 
 def get_workload(n_data: int) -> tuple[int, int]:
     """

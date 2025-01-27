@@ -37,10 +37,14 @@ combine_id=$(sbatch \
     -o logs/$name/combine.out \
     --dependency=afterok:$generate_id \
     ml-accel.slurm $config \
-        "combine-data:data/${name}/training/u.npy" \
-        "combine-data:data/${name}/training/rays.npy" \
-        "combine-data:data/${name}/training/flux-coarse.npy" \
-        "combine-data:data/${name}/training/flux-fine.npy"
+        "combine-data:data/${name}/training/u-tr.npy" \
+        "combine-data:data/${name}/training/u-te.npy" \
+        "combine-data:data/${name}/training/rays-tr.npy" \
+        "combine-data:data/${name}/training/rays-te.npy" \
+        "combine-data:data/${name}/training/flux-coarse-tr.npy" \
+        "combine-data:data/${name}/training/flux-coarse-te.npy" \
+        "combine-data:data/${name}/training/flux-fine-tr.npy" \
+        "combine-data:data/${name}/training/flux-fine-te.npy"
 )
 
 echo $combine_id

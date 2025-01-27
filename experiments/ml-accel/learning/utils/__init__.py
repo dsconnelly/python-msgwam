@@ -1,7 +1,12 @@
 from hashlib import sha1
 
-from .distributed import add_task_info, combine_data, get_workload
-from .io import get_indices, load_data
+from .distributed import (
+    add_task_info,
+    combine_data,
+    get_generation_mode,
+    get_workload
+)
+from .io import load_data
 from .overrides import get_overrides, with_overrides
 from .proxies import apply_basis, init_proxies, transform_proxies
 
@@ -9,7 +14,7 @@ __all__ = [
     'add_task_info',
     'apply_basis',
     'combine_data',
-    'get_indices',
+    'get_generation_mode',
     'get_overrides',
     'get_workload',
     'init_proxies',

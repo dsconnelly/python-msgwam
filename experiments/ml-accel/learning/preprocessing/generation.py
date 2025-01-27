@@ -13,7 +13,13 @@ from msgwam.utils import shapiro_filter
 from ...evaluation.scenarios import _get_descending_jets
 
 from ... import hyperparameters as hp
-from ..utils import add_task_info, get_overrides, get_workload, make_seed
+from ..utils import (
+    add_task_info,
+    get_generation_mode,
+    get_overrides,
+    get_workload,
+    make_seed
+)
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
@@ -32,20 +38,26 @@ def save_training_context() -> None:
     the mean wind and source spectrum files, generated with the same processes
     but using different random seeds.
     """
+    
+    wind_seed = make_seed(config.name, 'wind', hp.task_id)
+
+    with config.override(**get_overrides()):
+        ds = _get_descending_jets(seed=wind_seed)
+        ds.to_netcdf(config.prescribed_wind_file)
+
+    if get_generation_mode() == 'tr':
+        _set_training_hyperparameters()
+
+        with config.override(**get_overrides(fine=True)):
+            ds = _get_descending_jets(seed=wind_seed)
+            ds.to_netcdf(config.prescribed_wind_file)
 
     kwargs = get_overrides()
     kwargs['n_source'] = int(1e3)
     kwargs['spectrum_type'] = 'gaussians'
-
     kwargs['seed'] = make_seed(config.name, 'spectrum', hp.task_id)
-    wind_seed = make_seed(config.name, 'wind', hp.task_id)
-
-    _set_hyperparameters()
-    with config.override(**kwargs):
-        ds = _get_descending_jets(seed=wind_seed)
-        ds.to_netcdf(config.prescribed_wind_file)
-
     kwargs['dt'] = kwargs['dt_launch']
+
     with config.override(**kwargs):
         _gaussians().to_netcdf(config.spectrum_file)
 
@@ -69,8 +81,9 @@ def save_training_data() -> None:
     names = ['u', 'rays', 'flux-coarse', 'flux-fine']
     keep = np.isnan(u).sum(axis=(1, 2)) == 0
 
+    mode = get_generation_mode()
     for data, name in zip(datas, names):
-        path = f'data/{config.name}/training/{name}.npy'
+        path = f'data/{config.name}/training/{name}-{mode}.npy'
         np.save(add_task_info(path), data[keep])
 
 def _generate_inputs(n_packets: int) -> tuple[np.ndarray, np.ndarray]:
@@ -210,11 +223,13 @@ def _make_callback(Y: np.ndarray) -> _Callback:
 
     return callback
 
-def _set_hyperparameters() -> None:
+def _set_training_hyperparameters() -> None:
     """
-    Temporary, to check hyperparameter options during generation.
+    Temporarily overwrite the hyperparameters governing the training mean state,
+    so that different configurations can be used during training and testing.
     """
 
+    # TODO: get these from hyperparameters instead
     *_, period, noise = config.name.split('-')
     a, b = {'fast' : (3, 3), 'slow' : (14, 14), 'variable' : (1, 5)}[period]
     noise = float(noise)

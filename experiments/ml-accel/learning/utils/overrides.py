@@ -7,7 +7,7 @@ from msgwam import config
 
 from ...hyperparameters import generation as hp
 
-from .distributed import N_TASKS, add_task_info
+from .distributed import N_TASKS, add_task_info, get_generation_mode
 
 def get_overrides(fine: bool=False) -> dict[str, Any]:
     """
@@ -26,7 +26,9 @@ def get_overrides(fine: bool=False) -> dict[str, Any]:
 
     """
 
-    mean_path = f'data/{config.name}/input/descending-jets-training.nc'
+    grain = 'fine' if fine else 'coarse'
+    suffix = f'-{grain}' if get_generation_mode() == 'tr' else ''
+    mean_path = f'data/{config.name}/input/descending-jets{suffix}.nc'
     spectrum_path = f'data/{config.name}/input/spectrum-training.nc'
     n_day = _get_n_day()
 
