@@ -19,7 +19,7 @@ generate_id=$(sbatch \
     --ntasks=1 \
     --mem=16G \
     --time=24:00:00 \
-    --array=0-7 \
+    --array=0-9 \
     -J generate \
     -o logs/$name/generate-%a.out \
     $dep_arg \
