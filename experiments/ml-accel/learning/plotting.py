@@ -15,8 +15,8 @@ from .. import hyperparameters as hp
 from .utils import get_overrides, load_data
 
 _COLORS = {
-    'fine' : 'forestgreen',
-    'coarse' : 'royalblue'
+    'flux-fine' : 'forestgreen',
+    'flux-coarse' : 'royalblue'
 }
 
 _MODEL_COLORS = [
@@ -197,13 +197,14 @@ def plot_training_samples(*args: str) -> None:
     fig.set_size_inches(n_cols * 3, n_rows * 4.5)
     axes = axes.flatten()
 
-    idx_tr, idx_ev = get_indices('validation')
-    idx_tr = np.random.choice(idx_tr, n_cols, replace=False)
-    idx_ev = np.random.choice(idx_ev, n_cols, replace=False)
-    idx = np.concatenate((idx_tr, idx_ev))
+    u_tr, rays_tr, _ = load_data('flux-coarse', 'tr')
+    u_ev, rays_ev, _ = load_data('flux-coarse', 'te')
+    idx_tr = np.random.choice(u_tr.shape[0], n_cols, replace=False)
+    idx_ev = np.random.choice(u_ev.shape[0], n_cols, replace=False)
 
-    u, rays, _ = load_data('flux-coarse')
-    u, rays = u[idx], rays[idx]
+    idx = np.concatenate((idx_tr, idx_ev))
+    u = torch.vstack((u_tr[idx_tr], u_ev[idx_ev]))
+    rays = torch.vstack((rays_tr[idx_tr], rays_ev[idx_ev]))
 
     datas, colors, labels = [], [], []
     with config.override(n_grid=get_overrides()['n_grid']):
@@ -211,13 +212,11 @@ def plot_training_samples(*args: str) -> None:
 
     for arg in args:
         if arg.startswith('flux'):
-            _, grain = arg.split('-')
-            data = load_data(arg)[-1][idx]
-            color, label = _COLORS[grain], arg
+            *_, data_tr = load_data(arg, 'tr')
+            *_, data_ev = load_data(arg, 'te')
 
-        elif arg.startswith('proxies'):
-            data = load_data(arg, reconstructed=True)[-1][idx]
-            color, label = _MODEL_COLORS.pop(), arg
+            data = torch.vstack((data_tr[idx_tr], data_ev[idx_ev]))
+            color, label = _COLORS[arg], arg
 
         elif arg.endswith('.jit'):
             data = torch.jit.load(arg)(u, rays)
@@ -256,7 +255,7 @@ def plot_training_samples(*args: str) -> None:
         line, = ax.plot(cp_x, z_centers, color='gray', ls='dashed')
         handles.append(line)
 
-        ax.set_xlim(-60, 60)
+        ax.set_xlim(-100, 100)
         ax.set_xlabel('$\\bar{u}$ (m / s)')
 
         if n == 0:
