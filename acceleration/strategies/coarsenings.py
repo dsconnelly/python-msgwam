@@ -54,6 +54,32 @@ def save_coarsenings() -> None:
             ds = get_integration().mean('member')
             ds.to_netcdf(_get_path(dr, n_source))
 
+def update_config() -> None:
+    """
+    Update the values of `dr_init` and `n_source` in the loaded configuration
+    file to the best values found during the grid search.
+    """
+
+    ref = load_data('reference')
+    errors = get_coarse_errors(ref)
+    errors = (errors / get_rmse(ref)).mean('z_faces')
+    i, j = np.unravel_index(np.argmin(errors), errors.shape)
+
+    with open(f'config/{config.name}.toml') as f:
+        lines = f.readlines()
+
+    drs, n_sources = _get_grid()
+    with open(f'config/{config.name}.toml', 'w') as f:
+        for line in lines:
+            if line.startswith('dr_init'):
+                f.write(f'dr_init = {drs[i]}\n')
+
+            elif line.startswith('n_source'):
+                f.write(f'n_source = {n_sources[j]}\n')
+
+            else:
+                f.write(line)
+
 def _get_grid() -> tuple[list[int], list[int]]:
     """
     Return lists of values for `config.dr_init` and `config.n_source` defining
@@ -66,8 +92,8 @@ def _get_grid() -> tuple[list[int], list[int]]:
 
     """
 
-    drs = np.linspace(hp.dr_min, hp.dr_max, 3)
-    n_sources = np.linspace(hp.n_source_min, hp.n_source_max, 3)
+    drs = np.linspace(hp.dr_min, hp.dr_max, 10)
+    n_sources = np.linspace(hp.n_source_min, hp.n_source_max, 10)
     drs, n_sources = drs.astype(int), n_sources.astype(int)[::-1]
 
     return drs.tolist(), n_sources.tolist()

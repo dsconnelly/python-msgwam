@@ -1,4 +1,4 @@
-from .coarsenings import save_coarsenings
+from .coarsenings import save_coarsenings, update_config
 from .integration import get_integration, save_integration
 from .plotting import plot_coarse_errors, plot_strategy
 
@@ -7,5 +7,6 @@ __all__ = [
     'plot_coarse_errors',
     'plot_strategy',
     'save_coarsenings',
-    'save_integration'
+    'save_integration',
+    'update_config'
 ]
