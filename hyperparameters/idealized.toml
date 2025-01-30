@@ -8,4 +8,8 @@ osc_width = 12e3
 osc_wvl = 20e3
 
 [strategies]
+dr_min = 500
+dr_max = 5000
 n_ensemble = 3
+n_source_min = 8
+n_source_max = 44

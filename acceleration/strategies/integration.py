@@ -7,16 +7,11 @@ from ..hyperparameters import strategies as hp
 
 from .overrides import get_overrides
 
-def get_integration(strategy: str) -> xr.Dataset:
+def get_integration() -> xr.Dataset:
     """
     Integrate the solver and return a dataset containing the outputs. Broken out
     as a separate function so that other code can perform integrations without
     saving results to disk.
-
-    Parameters
-    ----------
-    strategy
-        Name of the configuration strategy with which to integrate.
 
     Returns
     -------
@@ -27,8 +22,9 @@ def get_integration(strategy: str) -> xr.Dataset:
 
     """
 
-    n = hp.n_ensemble if (config.jitter or strategy == 'stochastic') else 1
-    datasets = [integrate().assign_coords(member=i) for i in range(n)]
+    func = lambda i: integrate().assign_coords(member=i)
+    ensemble = config.jitter or (config.source_type == 'stochastic')
+    datasets = map(func, range(hp.n_ensemble if ensemble else 1))
 
     return xr.concat(datasets, dim='member')
 
@@ -51,4 +47,4 @@ def save_integration(strategy: str, *args: str) -> None:
     path = f'data/{config.name}/strategies/{fname}.nc'
 
     with config.override(**get_overrides(strategy, *args)):
-        get_integration(strategy).to_netcdf(path)
+        get_integration().to_netcdf(path)
