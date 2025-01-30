@@ -1,43 +1,11 @@
-[evaluation]
-jet_period = 14
+[scenarios]
+filter_amplitude = 20
+filter_period = 14
+osc_amplitude = 50
 osc_period_min = 1
 osc_period_max = 5
-wvl_min = 5e3
-wvl_max = 25e3
-z_decay = 40e3
-z_turn = 55e3
+osc_width = 12e3
+osc_wvl = 20e3
 
 [strategies]
-stochastic_samples = 25
-stochastic_speedup = 25
-
-[generation]
-dt_launch = 10800
-lookback = 21600
-max_days = 10
-n_packets = 10000
-speedup = 25
-
-[architectures]
-constrained = true
-batch_norm_pos = 0
-dropout_rate = 0.5
-has_residual = true
-max_kernel = 5
-
-n_hidden_c = 4
-n_hidden_d = 32
-n_hidden_s = 256
-
-n_layers_c = 6
-n_layers_d = 3
-n_layers_s = 3
-
-[training]
-batch_size = [128]
-learning_rate = 1e-3
-max_epochs = 30
-max_hours = 3
-noise_scale_c = 0
-noise_scale_u = 0
-weight_decay = 0
+n_ensemble = 3
