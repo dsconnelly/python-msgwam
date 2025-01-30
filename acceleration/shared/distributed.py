@@ -2,7 +2,7 @@ from itertools import product as _product
 from os import environ
 from typing import Any, Iterable, Iterator
 
-from . import hyperparameters as hp
+from .. import hyperparameters as hp
 
 N_TASKS = int(environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 

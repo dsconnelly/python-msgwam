@@ -2,8 +2,9 @@ from msgwam import config
 from msgwam.sources.spectra import _gaussians
 
 from .idealized import get_descending_jets
+from .plotting import plot_mean_state
 
-__all__ = ['save_mean_state', 'save_spectrum']
+__all__ = ['plot_mean_state', 'save_mean_state', 'save_spectrum']
 
 def save_mean_state(scenario: str) -> None:
     """

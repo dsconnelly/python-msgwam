@@ -3,7 +3,7 @@ import numpy as np
 from msgwam import config
 
 from ..hyperparameters import strategies as hp
-from ..distributed import product
+from ..shared.distributed import product
 
 from .integration import get_integration, get_overrides
 

@@ -1,10 +1,10 @@
 from .coarsenings import save_coarsenings
 from .integration import get_integration, save_integration
-from .plotting import plot_summary
+from .plotting import plot_strategy
 
 __all__ = [
     'get_integration',
-    'plot_summary',
+    'plot_strategy',
     'save_coarsenings',
     'save_integration'
 ]
