@@ -1,6 +1,7 @@
-from typing import Optional
+from typing import Literal, Optional
 
 import cftime
+import numpy as np
 import xarray as xr
 
 from scipy.ndimage import gaussian_filter1d as filter
@@ -9,8 +10,28 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.utils import get_rho, get_vertical_grids, open_dataset
 
+def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
+    """
+    Compute the root-mean-square error over time between two arrays. The second
+    argument can also be passed in as zero, so that this function can be used to
+    calculate the RMS value of a single data array.
+
+    Parameters
+    ----------
+    a, b
+        Data with which to compute RMS errors.
+
+    Returns
+    -------
+    xr.DataArray
+        Array of RMS errors, with the time dimension averaged out.
+
+    """
+
+    return np.sqrt(((a - b) ** 2).mean('time'))
+
 def load_data(
-    strategy: str,
+    path: str,
     field: str='flux',
     spinup_days: int=5,
     filter_width: Optional[int]=21600
@@ -21,7 +42,8 @@ def load_data(
     Parameters
     ----------
     strategy
-        Name of the strategy for which to load integration output.
+        Path from which to load integration output. Can also just be the name of
+        a strategy, in which case the path will be chosen automatically.
     field
         Name of the data variable to return. Should be either the name of a
         variable in the dataset; `'flux'`, in which case the total (westerly
@@ -41,13 +63,13 @@ def load_data(
 
     """
 
-    data_dir = f'data/{config.name}/strategies'
-    path = f'{data_dir}/{strategy}.nc'
+    if not path.endswith('.nc'):
+        data_dir = f'data/{config.name}/strategies'
+        path = f'{data_dir}/{path}.nc'
 
     with open_dataset(path) as ds:
         z_faces, z_centers = get_vertical_grids()
         ds = ds.interp(z_faces=z_faces, z_centers=z_centers)
-        ds = ds.mean('member')
 
         if field in ['flux', 'acceleration']:
             data = ds['pmf_e'] + ds['pmf_w']
@@ -60,6 +82,9 @@ def load_data(
 
         else:
             data = ds[field]
+
+    if 'member' in data.coords:
+        data = data.mean('member')
 
     units = f'days since {EPOCH}'    
     days = cftime.date2num(data['time'], units)

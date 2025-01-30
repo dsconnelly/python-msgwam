@@ -1,11 +1,44 @@
 import numpy as np
+import xarray as xr
 
 from msgwam import config
+from msgwam.utils import get_vertical_grids
 
 from ..hyperparameters import strategies as hp
 from ..shared.distributed import product
 
 from .integration import get_integration, get_overrides
+from .utils import get_rmse, load_data
+
+def get_coarse_errors(ref: xr.DataArray) -> xr.DataArray:
+    """
+    Get root-mean-square errors as a function of height for each coarsening.
+
+    Parameters
+    ----------
+    ref
+        Array of containing the reference flux time series.
+
+    Returns
+    -------
+    xr.DataArray
+        Array of errors with coordinates `'dr'` and `'n_source'` ranging over
+        the grid of coarsenings, along with `'z_faces'` ranging over cell faces
+        in the vertical grid.
+
+    """
+
+    drs, n_sources = _get_grid()
+    profiles = np.zeros((len(drs), len(n_sources), config.n_grid))
+
+    for i, dr in enumerate(drs):
+        for j, n_source in enumerate(n_sources):
+            flux = load_data(_get_path(dr, n_source))
+            profiles[i, j] = get_rmse(ref, flux).values
+
+    z, _ = get_vertical_grids()
+    coords = {'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
+    return xr.DataArray(profiles, coords)
 
 def save_coarsenings() -> None:
     """
@@ -33,8 +66,8 @@ def _get_grid() -> tuple[list[int], list[int]]:
 
     """
 
-    drs = np.linspace(hp.dr_min, hp.dr_max, 10)
-    n_sources = np.linspace(hp.n_source_min, hp.n_source_max, 10)
+    drs = np.linspace(hp.dr_min, hp.dr_max, 3)
+    n_sources = np.linspace(hp.n_source_min, hp.n_source_max, 3)
     drs, n_sources = drs.astype(int), n_sources.astype(int)[::-1]
 
     return drs.tolist(), n_sources.tolist()
