@@ -13,6 +13,13 @@ from ..shared.plotting import plot_summaries
 from .coarsenings import get_coarse_errors
 from .utils import get_rmse, load_data
 
+_COLORS = {
+    'coarse' : 'k',
+    'instantaneous' : 'tab:red',
+    'stochastic-1' : 'royalblue',
+    'stochastic-25' : 'forestgreen'
+}
+
 def plot_coarse_errors() -> None:
     """
     Plot the normalized error and RMSE as a function of height for integration
@@ -96,6 +103,45 @@ def plot_coarse_errors() -> None:
     axes[0].legend()
 
     plt.savefig(f'plots/{config.name}/coarsenings.png', dpi=400)
+
+def plot_error_profiles() -> None:
+    """Plot RMS errors as a function of height for each strategy."""
+
+    fields = ['flux', 'acceleration']
+    units = ['mPa', 'm / s / day']
+    factors = [1000, 86400]
+
+    fig, axes = plt.subplots(ncols=2)
+    fig.set_size_inches(6, 4.5)
+
+    zipped = zip(fields, units, factors, axes)
+    for i, (field, unit, factor, ax) in enumerate(zipped):
+        z = get_vertical_grids()[i] / 1000
+        ref = load_data('reference', field)
+
+        for strategy, color in _COLORS.items():
+            data = load_data(strategy, field)
+            rmse = factor * get_rmse(data, ref)
+            ax.plot(rmse, z, color=color, label='strategy')
+
+        rms = factor * get_rmse(ref)
+        ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
+
+        ax.set_xlim([0, 1e-1][i], [2, 50][i])
+        ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
+
+        if i == 1:
+            ax.set_xscale('log')
+
+        ax.set_xlabel(f'{field} RMSE ({unit})')
+        ax.set_ylabel('height (km)')
+
+        ax.grid(color='lightgray')
+        ax.tick_params('both', direction='in')
+
+    axes[0].legend()
+    plt.tight_layout()
+    plt.savefig(f'plots/{config.name}/errors.png', dpi=400)
 
 def plot_strategy(strategy: str) -> None:
     """
