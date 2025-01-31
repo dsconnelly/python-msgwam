@@ -28,7 +28,7 @@ name=$1
 shift
 tasks=("$@")
 
-# cd /home/dsc7746/python-msgwam
+cd /home/dsc7746/python-msgwam
 
 mkdir -p data/$name/coarsenings
 mkdir -p data/$name/input
@@ -36,6 +36,7 @@ mkdir -p data/$name/strategies
 mkdir -p data/$name/training
 
 mkdir -p logs/$name
+mkdir -p plots/$name
 
 for task in "${tasks[@]}"; do
     job_id=$("steps/$task.sh" $name $dep_arg)
