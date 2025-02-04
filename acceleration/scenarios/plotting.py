@@ -15,9 +15,9 @@ def plot_mean_state() -> None:
     """
 
     with open_dataset(config.prescribed_wind_file) as ds:
-        datas = {'u' : ds['u']}
+        datas = {'u' : ds['u'], 'v' : ds['v']}
 
-    plot_summaries(datas, amaxes=[60], units=['m / s'])
+    plot_summaries(datas, amaxes=[60, 60], units=['m / s', 'm / s'])
     plt.savefig(f'plots/{config.name}/mean-state.png', dpi=400)
 
 def plot_windows() -> None:

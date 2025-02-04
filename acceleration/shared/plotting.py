@@ -50,6 +50,9 @@ def plot_summaries(
         axes[i, 0].set_ylim(z.min(), z.max())
         axes[i, 0].tick_params('both', direction='in')
 
+        ticks = np.linspace(0, amax, 5)
+        axes[i, 0].set_xticks(ticks)
+
         axes[i, 0].grid(color='lightgray')
         axes[i, 0].set_xlabel(f'RMS {field} ({unit})')
         axes[i, 0].set_ylabel('height (km)')
