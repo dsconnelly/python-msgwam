@@ -1,3 +1,5 @@
+from typing import Optional
+
 import cftime
 import numpy as np
 import xarray as xr
@@ -8,7 +10,7 @@ from msgwam.utils import get_vertical_grids, make_colored_noise
 
 from ..hyperparameters import scenarios as hp
 
-def get_descending_jets(seed: int) -> xr.Dataset:
+def get_descending_jets(seed: int=6909086) -> xr.Dataset:
     """
     Generate a mean wind scenario consisting of an upper-atmosphere oscillation
     with (possibly) varying period. The lower atmosphere features a much slower
@@ -22,31 +24,70 @@ def get_descending_jets(seed: int) -> xr.Dataset:
     units = f'seconds since {EPOCH}'
     time = cftime.num2date(seconds, units)
     _, z = get_vertical_grids()
-    dz = z[1] - z[0]
-    
-    scales = [5 * 86400, 5 * 86400]
+
+    scales = [hp.time_scale_decay * 86400, hp.time_scale_cutoff * 86400]
     bounds = [hp.osc_period_min * 86400, hp.osc_period_max * 86400]
     period = make_colored_noise(seconds, *scales, *bounds, rng)
-    wvl = hp.osc_wvl * np.ones_like(z)
+    k = np.cumsum(1 / period)[:, None] * config.dt
 
-    osc_bot = config.z_max - hp.osc_wvl
-    env = np.exp(-0.5 * ((z - osc_bot) / hp.osc_width) ** 2)
-    env[z > osc_bot] = 1
+    osc_top = config.z_max - 10e3
+    osc_bot = osc_top - hp.osc_wavelength
+    ell = 1 / hp.osc_wavelength
 
-    k = np.cumsum(1 / period) * config.dt
-    ell = np.cumsum(1 / wvl)[:, None] * dz
-    wave = env * np.exp(2j * np.pi * (k + ell)).real.T
+    center = make_colored_noise(seconds, *scales, -1, 1, rng)[:, None]
+    center = hp.osc_center_max * np.sign(center) * (abs(center) ** 1.3)
+    width = 60 - 40 * abs(center) / hp.osc_center_max
 
-    z_meet = z[np.argmin(abs(env - hp.filter_amplitude / hp.osc_amplitude))]
-    env = np.exp(-((z_meet - z) / (z_meet - config.z_min)) ** 2)
-    k = seconds / hp.filter_period / 86400 + rng.random()
-    filter = env * np.exp(2j * np.pi * k).real[:, None]
+    env = _make_env(z, osc_bot, osc_top)
+    wave = np.exp(2j * np.pi * (k + ell * z)).real
+    u = env * (center + width * wave)
 
-    u = hp.osc_amplitude * wave + hp.filter_amplitude * filter
+    jet = np.exp(2j * np.pi * seconds / hp.lower_period / 86400).real[:, None]
+    u = u + hp.lower_amplitude * _make_env(z, z_top=osc_bot) * jet
+
+    decays, cutoffs = [3 * 86400, 5e3], [2 * 86400, 3e3]
+    noise = make_colored_noise([seconds, z], decays, cutoffs, -1, 1, rng)
+    u = u + hp.noise_amplitude * noise
+
     v = np.zeros_like(u)
-
     data = {'time' : time, 'z_centers' : z}
     data['u'] = (('time', 'z_centers'), u)
     data['v'] = (('time', 'z_centers'), v)
 
     return xr.Dataset(data)
+
+def _make_env(
+    z: np.ndarray,
+    z_bot: Optional[float]=None,
+    z_top: Optional[float]=None,
+    decay: float=3e3
+) -> np.ndarray:
+    """
+    Make an envelope that selects certain regions of the column.
+
+    Parameters
+    ----------
+    z
+        Array of vertical grid points.
+    z_bot, z_top
+        Lower and upper decay locations, respectively. If either is `None`, the
+        envelope will not decay in that direction.
+    decay
+        Scale at which the rolloff should happen.
+
+    Returns
+    -------
+    np.ndarray
+        Array containing the value of the envelope at each point in `z`.
+
+    """
+
+    env = np.ones_like(z)
+
+    if z_bot is not None:
+        env[z < z_bot] = np.exp(-0.5 * ((z[z < z_bot] - z_bot) / decay) ** 2)
+
+    if z_top is not None:
+        env[z > z_top] = np.exp(-0.5 * ((z[z > z_top] - z_top) / decay) ** 2)
+
+    return env

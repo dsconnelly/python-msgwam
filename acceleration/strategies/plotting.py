@@ -122,7 +122,7 @@ def plot_error_profiles() -> None:
         for strategy, color in _COLORS.items():
             data = load_data(strategy, field)
             rmse = factor * get_rmse(data, ref)
-            ax.plot(rmse, z, color=color, label='strategy')
+            ax.plot(rmse, z, color=color, label=strategy)
 
         rms = factor * get_rmse(ref)
         ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
