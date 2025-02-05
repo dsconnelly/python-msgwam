@@ -30,20 +30,16 @@ def get_descending_jets(seed: int=6909086) -> xr.Dataset:
     period = make_colored_noise(seconds, *scales, *bounds, rng)
     k = np.cumsum(1 / period)[:, None] * config.dt
 
-    osc_top = config.z_max - 10e3
-    osc_bot = osc_top - hp.osc_wavelength
     ell = 1 / hp.osc_wavelength
-
-    center = make_colored_noise(seconds, *scales, -1, 1, rng)[:, None]
-    center = hp.osc_center_max * np.sign(center) * (abs(center) ** 1.3)
-    width = 60 - 40 * abs(center) / hp.osc_center_max
-
-    env = _make_env(z, osc_bot, osc_top)
     wave = np.exp(2j * np.pi * (k + ell * z)).real
-    u = env * (center + width * wave)
+    env = _make_env(z, hp.osc_bottom, config.z_max)
+    
+    t = (z - hp.osc_bottom) / (config.z_max - hp.osc_bottom)
+    amp = (1 - t) * hp.osc_amp_min + t * hp.osc_amp_max
+    u = amp * env * wave
 
     jet = np.exp(2j * np.pi * seconds / hp.lower_period / 86400).real[:, None]
-    u = u + hp.lower_amplitude * _make_env(z, z_top=osc_bot) * jet
+    u = u + hp.lower_amplitude * _make_env(z, z_top=hp.osc_bottom) * jet
 
     decays, cutoffs = [3 * 86400, 5e3], [2 * 86400, 3e3]
     noise = make_colored_noise([seconds, z], decays, cutoffs, -1, 1, rng)
@@ -82,12 +78,29 @@ def _make_env(
 
     """
 
-    env = np.ones_like(z)
+    if isinstance(z_bot, np.ndarray) or isinstance(z_top, np.ndarray):
+        env = np.ones((43201, 400))
+
+    else:
+        env = np.ones_like(z)
 
     if z_bot is not None:
-        env[z < z_bot] = np.exp(-0.5 * ((z[z < z_bot] - z_bot) / decay) ** 2)
+        env[z < z_bot] = np.exp(-0.5 * ((z - z_bot) / decay) ** 2)[z < z_bot]
 
     if z_top is not None:
-        env[z > z_top] = np.exp(-0.5 * ((z[z > z_top] - z_top) / decay) ** 2)
+        env[z > z_top] = np.exp(-0.5 * ((z - z_top) / decay) ** 2)[z > z_top]
 
     return env
+
+def _make_trans(z: np.ndarray, z_bot: np.ndarray, z_top: np.ndarray):
+    """
+    
+    """
+
+    def f(x):
+        out = np.zeros_like(x)
+        out[x > 0] = np.exp(-1 / x[x > 0] / 1.5) 
+        return out
+    
+    g = lambda x: f(x) / (f(x) + f(1 - x))
+    return g((z - z_bot) / (z_top - z_bot))
