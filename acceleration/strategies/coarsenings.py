@@ -62,8 +62,8 @@ def update_config() -> None:
 
     ref = load_data('reference')
     errors = get_coarse_errors(ref)
-    errors = (errors / get_rmse(ref)).mean('z_faces').values
-    i, j = np.unravel_index(np.argmin(errors), errors.shape)
+    errors = (errors / get_rmse(ref)).mean('z_faces')
+    i, j = (da.item() for da in errors.argmin(...).values())
 
     with open(f'config/{config.name}.toml') as f:
         lines = f.readlines()

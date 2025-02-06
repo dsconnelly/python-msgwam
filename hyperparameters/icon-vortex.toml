@@ -1,0 +1,17 @@
+# [scenarios]
+# lower_amplitude = 10
+# lower_period = 7
+# noise_amplitude = 8
+# osc_center_max = 30
+# osc_period_max = 5
+# osc_period_min = 2
+# osc_wavelength = 30e3
+# time_scale_decay = 6
+# time_scale_cutoff = 4
+
+[strategies]
+dr_min = 500
+dr_max = 5000
+n_ensemble = 25
+n_source_min = 8
+n_source_max = 44

@@ -274,9 +274,8 @@ class TransientPropagator(Propagator):
 
         """
 
-        z_lo = 0
-        if config.source_type == 'packet':
-            z_lo = min(0, self._r_init - (config.n_repeat - 1) * config.dr_init)
+        n_repeat = getattr(config, 'n_repeat', 1)
+        z_lo = self._r_init - (n_repeat - 1) * config.dr_init
 
         below = self.r < z_lo
         above = self.r - 0.5 * self.dr > config.z_max

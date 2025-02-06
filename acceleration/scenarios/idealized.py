@@ -32,16 +32,16 @@ def get_descending_jets(seed: int=6909086) -> xr.Dataset:
 
     ell = 1 / hp.osc_wavelength
     wave = np.exp(2j * np.pi * (k + ell * z)).real
-    env = _make_env(z, hp.osc_bottom, config.z_max)
+    env = _make_env(z, hp.osc_bottom, hp.osc_top)
     
-    t = (z - hp.osc_bottom) / (config.z_max - hp.osc_bottom)
+    t = (z - hp.osc_bottom) / (hp.osc_top - hp.osc_bottom)
     amp = (1 - t) * hp.osc_amp_min + t * hp.osc_amp_max
     u = amp * env * wave
 
     jet = np.exp(2j * np.pi * seconds / hp.lower_period / 86400).real[:, None]
     u = u + hp.lower_amplitude * _make_env(z, z_top=hp.osc_bottom) * jet
 
-    decays, cutoffs = [3 * 86400, 5e3], [2 * 86400, 3e3]
+    decays, cutoffs = [2 * 86400, 5e3], [43200, 3e3]
     noise = make_colored_noise([seconds, z], decays, cutoffs, -1, 1, rng)
     u = u + hp.noise_amplitude * noise
 

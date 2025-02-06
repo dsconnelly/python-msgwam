@@ -50,7 +50,7 @@ def plot_coarse_errors() -> None:
     z = get_vertical_grids()[0] / 1000
 
     img = axes[1].imshow(
-        errors.values,
+        errors.values.T,
         vmin=(1 - width),
         vmax=(1 + width),
         origin='lower',
@@ -68,14 +68,14 @@ def plot_coarse_errors() -> None:
     cbar.set_ticks(np.linspace(1 - width, 1 + width, 5))
     cbar.set_label('normalized error')
 
-    funcs = [np.argmin, np.argmax]
+    funcs = [errors.argmin, errors.argmax]
     colors = ['darkgreen', 'darkred']
     labels = ['best', 'worst']
 
     extrema = {}
     for func, color, label in zip(funcs, colors, labels):
-        i, j = np.unravel_index(func(errors.values), errors.shape)
-        extrema[(i, j)] = (color, label, 1)
+        i, j = (da.item() for da in func(...).values())
+        extrema[(i, j)] = (color, label, 1, 10)
 
         axes[1].add_patch(Rectangle(
             (i - 0.5, j - 0.5), 1, 1,
@@ -85,18 +85,28 @@ def plot_coarse_errors() -> None:
             zorder=10
         ))
     
+    defaults = ('k', None, 0.2, 1)
     for i in range(profiles.shape[0]):
         for j in range(profiles.shape[1]):
             profile = 1000 * profiles[i, j].values
-            color, label, alpha = extrema.get((i, j), ('k', None, 0.3))
-            axes[0].plot(profile, z, color=color, label=label, alpha=alpha)
+            color, label, alpha, zorder = extrema.get((i, j), defaults)
+
+            axes[0].plot(
+                profile, z,
+                color=color,
+                label=label,
+                alpha=alpha,
+                zorder=zorder
+            )
 
     axes[0].plot(1000 * rms.values, z, color='k', ls='dashed', label='RMS')
 
     axes[0].set_xlim(0, 2)
     axes[0].set_ylim(z.min(), z.max())
     axes[0].tick_params('both', direction='in')
+
     axes[0].grid(color='lightgray')
+    axes[0].set_axisbelow(True)
 
     axes[0].set_xlabel('RMSE (mPa)')
     axes[0].set_ylabel('height (km)')

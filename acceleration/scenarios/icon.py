@@ -7,7 +7,8 @@ from msgwam.constants import EPOCH
 from msgwam.utils import get_time, get_vertical_grids
 
 _REGIONS = {
-    'midlatitudes' : (40.6, -74.0)
+    'midlatitudes' : (41, -74),
+    'vortex' : (60, -85)
 }
 
 def get_ICON(data_dir: str) -> xr.Dataset:
