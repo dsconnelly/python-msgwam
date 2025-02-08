@@ -3,10 +3,11 @@ from msgwam.sources.spectra import _gaussians
 
 from .icon import get_ICON
 from .idealized import get_descending_jets
-from .plotting import plot_mean_state, plot_windows
+from .plotting import plot_mean_state, plot_spectrum, plot_windows
 
 __all__ = [
     'plot_mean_state',
+    'plot_spectrum',
     'plot_windows',
     'save_mean_state',
     'save_spectrum'
@@ -27,7 +28,7 @@ def save_mean_state(scenario: str, *args: str) -> None:
 
     """
 
-    with config.override(dt=30):
+    with config.override(n_grid=401, dt=30):
         path = config.prescribed_wind_file
         scenario = scenario.replace('-', '_')
         globals()[f'get_{scenario}'](*args).to_netcdf(path)

@@ -275,18 +275,21 @@ class TransientPropagator(Propagator):
         """
 
         n_repeat = getattr(config, 'n_repeat', 1)
-        z_lo = self._r_init - (n_repeat - 1) * config.dr_init
+        z_lo = self._r_init - n_repeat * config.dr_init
 
         below = self.r < z_lo
         above = self.r - 0.5 * self.dr > config.z_max
-        self._delete_rays(below | above)
+        drop = below | above
 
         if config.max_age > 0:
             old = self.age > config.max_age
-            self._delete_rays(old)
+            drop = drop | old
 
         flux = self.k * self.action * self._get_cg_r(mean)
-        self._delete_rays(abs(flux) < config.min_flux)
+        drop = drop | (abs(flux) < config.min_flux)
+
+        drop[self._ghosts] = False
+        self._delete_rays(drop)
 
     def _check_source(self, mean: MeanState, n_step: int) -> None:
         """

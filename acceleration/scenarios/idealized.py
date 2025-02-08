@@ -30,18 +30,16 @@ def get_descending_jets(seed: int=6909086) -> xr.Dataset:
     period = make_colored_noise(seconds, *scales, *bounds, rng)
     k = np.cumsum(1 / period)[:, None] * config.dt
 
-    ell = 1 / hp.osc_wavelength
-    wave = np.exp(2j * np.pi * (k + ell * z)).real
     env = _make_env(z, hp.osc_bottom, hp.osc_top)
-    
+    wvl = 500e3 - env * (500e3 - hp.osc_wavelength)
+    ell = np.cumsum(1 / wvl) * (z[1] - z[0])
+
     t = (z - hp.osc_bottom) / (hp.osc_top - hp.osc_bottom)
-    amp = (1 - t) * hp.osc_amp_min + t * hp.osc_amp_max
-    u = amp * env * wave
+    amp = (1 - t) * hp.osc_amp_min + t * (hp.osc_amp_max)
+    amp = np.clip(amp, hp.osc_amp_min, hp.osc_amp_max)
+    u = amp * np.exp(2j * np.pi * (k + ell)).real
 
-    jet = np.exp(2j * np.pi * seconds / hp.lower_period / 86400).real[:, None]
-    u = u + hp.lower_amplitude * _make_env(z, z_top=hp.osc_bottom) * jet
-
-    decays, cutoffs = [2 * 86400, 5e3], [43200, 3e3]
+    decays, cutoffs = [2 * 86400, 3e3], [43200, 1e3]
     noise = make_colored_noise([seconds, z], decays, cutoffs, -1, 1, rng)
     u = u + hp.noise_amplitude * noise
 
@@ -91,16 +89,3 @@ def _make_env(
         env[z > z_top] = np.exp(-0.5 * ((z - z_top) / decay) ** 2)[z > z_top]
 
     return env
-
-def _make_trans(z: np.ndarray, z_bot: np.ndarray, z_top: np.ndarray):
-    """
-    
-    """
-
-    def f(x):
-        out = np.zeros_like(x)
-        out[x > 0] = np.exp(-1 / x[x > 0] / 1.5) 
-        return out
-    
-    g = lambda x: f(x) / (f(x) + f(1 - x))
-    return g((z - z_bot) / (z_top - z_bot))

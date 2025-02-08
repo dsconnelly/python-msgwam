@@ -169,6 +169,9 @@ def _add_derived(config: dict[str, Any]) -> None:
     
     """
 
+    if config['dt_launch'] < 0:
+        config['dt_launch'] = config['dt']
+
     config['n_steps'] = int(86400 * config['n_day'] / config['dt']) + 1
     config['n_skip'] = round(config['dt_output'] / config['dt'])
 

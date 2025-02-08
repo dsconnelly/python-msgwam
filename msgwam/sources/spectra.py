@@ -46,9 +46,9 @@ def _postprocess(ds: xr.Dataset) -> xr.Dataset:
 
     """
 
-    cp_x = _get_phase_velocities(config.n_source)
-    idx = np.argmin(abs(cp_x[:, None] - ds['cp_x'].values), axis=0)
-    ds = ds.assign_coords(cp_x=cp_x[idx]).groupby('cp_x').sum()
+    totals = ds['flux'].sum('cp_x')
+    ds = ds.interp(cp_x=_get_phase_velocities(config.n_source))
+    ds['flux'] = totals * ds['flux'] / ds['flux'].sum('cp_x')
 
     if 'time' in ds.coords:
         ds = ds.sel(time=get_time(config.dt_launch), method='ffill')

@@ -35,7 +35,7 @@ class Source(FactoryABC):
             data = np.broadcast_to(data, shape)
 
         else:
-            data = data.transpose(2, 0, 1)
+            data = data.transpose(1, 0, 2)
 
         self._data = data
 
