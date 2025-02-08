@@ -4,7 +4,7 @@ name=$1
 dep_arg=$2
 
 if [[ $name == icon* ]]; then
-    arg="ICON:data/ICON/202501"
+    arg="" #"ICON:data/ICON/202501"
 else
     arg="descending-jets"
 fi
@@ -19,7 +19,7 @@ job_id=$(sbatch \
     -o logs/$name/reference.out \
     $dep_arg \
     submit.slurm config/$name.toml \
-        save-mean-state:$arg \
+        $arg \
         save-spectrum \
         save-integration:reference
 )

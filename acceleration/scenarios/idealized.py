@@ -12,7 +12,7 @@ from ..hyperparameters import scenarios as hp
 
 from .utils import get_background_noise
 
-def get_descending_jets(seed: int=6909086) -> xr.Dataset:
+def get_descending_jets(seed: int=256) -> xr.Dataset:
     """
     Generate a mean wind scenario consisting of an upper-atmosphere oscillation
     with (possibly) varying period. The lower atmosphere features a much slower

@@ -1,5 +1,5 @@
 [scenarios]
-noise_amplitude = 4
+noise_amplitude = 5
 
 [strategies]
 dr_min = 500
