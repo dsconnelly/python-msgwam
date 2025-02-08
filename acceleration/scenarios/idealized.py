@@ -10,6 +10,8 @@ from msgwam.utils import get_vertical_grids, make_colored_noise
 
 from ..hyperparameters import scenarios as hp
 
+from .utils import get_background_noise
+
 def get_descending_jets(seed: int=6909086) -> xr.Dataset:
     """
     Generate a mean wind scenario consisting of an upper-atmosphere oscillation
@@ -37,13 +39,11 @@ def get_descending_jets(seed: int=6909086) -> xr.Dataset:
     t = (z - hp.osc_bottom) / (hp.osc_top - hp.osc_bottom)
     amp = (1 - t) * hp.osc_amp_min + t * (hp.osc_amp_max)
     amp = np.clip(amp, hp.osc_amp_min, hp.osc_amp_max)
+
     u = amp * np.exp(2j * np.pi * (k + ell)).real
-
-    decays, cutoffs = [2 * 86400, 3e3], [43200, 1e3]
-    noise = make_colored_noise([seconds, z], decays, cutoffs, -1, 1, rng)
-    u = u + hp.noise_amplitude * noise
-
+    u = u + get_background_noise(seconds, z, rng)
     v = np.zeros_like(u)
+
     data = {'time' : time, 'z_centers' : z}
     data['u'] = (('time', 'z_centers'), u)
     data['v'] = (('time', 'z_centers'), v)

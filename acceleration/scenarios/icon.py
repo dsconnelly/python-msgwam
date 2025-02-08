@@ -6,6 +6,8 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.utils import get_time, get_vertical_grids
 
+from .utils import get_background_noise
+
 _REGIONS = {
     'midlatitudes' : (41, -74),
     'vortex' : (60, -85)
@@ -64,5 +66,8 @@ def get_ICON(data_dir: str) -> xr.Dataset:
     _, z_centers = get_vertical_grids()
     kwargs = {'fill_value' : 'extrapolate'}
     ds = ds.interp(time=time, z_centers=z_centers, kwargs=kwargs)
+
+    seconds = cftime.date2num(time, f'seconds since {EPOCH}')
+    ds['u'] = ds['u'] + get_background_noise(seconds, z_centers).T
 
     return ds.transpose()

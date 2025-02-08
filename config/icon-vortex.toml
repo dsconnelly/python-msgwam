@@ -67,15 +67,15 @@ epsilon = 1
 ################################################################################
 # 'gaussians' spectrum
 ################################################################################
-c_his = [30, -20]
-c_los = [20, -30]
-c_width = 15
+c_his = [45, -5]
+c_los = [5, -45]
+c_width = 10
 direction = 0
 dk_init = 1e-4
 dl_init = 1e-4
 flux_bc = 3e-3
-T_hat_lo = 1
-T_hat_hi = 8
-tau_corr_days = 10
-tau_cutoff_days = 10
-seed = 615
+T_hat_lo = 0.5
+T_hat_hi = 3
+tau_corr_days = 6
+tau_cutoff_days = 3
+seed = 123

@@ -1,6 +1,3 @@
-lower_amplitude: float
-lower_period: float
-
 noise_amplitude: float
 
 osc_amp_max: float

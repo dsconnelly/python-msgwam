@@ -4,9 +4,9 @@ name=$1
 dep_arg=$2
 
 if [[ $name == icon* ]]; then
-    arg="descending-jets"
-else
     arg="ICON:data/ICON/202501"
+else
+    arg="descending-jets"
 fi
 
 job_id=$(sbatch \
