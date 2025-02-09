@@ -21,7 +21,7 @@ job_id=$(sbatch \
     submit.slurm config/$name.toml \
         $arg \
         save-spectrum \
-        save-integration:reference
+        save-strategy:reference
 )
 
 echo $job_id

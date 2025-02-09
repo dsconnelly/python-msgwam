@@ -6,8 +6,8 @@ from msgwam.utils import make_colored_noise
 
 from ..hyperparameters import scenarios as hp
 
-_DECAYS = [2 * 86400, 3000]
-_CUTOFFS = [43200, 1000]
+_DECAYS = [86400, 3000]
+_CUTOFFS = [3600, 500]
 
 def get_background_noise(
     seconds: np.ndarray,

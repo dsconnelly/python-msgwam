@@ -8,7 +8,9 @@ osc_top: float
 
 osc_period_max: float
 osc_period_min: float
-osc_wavelength: float
+
+osc_wvl_bottom: float
+osc_wvl_top: float
 
 time_scale_decay: float
 time_scale_cutoff: float

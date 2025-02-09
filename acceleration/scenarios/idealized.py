@@ -32,15 +32,15 @@ def get_descending_jets(seed: int=256) -> xr.Dataset:
     period = make_colored_noise(seconds, *scales, *bounds, rng)
     k = np.cumsum(1 / period)[:, None] * config.dt
 
-    env = _make_env(z, hp.osc_bottom, hp.osc_top)
-    wvl = 500e3 - env * (500e3 - hp.osc_wavelength)
-    ell = np.cumsum(1 / wvl) * (z[1] - z[0])
-
     t = (z - hp.osc_bottom) / (hp.osc_top - hp.osc_bottom)
     amp = (1 - t) * hp.osc_amp_min + t * (hp.osc_amp_max)
     amp = np.clip(amp, hp.osc_amp_min, hp.osc_amp_max)
 
-    u = amp * np.exp(2j * np.pi * (k + ell)).real
+    wvl = (1 - t) * hp.osc_wvl_bottom + t * hp.osc_wvl_top
+    ell = np.cumsum(1 / wvl) * (z[1] - z[0])
+
+    env = _make_env(z, hp.osc_bottom, hp.osc_top)
+    u = env * amp * np.exp(2j * np.pi * (k + ell)).real    
     u = u + get_background_noise(seconds, z, rng)
     v = np.zeros_like(u)
 

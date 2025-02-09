@@ -28,7 +28,7 @@ def get_integration() -> xr.Dataset:
 
     return xr.concat(datasets, dim='member')
 
-def save_integration(strategy: str, *args: str) -> None:
+def save_strategy(strategy: str, *args: str) -> None:
     """
     Integrate with the configurations specific to the given strategy and save
     result to disk as a netCDF file. This is the function that is meant to be

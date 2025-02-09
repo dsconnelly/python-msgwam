@@ -114,7 +114,7 @@ def plot_coarse_errors() -> None:
 
     plt.savefig(f'plots/{config.name}/coarsenings.png', dpi=400)
 
-def plot_error_profiles() -> None:
+def plot_error_profiles(*strategies: str) -> None:
     """Plot RMS errors as a function of height for each strategy."""
 
     fields = ['flux', 'acceleration']
@@ -129,10 +129,10 @@ def plot_error_profiles() -> None:
         z = get_vertical_grids()[i] / 1000
         ref = load_data('reference', field)
 
-        for strategy, color in _COLORS.items():
+        for strategy in strategies:
             data = load_data(strategy, field)
             rmse = factor * get_rmse(data, ref)
-            ax.plot(rmse, z, color=color, label=strategy)
+            ax.plot(rmse, z, color=_COLORS[strategy], label=strategy)
 
         rms = factor * get_rmse(ref)
         ax.plot(rms, z, color='gray', ls='dashed', label='RMS')

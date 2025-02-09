@@ -12,10 +12,10 @@ job_id=$(sbatch \
     -o logs/$name/baselines.out \
     $dep_arg \
     submit.slurm config/$name.toml \
-        save-integration:coarse \
-        save-integration:stochastic:1 \
-        save-integration:stochastic:25 \
-        save-integration:instantaneous
+        save-strategy:coarse \
+        save-strategy:stochastic:1 \
+        save-strategy:stochastic:25 \
+        save-strategy:instantaneous
 )
 
 echo $job_id
