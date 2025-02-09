@@ -15,7 +15,9 @@ job_id=$(sbatch \
         save-strategy:coarse \
         save-strategy:stochastic:1 \
         save-strategy:stochastic:25 \
-        save-strategy:instantaneous
+        save-strategy:stochastic:100 \
+        save-strategy:instantaneous \
+        plot-error-profiles:coarse:stochastic-1:stochastic-25:stochastic-100:instantaneous
 )
 
 echo $job_id
