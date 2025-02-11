@@ -37,7 +37,7 @@ def get_descending_jets(seed: int=256) -> xr.Dataset:
     amp = np.clip(amp, hp.osc_amp_min, hp.osc_amp_max)
 
     wvl = (1 - t) * hp.osc_wvl_bottom + t * hp.osc_wvl_top
-    ell = np.cumsum(1 / wvl) * (z[1] - z[0])
+    ell = np.cumsum(1 / np.maximum(wvl, hp.osc_wvl_top)) * (z[1] - z[0])
 
     env = _make_env(z, hp.osc_bottom, hp.osc_top)
     u = env * amp * np.exp(2j * np.pi * (k + ell)).real    

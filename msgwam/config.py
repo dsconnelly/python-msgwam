@@ -58,10 +58,13 @@ n_source: int
 ################################################################################
 # 'transient' propagator
 ################################################################################
+cfl_mode: Literal['warn', 'raise']
 check_sign_changes: bool
 dr_init: float
 jitter: bool
 max_age: int
+max_cells_per_dt: float
+max_dr_overshoot: float
 min_flux: float
 n_chromatic: int
 n_increment: int

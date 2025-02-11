@@ -52,10 +52,11 @@ def _get_reference_overrides() -> dict[str, Any]:
         'n_source' : 124,
         'n_max' : int(250e3),
         'n_increment' : 1000,
-        'prune_by' : 'none'
+        'prune_by' : 'none',
+        'cfl_mode' : 'raise'
     }
 
-def _get_stochastic_overrides(speedup_str) -> dict[str, Any]:
+def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:
     """
     Use a stochastic source instead of a constant-flux source.
 

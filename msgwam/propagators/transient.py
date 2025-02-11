@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Self, cast
+from warnings import catch_warnings, warn
 
 import numpy as np
 
@@ -13,6 +14,9 @@ from .jitted import get_max_intersects, interp, project
 
 if TYPE_CHECKING:
     from ..means import MeanState
+
+class CFLWarning(Warning):
+    pass
 
 class TooManyRaysError(Exception):
     pass
@@ -291,6 +295,35 @@ class TransientPropagator(Propagator):
         drop[self._ghosts] = False
         self._delete_rays(drop)
 
+    def _check_cfl_conditions(self, mean: MeanState, jdx: np.ndarray) -> None:
+        """
+        Raise warnings if the CFL conditions are violated. There are two that
+        must be checked. First, the ray volumes should not be extended too much
+        at launch time. Second, they should not be traveling so fast as to skip
+        over too many vertical grid levels in one time step.
+
+        Parameters
+        ----------
+        mean
+            Current mean state of the system.
+        jdx
+            Column indices to `self._data` indicating ray volumes just added.
+            The constraint on `dr` is only enforced on rays when they launch.
+
+        """
+
+        if len(jdx) > 0:
+            max_dr = self.dr[jdx].max()
+            if max_dr > config.max_dr_overshoot * config.dr_init:
+                warn(f'ray volume launched with dr = {max_dr:.4f}', CFLWarning)
+
+        cg_r = np.nanmax(self._get_cg_r(mean))
+        n_cells = cg_r * config.dt / mean.dz
+
+        if n_cells > config.max_cells_per_dt:
+            message = f'ray volume will cover {n_cells:.4f} cells per time step'
+            warn(message, CFLWarning)
+
     def _check_source(self, mean: MeanState, n_step: int) -> None:
         """
         Enforce the bottom boundary condition by adding ray volumes as necessary
@@ -317,12 +350,15 @@ class TransientPropagator(Propagator):
         excess = self.n_active + datas.shape[1] - self._n_max
         self._prune(excess, mean)
 
+        jdx = self._ghosts[cdx]
         if config.source_type == 'constant':
-            jdx = self._ghosts[cdx]
-
             r_hi = self.r[jdx] + 0.5 * self.dr[jdx]
             self._data[0, jdx] = (self._r_ghost + r_hi) / 2
             self._data[1, jdx] = r_hi - self._r_ghost
+
+        action = {'warn' : 'always', 'raise' : 'error'}[config.cfl_mode]
+        with catch_warnings(action=action, category=CFLWarning):
+            self._check_cfl_conditions(mean, jdx)
 
         repeats = {}
         for k, data in zip(cdx, datas.T):

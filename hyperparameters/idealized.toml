@@ -2,12 +2,12 @@
 noise_amplitude = 8
 osc_amp_max = 55
 osc_amp_min = 10
-osc_top = 30e3
-osc_bottom = 15e3
-osc_period_max = 5
-osc_period_min = 1
-osc_wvl_bottom = 15e3
-osc_wvl_top = 500
+osc_top = 60e3
+osc_bottom = 30e3
+osc_period_max = 8
+osc_period_min = 6
+osc_wvl_bottom = 30e3
+osc_wvl_top = 2e3
 time_scale_decay = 6
 time_scale_cutoff = 4
 
