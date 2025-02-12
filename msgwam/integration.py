@@ -1,13 +1,14 @@
 from __future__ import annotations
 from time import time as now
 from typing import TYPE_CHECKING, Any, Callable, Optional
+from warnings import catch_warnings
 
 import numpy as np
 import xarray as xr
 
 from . import config
 from .means import MeanState
-from .propagators import Propagator, TransientPropagator
+from .propagators import CFLWarning, Propagator, TransientPropagator
 from .utils import get_iterator, get_time
 
 if TYPE_CHECKING:
@@ -37,16 +38,24 @@ def integrate(callback: Optional[_Callback]=None) -> xr.Dataset:
     if callback is not None:
         callback(mean, prop, 0)
 
-    start = now()
-    for n_step in get_iterator():
-        mean, prop = mean.step(prop, n_step), prop.step(mean, n_step)
-        ds = _update_dataset(mean, prop, ds, n_step)
+    cfl_mode = getattr(config, 'cfl_modde', 'warn')
+    action = {'warn' : 'always', 'raise' : 'error'}[cfl_mode]
+    args = {'action' : action, 'category' : CFLWarning, 'record' : True}
 
-        if callback is not None:
-            callback(mean, prop, n_step)
+    start = now()
+    with catch_warnings(**args) as log:
+        for n_step in get_iterator():
+            mean, prop = mean.step(prop, n_step), prop.step(mean, n_step)
+            ds = _update_dataset(mean, prop, ds, n_step)
+
+            if callback is not None:
+                callback(mean, prop, n_step)
 
     runtime = now() - start
     ds = ds.assign_attrs(runtime=runtime)
+
+    if len(log) > 0:
+        print(f'Caught {len(log)} CFL warnings')
 
     return ds
 

@@ -26,8 +26,6 @@ class Source(FactoryABC):
         """
 
         ds = get_spectrum()
-        self._cp_x = ds['cp_x'].values
-        self.dc = self._cp_x[1] - self._cp_x[0]
         data = ds.to_array().values
 
         if data.ndim < 3:
@@ -38,6 +36,9 @@ class Source(FactoryABC):
             data = data.transpose(1, 0, 2)
 
         self._data = data
+        self._cp = ds['cp'].values
+        self._phi = ds['phi'].values
+        self._dc = np.diff(np.unique(self._cp))[0]
 
     def launch(
         self,
@@ -100,15 +101,21 @@ class Source(FactoryABC):
             cdx = np.arange(config.n_source)
 
         i = (n_step * config.dt) // config.dt_launch
-        omega_hat, phi, dk, dl, flux = self._data[i][:, cdx]
-        wvn_hor = omega_hat / (self._cp_x[cdx] - mean.u[0])
+        dk, dl, omega_hat, flux = self._data[i][:, cdx]
+        cos = np.round(np.cos(self._phi[cdx]), 5)
+        sin = np.round(np.sin(self._phi[cdx]), 5)
 
-        k, l, = wvn_hor * np.cos(phi), wvn_hor * np.sin(phi)
+        u, v = mean.wind[:, 0]
+        wind = cos * u + sin * v
+        wvn_hor = omega_hat / (self._cp[cdx] - wind)
+        k, l = wvn_hor * cos, wvn_hor * sin
+
         m = get_m(k, l, omega_hat, mean.N[0])
-        dm = get_dm(m, self.dc, mean.N[0])
-
+        dm = get_dm(m, self._dc, mean.N[0])
         cg_r = get_cg_r(k, l, m, mean.N[0])
-        dens = flux / abs(k * dk * dl * dm * cg_r)
+
+        norm_K = np.sqrt(k ** 2 + l ** 2)
+        dens = flux / abs(norm_K * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))
 
         return self._postprocess(

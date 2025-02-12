@@ -1,3 +1,4 @@
+from math import prod
 from typing import Any
 
 import cftime
@@ -12,10 +13,10 @@ def get_spectrum() -> xr.Dataset:
     """
     Return the properties of the spectrum specified by the loaded configuration
     file. Functions in this module (excluding utilities) should return a dataset
-    with coordinates time (optional) and phase speed, and variables for the wave
-    properties that can be determined without knowing the buoyancy frequency or
-    the exact spectral resolution. These are omega_hat, phi, dk, dl, and flux.
-    The other variables are added by `_postprocess` or by the Source object.
+    with coordinates time (optional), phase speed, direction of propagation, and
+    any other dimensions, and variables for dk, dl, intrinsic frequency, and
+    flux. The dataset will be passed to `_postprocess`, and the remaining
+    variables will be added at launch time by the `Source`.
 
     Returns
     -------
@@ -29,36 +30,80 @@ def get_spectrum() -> xr.Dataset:
 
 def _postprocess(ds: xr.Dataset) -> xr.Dataset:
     """
-    Prepare a source dataset for use at the specific resolution set by the
-    loaded configuration file.
+    Prepare a source dataset for use at the specific temporal and spectral
+    resolutions set by the loaded configuration file.
 
     Parameters
     ----------
     ds
-        Dataset with coordinates `'cp_x'` and `'time'` along with variables
-        `'omega_hat'`, `'phi'`, `'dk'`, `'dl'`, and `'flux'` defined along the
-        time dimension only.
+        Dataset as described in the docstring for `get_spectrum`.
 
     Returns
     -------
     xr.Dataset
-        Dataset at the right spectral and temporal resolution.
+        Dataset at the appropriate resolutions.
 
     """
 
-    totals = ds['flux'].sum('cp_x')
-    ds = ds.interp(cp_x=_get_phase_velocities(config.n_source))
-    ds['flux'] = totals * ds['flux'] / ds['flux'].sum('cp_x')
+    coords = set(ds.coords) - {'time'}
+    sum_over = coords & set(ds['flux'].coords)
+    total_flux = ds['flux'].sum(sum_over)
+
+    n = prod([len(ds[c]) for c in coords - {'cp'}])
+    ds = ds.interp(cp=_get_phase_velocities(config.n_source // n))
+    ds['flux'] = total_flux * ds['flux'] / ds['flux'].sum(sum_over)
 
     if 'time' in ds.coords:
-        ds = ds.sel(time=get_time(config.dt_launch), method='ffill')
+        time = get_time(config.dt_launch)
+        ds = ds.sel(time=time, method='ffill')
 
-    return ds[['omega_hat', 'phi', 'dk', 'dl', 'flux']]
+    return ds.stack(channel=coords)[['dk', 'dl', 'omega_hat', 'flux']]
 
 def _from_file() -> xr.Dataset:
     """Load a precomputed source spectrum from disk."""
 
     return open_dataset(config.spectrum_file)
+
+def _desaubies() -> xr.Dataset:
+    """Constant Desaubies background spectrum, as in Bölöni et. al (2021)."""
+
+    phi = np.arange(4) * np.pi / 2
+    n = config.n_source // (4 * config.n_omega)
+    cp = _get_phase_velocities(n)
+
+    bounds = [config.omega_hat_min, config.omega_hat_max]
+    edges = np.linspace(*bounds, config.n_omega + 1)
+    omega_hat = (edges[:-1] + edges[1:]) / 2
+
+    m_star = 2 * np.pi / config.wvl_star
+    top = cp * config.N_ref ** 3 * omega_hat[:, None] ** (1 - 5 / 3)
+    bottom = config.N_ref ** 4 + m_star ** 4 * cp ** 4
+
+    flux = m_star ** 3 * top / bottom
+    flux = config.flux_bc * flux / flux.sum() / 2
+
+    K = omega_hat[:, None] / cp
+    domega = np.diff(omega_hat)[0]
+    p, q = domega / cp, K * np.pi / 2
+
+    shape = (len(phi), config.n_omega, n)
+    p = np.broadcast_to(p[None, None], shape)
+    q = np.broadcast_to(q[None], shape)
+
+    cos = abs(np.cos(phi))[:, None, None]
+    sin = abs(np.sin(phi))[:, None, None]
+    dk = cos * p + sin * q
+    dl = sin * p + cos * q
+
+    copy = np.arange(config.n_omega)
+    data = {'phi' : phi, 'copy' : copy, 'cp' : cp}
+
+    data['dk'] = (('phi', 'copy', 'cp'), dk)
+    data['dl'] = (('phi', 'copy', 'cp'), dl)
+    data['omega_hat'] = ('copy', omega_hat)
+    data['flux'] = (('copy', 'cp'), flux)
+
+    return xr.Dataset(data)
 
 def _gaussians() -> xr.Dataset:
     """
@@ -71,7 +116,10 @@ def _gaussians() -> xr.Dataset:
     decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
     args = [seconds, decay_scale, 86400 * config.tau_cutoff_days]
 
-    cp_x = _get_phase_velocities(config.n_source)
+    n_half = config.n_source // 2
+    cp = _get_phase_velocities(n_half)
+    cp = np.concatenate((cp[::-1], cp))
+
     flux = np.zeros((len(seconds), config.n_source))
     rng = np.random.default_rng(config.seed)
 
@@ -83,27 +131,26 @@ def _gaussians() -> xr.Dataset:
             rng=rng
         )[:, None]
 
-        flux = flux + np.exp(-0.5 * ((cp_x - center) / config.c_width) ** 2)
+        arg = (cp - center) / config.c_width
+        flux = flux + np.exp(-0.5 * arg ** 2)
 
     flux = config.flux_bc * flux / flux.sum(axis=1)[:, None]
+    flux = flux[:, None].reshape(-1, 2, config.n_source // 2)
+    cp = cp[(config.n_source // 2):]
+    phi = np.array([np.pi, 0])
 
-    omega_hat = 2 * np.pi / make_colored_noise(
-        *args,
-        n_min=(3600 * config.T_hat_lo),
-        n_max=(3600 * config.T_hat_hi),
-        rng=rng
-    )
-
+    bounds = [3600 * config.T_hat_lo, 3600 * config.T_hat_hi]
+    omega_hat = 2 * np.pi / make_colored_noise(*args, *bounds, rng=rng)
+    
     ones = np.ones_like(omega_hat)
-    phi = np.deg2rad(config.direction) * ones
     dk, dl = config.dk_init * ones, config.dl_init * ones
-    stacked = np.stack((omega_hat, phi, dk, dl), axis=0)
+    stacked = np.stack((dk, dl, omega_hat), axis=0)
 
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
-    data: dict[str, Any] = {'time' : time, 'cp_x' : cp_x}
-    data['flux'] = (('time', 'cp_x'), flux)
+    data: dict[str, Any] = {'time' : time, 'phi' : phi, 'cp' : cp}
+    data['flux'] = (('time', 'phi', 'cp'), flux)
 
-    for i, name in enumerate(['omega_hat', 'phi', 'dk', 'dl']):
+    for i, name in enumerate(['dk', 'dl', 'omega_hat']):
         data[name] = ('time', stacked[i])
 
     return xr.Dataset(data)
@@ -124,5 +171,5 @@ def _get_phase_velocities(n: int) -> np.ndarray:
 
     """
 
-    bounds = np.linspace(-config.c_max, config.c_max, n + 1)
+    bounds = np.linspace(0, config.c_max, n + 1)
     return (bounds[:-1] + bounds[1:]) / 2

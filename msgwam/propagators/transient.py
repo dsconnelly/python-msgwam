@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Optional, Self, cast
-from warnings import catch_warnings, warn
+from warnings import warn
 
 import numpy as np
 
@@ -289,7 +289,8 @@ class TransientPropagator(Propagator):
             old = self.age > config.max_age
             drop = drop | old
 
-        flux = self.k * self.action * self._get_cg_r(mean)
+        wvn = np.sqrt(self.k ** 2 + self.l ** 2)
+        flux = wvn * self.action * self._get_cg_r(mean)
         drop = drop | (abs(flux) < config.min_flux)
 
         drop[self._ghosts] = False
@@ -356,9 +357,7 @@ class TransientPropagator(Propagator):
             self._data[0, jdx] = (self._r_ghost + r_hi) / 2
             self._data[1, jdx] = r_hi - self._r_ghost
 
-        action = {'warn' : 'always', 'raise' : 'error'}[config.cfl_mode]
-        with catch_warnings(action=action, category=CFLWarning):
-            self._check_cfl_conditions(mean, jdx)
+        self._check_cfl_conditions(mean, jdx)
 
         repeats = {}
         for k, data in zip(cdx, datas.T):

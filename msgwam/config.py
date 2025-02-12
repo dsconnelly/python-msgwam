@@ -15,7 +15,7 @@ _DEFAULTS = {}
 mean_state_type: Literal['interactive', 'prescribed']
 propagator_type: Literal['instantaneous', 'network', 'transient']
 source_type: Literal['constant', 'network', 'packet', 'stochastic']
-spectrum_type: Literal['custom', 'from_file', 'gaussians']
+spectrum_type: Literal['custom', 'from_file', 'desaubies', 'gaussians']
 
 ################################################################################
 # input and output
@@ -53,6 +53,7 @@ mu: float
 ################################################################################
 c_max: float
 dt_launch: int
+flux_bc: float
 n_source: int
 
 ################################################################################
@@ -91,6 +92,15 @@ n_repeat: int
 epsilon: float
 
 ################################################################################
+# 'desaubies' spectrum
+################################################################################
+c_min: float
+n_omega: int
+omega_hat_max: float
+omega_hat_min: float
+wvl_star: float
+
+################################################################################
 # 'gaussians' spectrum
 ################################################################################
 c_his: list[float]
@@ -99,7 +109,6 @@ c_width: float
 direction: float
 dk_init: float
 dl_init: float
-flux_bc: float
 T_hat_lo: float
 T_hat_hi: float
 tau_corr_days: float
