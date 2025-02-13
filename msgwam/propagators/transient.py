@@ -156,8 +156,11 @@ class TransientPropagator(Propagator):
         exited the domain or are otherwise invalid are removed. Finally, the
         bottom boundary condition is enforced and new rays are instantiated.
         """
-        
-        self._take_RK3_step(mean)
+
+        dt = self._get_dt(mean)
+        for _ in range(config.dt // dt):    
+            self._take_RK3_step(mean, dt)
+
         self._apply_sinks(mean)
         self._check_boundaries(mean)
         self._check_source(mean, n_step)
@@ -239,11 +242,6 @@ class TransientPropagator(Propagator):
         damping = nu * wvn_sq * (1 + config.f ** 2 / (omega_hat ** 2))
         self._data[8] = self.dens * np.exp(-config.dt * damping)
 
-        if config.check_sign_changes:
-            cp_x = self._get_cp_x(mean)
-            u = interp(self.r, mean.z_centers, mean.u)
-            self._delete_rays(np.sign(cp_x - u) != np.sign(self.meta))
-
         if config.n_chromatic == 0:
             return
         
@@ -296,35 +294,6 @@ class TransientPropagator(Propagator):
         drop[self._ghosts] = False
         self._delete_rays(drop)
 
-    def _check_cfl_conditions(self, mean: MeanState, jdx: np.ndarray) -> None:
-        """
-        Raise warnings if the CFL conditions are violated. There are two that
-        must be checked. First, the ray volumes should not be extended too much
-        at launch time. Second, they should not be traveling so fast as to skip
-        over too many vertical grid levels in one time step.
-
-        Parameters
-        ----------
-        mean
-            Current mean state of the system.
-        jdx
-            Column indices to `self._data` indicating ray volumes just added.
-            The constraint on `dr` is only enforced on rays when they launch.
-
-        """
-
-        if len(jdx) > 0:
-            max_dr = self.dr[jdx].max()
-            if max_dr > config.max_dr_overshoot * config.dr_init:
-                warn(f'ray volume launched with dr = {max_dr:.4f}', CFLWarning)
-
-        cg_r = np.nanmax(self._get_cg_r(mean))
-        n_cells = cg_r * config.dt / mean.dz
-
-        if n_cells > config.max_cells_per_dt:
-            message = f'ray volume will cover {n_cells:.4f} cells per time step'
-            warn(message, CFLWarning)
-
     def _check_source(self, mean: MeanState, n_step: int) -> None:
         """
         Enforce the bottom boundary condition by adding ray volumes as necessary
@@ -351,13 +320,16 @@ class TransientPropagator(Propagator):
         excess = self.n_active + datas.shape[1] - self._n_max
         self._prune(excess, mean)
 
-        jdx = self._ghosts[cdx]
         if config.source_type == 'constant':
+            jdx = self._ghosts[cdx]
+
             r_hi = self.r[jdx] + 0.5 * self.dr[jdx]
             self._data[0, jdx] = (self._r_ghost + r_hi) / 2
             self._data[1, jdx] = r_hi - self._r_ghost
 
-        self._check_cfl_conditions(mean, jdx)
+            dr_max = self.dr[jdx].max()
+            if dr_max > config.max_overshoot * config.dr_init:
+                warn(f'ray volume launched with dr = {dr_max:.4f}', CFLWarning)
 
         repeats = {}
         for k, data in zip(cdx, datas.T):
@@ -478,6 +450,37 @@ class TransientPropagator(Propagator):
             dk_dt, dl_dt, dm_dt,
             ddk_dt, ddl_dt, ddm_dt
         ))
+    
+    def _get_dt(self, mean: MeanState) -> int:
+        """
+        Choose an adaptive time step to prevent critical level jumping.
+        
+        Parameters
+        ----------
+        mean
+            Current mean state of the system.
+
+        Returns
+        -------
+        int
+            Time step small enough so that individual stages of the RK3 time
+            stepper don't skip over entire cells of the vertical grid.
+
+        """
+
+        cg_max = np.nanmax(self._get_cg_r(mean))
+        for n in range(1, config.max_dt_multiplier + 1):
+            dt, remainder = divmod(config.dt, n)
+            if remainder != 0:
+                continue
+
+            if cg_max * dt / mean.dz / 3 < 1:
+                return dt
+
+        message = f'could not find sufficiently small time step'
+        warn(message, CFLWarning)
+
+        return dt
 
     def _get_omega_hat(self, mean: MeanState) -> np.ndarray:
         """
@@ -608,7 +611,7 @@ class TransientPropagator(Propagator):
         keep = (~np.isin(idx, self._ghosts)) & self._valid[idx]
         self._delete_rays(idx[keep][:excess])
 
-    def _take_RK3_step(self, mean: MeanState) -> None:
+    def _take_RK3_step(self, mean: MeanState, dt: int) -> None:
         """
         Take a step using the memory-efficient formulation of the RK3 method.
         Note that this method changes `self._data` in place.
@@ -618,6 +621,8 @@ class TransientPropagator(Propagator):
         mean
             Current mean state of the system. We make the approximation that the
             mean state is constant across stages of the Runge-Kutta scheme.
+        dt
+            Time step to use. Passed as an argument so that it can be adaptive.
 
         """
 
@@ -626,10 +631,10 @@ class TransientPropagator(Propagator):
         increment: float | np.ndarray = 0
 
         for A, B in zip(As, Bs):
-            increment = self._get_drays_dt(mean) * config.dt + A * increment
+            increment = self._get_drays_dt(mean) * dt + A * increment
             self._data[:8] = self._data[:8] + B * increment
 
-        self._data[9] = self._data[9] + config.dt
+        self._data[9] = self._data[9] + dt
 
     @property
     def _valid(self) -> np.ndarray:
