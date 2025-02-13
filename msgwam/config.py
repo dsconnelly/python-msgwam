@@ -95,6 +95,7 @@ epsilon: float
 # 'desaubies' spectrum
 ################################################################################
 n_omega: int
+n_phi: int
 omega_hat_max: float
 omega_hat_min: float
 wvl_star: float

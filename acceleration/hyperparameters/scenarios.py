@@ -1,3 +1,5 @@
+from typing import Literal
+
 noise_amplitude: float
 
 osc_amp_max: float
@@ -11,6 +13,8 @@ osc_period_min: float
 
 osc_wvl_bottom: float
 osc_wvl_top: float
+
+spectrum_type: Literal['desaubies', 'gaussians']
 
 time_scale_decay: float
 time_scale_cutoff: float

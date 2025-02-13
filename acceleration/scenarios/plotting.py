@@ -5,7 +5,7 @@ import numpy as np
 from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.sources import get_spectrum
-from msgwam.utils import open_dataset
+from msgwam.utils import cos_and_sin, get_time, open_dataset
 
 from ..shared.plotting import plot_summaries
 
@@ -23,19 +23,34 @@ def plot_mean_state() -> None:
 def plot_spectrum() -> None:
     """Plot the spectrum to be used by the various strategies."""
 
-    with config.override(n_source=120, dt_launch=config.dt):
+    with config.override(n_source=120):
         flux = 1000 * get_spectrum()['flux']
+        cos, _  = cos_and_sin(flux['phi'])
+
+    flux = flux * abs(cos)
+    bins = flux['cp'] * cos
+    flux = flux.groupby(bins).sum()
+    flux = flux.rename(group='cp')
 
     widths = [4.5, 0.2]
     fig, (ax, cax) = plt.subplots(ncols=2, width_ratios=widths)
     fig.set_size_inches(1.15 * sum(widths), 1.15 * 3)
 
+    if 'time' in flux.coords:
+        time = flux['time']
+        data = flux.values
+
+    else:
+        time = get_time()
+        data = flux.values[None]
+        data = np.broadcast_to(data, (len(time), data.shape[1]))
+
     units = f'days since {EPOCH}'
-    days = cftime.date2num(flux['time'], units)
+    days = cftime.date2num(time, units)
     amax = 0.01 * np.ceil(flux.max() / 0.01)
     
     img = ax.pcolormesh(
-        days, flux['cp_x'], flux.values.T,
+        days, flux['cp'], data.T,
         shading='nearest',
         cmap='Reds',
         vmin=0,

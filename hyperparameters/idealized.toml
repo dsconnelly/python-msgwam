@@ -8,6 +8,7 @@ osc_period_max = 8
 osc_period_min = 6
 osc_wvl_bottom = 30e3
 osc_wvl_top = 2e3
+spectrum_type = 'gaussians'
 time_scale_decay = 6
 time_scale_cutoff = 4
 

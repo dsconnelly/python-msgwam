@@ -7,7 +7,7 @@ import xarray as xr
 
 from .. import config
 from ..constants import EPOCH
-from ..utils import get_time, make_colored_noise, open_dataset
+from ..utils import cos_and_sin, get_time, make_colored_noise, open_dataset
 
 def get_spectrum() -> xr.Dataset:
     """
@@ -67,9 +67,10 @@ def _from_file() -> xr.Dataset:
 def _desaubies() -> xr.Dataset:
     """Constant Desaubies background spectrum, as in Bölöni et. al (2021)."""
 
-    phi = np.arange(4) * np.pi / 2
-    n = config.n_source // (4 * config.n_omega)
+    phi = np.linspace(0, 2 * np.pi, config.n_phi + 1)[:-1]
+    n = config.n_source // (config.n_phi * config.n_omega)
     cp = _get_phase_velocities(n)
+    dphi = phi[1] - phi[0]
 
     bounds = [config.omega_hat_min, config.omega_hat_max]
     edges = np.linspace(*bounds, config.n_omega + 1)
@@ -80,18 +81,20 @@ def _desaubies() -> xr.Dataset:
     bottom = config.N_ref ** 4 + m_star ** 4 * cp ** 4
 
     flux = m_star ** 3 * top / bottom
-    flux = config.flux_bc * flux / flux.sum() / 2
+    flux = config.flux_bc * flux / flux.sum() / config.n_phi
 
     K = omega_hat[:, None] / cp
     domega = np.diff(omega_hat)[0]
-    p, q = domega / cp, K * np.pi / 2
+    p, q = domega / cp, K * dphi
 
-    shape = (len(phi), config.n_omega, n)
+    shape = (config.n_phi, config.n_omega, n)
     p = np.broadcast_to(p[None, None], shape)
     q = np.broadcast_to(q[None], shape)
 
-    cos = abs(np.cos(phi))[:, None, None]
-    sin = abs(np.sin(phi))[:, None, None]
+    cos, sin = cos_and_sin(phi)
+    cos = abs(cos)[:, None, None]
+    sin = abs(sin)[:, None, None]
+
     dk = cos * p + sin * q
     dl = sin * p + cos * q
 

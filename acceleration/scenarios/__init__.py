@@ -1,5 +1,7 @@
 from msgwam import config
-from msgwam.sources.spectra import _desaubies
+from msgwam.sources import spectra
+
+from ..hyperparameters import scenarios as hp
 
 from .icon import get_ICON
 from .idealized import get_descending_jets
@@ -37,4 +39,5 @@ def save_spectrum() -> None:
     """Save a source spectrum."""
 
     with config.override(n_source=1000):
-        _desaubies().to_netcdf(config.spectrum_file)
+        source_func = getattr(spectra, f'_{hp.spectrum_type}')
+        source_func().to_netcdf(config.spectrum_file)

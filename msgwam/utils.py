@@ -52,6 +52,29 @@ class FactoryABC(ABC):
         subs = {handle(sub.__name__) : sub for sub in cls.__subclasses__()}
 
         return subs[name](*args, **kwargs)
+    
+def cos_and_sin(a: np.ndarray) -> tuple[np.ndarray]:
+    """
+    Convenience function for computing both trigonometric functions at the same
+    time and rounding them to ten decimal places, such that when evaluated at
+    multiples of `np.pi / 2` the results will be exactly zero or one.
+
+    Parameters
+    ----------
+    a
+        Array of values in radians.
+
+    Returns
+    -------
+    np.ndarray, np.ndarray
+        Array of cosine and sine values, respectively.
+
+    """
+
+    cos = np.round(np.cos(a), 10)
+    sin = np.round(np.sin(a), 10)
+
+    return cos, sin
 
 def get_rho(z: np.ndarray) -> np.ndarray:
     """

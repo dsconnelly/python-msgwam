@@ -6,7 +6,7 @@ import numpy as np
 
 from .. import config
 from ..dispersion import get_cg_r, get_dm, get_m
-from ..utils import FactoryABC
+from ..utils import FactoryABC, cos_and_sin
 
 from .spectra import get_spectrum
 
@@ -102,8 +102,7 @@ class Source(FactoryABC):
 
         i = (n_step * config.dt) // config.dt_launch
         dk, dl, omega_hat, flux = self._data[i][:, cdx]
-        cos = np.round(np.cos(self._phi[cdx]), 5)
-        sin = np.round(np.sin(self._phi[cdx]), 5)
+        cos, sin = cos_and_sin(self._phi[cdx])
 
         u, v = mean.wind[:, 0]
         wind = cos * u + sin * v
