@@ -1,5 +1,5 @@
 from msgwam import config
-from msgwam.sources.spectra import _gaussians
+from msgwam.sources.spectra import _desaubies
 
 from .icon import get_ICON
 from .idealized import get_descending_jets
@@ -36,5 +36,5 @@ def save_mean_state(scenario: str, *args: str) -> None:
 def save_spectrum() -> None:
     """Save a source spectrum."""
 
-    with config.override(spectrum_type='gaussians', n_source=1000):
-        _gaussians().to_netcdf(config.spectrum_file)
+    with config.override(n_source=1000):
+        _desaubies().to_netcdf(config.spectrum_file)

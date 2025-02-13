@@ -38,7 +38,7 @@ def integrate(callback: Optional[_Callback]=None) -> xr.Dataset:
     if callback is not None:
         callback(mean, prop, 0)
 
-    cfl_mode = getattr(config, 'cfl_modde', 'warn')
+    cfl_mode = getattr(config, 'cfl_mode', 'warn')
     action = {'warn' : 'always', 'raise' : 'error'}[cfl_mode]
     args = {'action' : action, 'category' : CFLWarning, 'record' : True}
 

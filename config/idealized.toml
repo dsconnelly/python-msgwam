@@ -68,17 +68,9 @@ shapiro_filter = true
 epsilon = 1
 
 ################################################################################
-# 'gaussians' spectrum
+# 'desaubies' spectrum
 ################################################################################
-c_his = [45, -5]
-c_los = [5, -45]
-c_width = 10
-direction = 0
-dk_init = 1e-4
-dl_init = 1e-4
-flux_bc = 3e-3
-T_hat_lo = 1
-T_hat_hi = 6
-tau_corr_days = 6
-tau_cutoff_days = 3
-seed = 123
+n_omega = 2
+omega_hat_max = 5e-4
+omega_hat_min = 1e-4
+wvl_star = 2e3
