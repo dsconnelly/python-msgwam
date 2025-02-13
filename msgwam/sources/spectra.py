@@ -121,7 +121,7 @@ def _gaussians() -> xr.Dataset:
 
     n_half = config.n_source // 2
     cp = _get_phase_velocities(n_half)
-    cp = np.concatenate((cp[::-1], cp))
+    cp = np.concatenate((-cp, cp))
 
     flux = np.zeros((len(seconds), config.n_source))
     rng = np.random.default_rng(config.seed)
