@@ -52,7 +52,7 @@ def plot_boundary(ds: xr.Dataset, output_path: str) -> None:
     pmf = 1000 * (ds['pmf_e'] - ds['pmf_w']).isel(z_faces=0)
     line = 1000 * config.flux_bc * np.ones_like(days)
 
-    ax.plot(days, pmf, color='k')
+    ax.plot(days, pmf.values.flatten(), color='k')
     ax.plot(days, line, color='gray', ls='dashed')
 
     ax.set_xlim(0, days.max())

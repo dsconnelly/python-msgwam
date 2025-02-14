@@ -59,7 +59,6 @@ n_source: int
 ################################################################################
 # 'transient' propagator
 ################################################################################
-adaptive_dt: bool
 cfl_mode: Literal['warn', 'raise']
 dr_init: float
 jitter: bool

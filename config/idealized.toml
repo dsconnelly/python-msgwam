@@ -26,7 +26,7 @@ n_day = 30
 boussinesq = false
 H_rho = 7e3
 latitude = 0
-n_grid = 201
+n_grid = 401
 N_ref = 0.02
 rho_ref = 1.2
 z_max = 70e3
@@ -49,7 +49,6 @@ n_source = 12
 ################################################################################
 # 'transient' propagator
 ################################################################################
-adaptive_dt = true
 cfl_mode = 'warn'
 dr_init = 3500
 jitter = false
