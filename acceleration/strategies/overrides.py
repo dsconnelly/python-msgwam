@@ -53,7 +53,7 @@ def _get_reference_overrides() -> dict[str, Any]:
         'n_max' : int(250e3),
         'n_increment' : 1000,
         'prune_by' : 'none',
-        'cfl_mode' : 'raise'
+        'max_dt_multiplier' : 6
     }
 
 def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:

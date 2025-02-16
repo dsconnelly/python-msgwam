@@ -12,7 +12,7 @@ from ..hyperparameters import scenarios as hp
 
 from .utils import get_background_noise
 
-def get_descending_jets(seed: int=256) -> xr.Dataset:
+def get_descending_jets(seed: int=1111) -> xr.Dataset:
     """
     Generate a mean wind scenario consisting of an upper-atmosphere oscillation
     with (possibly) varying period. The lower atmosphere features a much slower
@@ -27,20 +27,24 @@ def get_descending_jets(seed: int=256) -> xr.Dataset:
     time = cftime.num2date(seconds, units)
     _, z = get_vertical_grids()
 
-    scales = [hp.time_scale_decay * 86400, hp.time_scale_cutoff * 86400]
-    bounds = [hp.osc_period_min * 86400, hp.osc_period_max * 86400]
-    period = make_colored_noise(seconds, *scales, *bounds, rng)
-    k = np.cumsum(1 / period)[:, None] * config.dt
+    decays = [86400 * hp.time_scale_decay, hp.height_scale_decay]
+    cutoffs = [86400 * hp.time_scale_cutoff, hp.height_scale_cutoff]
+    bounds = np.array([hp.wvl_min, hp.wvl_max]) ** (1 / hp.wvl_power)
+
+    wvl = make_colored_noise([seconds, z], decays, cutoffs, *bounds, rng)
+    phase = np.cumsum(1 / wvl ** hp.wvl_power, axis=1) * (z[1] - z[0])
+
+    bounds = [86400 * hp.period_min, 86400 * hp.period_max]
+    period = make_colored_noise(seconds, decays[0], cutoffs[0], *bounds, rng)
+    k = (np.diff(phase, axis=0, append=phase[-1:]) / config.dt).mean(axis=1)
+    phase = phase + np.cumsum(1 / period - k)[:, None] * config.dt
 
     t = (z - hp.osc_bottom) / (hp.osc_top - hp.osc_bottom)
-    amp = (1 - t) * hp.osc_amp_min + t * (hp.osc_amp_max)
-    amp = np.clip(amp, hp.osc_amp_min, hp.osc_amp_max)
-
-    wvl = (1 - t) * hp.osc_wvl_bottom + t * hp.osc_wvl_top
-    ell = np.cumsum(1 / np.maximum(wvl, hp.osc_wvl_top)) * (z[1] - z[0])
+    amp = (1 - t) * hp.noise_amplitude + t * (hp.amp_max)
+    amp = np.clip(amp, hp.noise_amplitude, hp.amp_max)
 
     env = _make_env(z, hp.osc_bottom, hp.osc_top)
-    u = env * amp * np.exp(2j * np.pi * (k + ell)).real    
+    u = env * amp * np.exp(2j * np.pi * phase).real    
     u = u + get_background_noise(seconds, z, rng)
     v = np.zeros_like(u)
 
@@ -54,7 +58,7 @@ def _make_env(
     z: np.ndarray,
     z_bot: Optional[float]=None,
     z_top: Optional[float]=None,
-    decay: float=3e3
+    decay: float=1e3
 ) -> np.ndarray:
     """
     Make an envelope that selects certain regions of the column.

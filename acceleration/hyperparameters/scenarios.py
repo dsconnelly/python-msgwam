@@ -1,18 +1,21 @@
-noise_amplitude: float
+amp_max: float
 
-osc_amp_max: float
-osc_amp_min: float
+height_scale_cutoff: float
+height_scale_decay: float
+
+noise_amplitude: float
 
 osc_bottom: float
 osc_top: float
 
-osc_period_max: float
-osc_period_min: float
-
-osc_wvl_bottom: float
-osc_wvl_top: float
+period_max: float
+period_min: float
 
 spectrum_type: str
 
-time_scale_decay: float
 time_scale_cutoff: float
+time_scale_decay: float
+
+wvl_max: float
+wvl_min: float
+wvl_power: float

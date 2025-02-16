@@ -1,16 +1,18 @@
 [scenarios]
+amp_max = 55
+height_scale_cutoff = 3e3
+height_scale_decay = 2e3
 noise_amplitude = 8
-osc_amp_max = 55
-osc_amp_min = 10
-osc_top = 60e3
-osc_bottom = 30e3
-osc_period_max = 8
-osc_period_min = 6
-osc_wvl_bottom = 30e3
-osc_wvl_top = 2e3
+osc_bottom = 14e3
+osc_top = 36e3
+period_max = 8
+period_min = 4
 spectrum_type = 'gaussians'
-time_scale_decay = 6
-time_scale_cutoff = 4
+time_scale_cutoff = 6
+time_scale_decay = 2
+wvl_max = 30e3
+wvl_min = 500
+wvl_power = 2
 
 [strategies]
 dr_min = 500
