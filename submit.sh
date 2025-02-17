@@ -39,7 +39,7 @@ mkdir -p logs/$name
 mkdir -p plots/$name
 
 for task in "${tasks[@]}"; do
-    job_id=$("steps/$task.sh" $name $dep_arg)
+    job_id=$("scripts/$task.sh" $name $dep_arg)
     dep_arg=$(make_dep $job_id)
 done
 

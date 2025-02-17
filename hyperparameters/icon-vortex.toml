@@ -1,9 +1,0 @@
-[scenarios]
-noise_amplitude = 5
-
-[strategies]
-dr_min = 500
-dr_max = 5000
-n_ensemble = 25
-n_source_min = 8
-n_source_max = 44
