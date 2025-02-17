@@ -17,7 +17,7 @@ def plot_mean_state() -> None:
     with open_dataset(config.prescribed_wind_file) as ds:
         datas = {'u' : ds['u'], 'v' : ds['v']}
 
-    plot_summaries(datas, amaxes=[60, 60], units=['m / s', 'm / s'])
+    plot_summaries(datas, amaxes=[100, 60], units=['m / s', 'm / s'])
     plt.savefig(f'plots/{config.name}/mean-state.png', dpi=400)
 
 def plot_spectrum() -> None:

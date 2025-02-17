@@ -3,6 +3,9 @@ amp_max: float
 height_scale_cutoff: float
 height_scale_decay: float
 
+ICON_region: str
+n_columns: int
+
 noise_amplitude: float
 
 osc_bottom: float
