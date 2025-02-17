@@ -34,8 +34,7 @@ def plot_coarse_errors() -> None:
     axes = [fig.add_subplot(spec[0, j]) for j in range(2)]
     cax = fig.add_subplot(spec[0, 2])
 
-    width = 1
-    colors = ['darkgreen', 'w', 'darkred']
+    colors = ['darkgreen', 'w']
     cmap = LinearSegmentedColormap.from_list('custom', colors, 256)
 
     ref = load_data('reference')
@@ -51,8 +50,8 @@ def plot_coarse_errors() -> None:
 
     img = axes[1].imshow(
         errors.values.T,
-        vmin=(1 - width),
-        vmax=(1 + width),
+        vmin=0.25,
+        vmax=1,
         origin='lower',
         aspect='auto',
         cmap=cmap
@@ -65,7 +64,7 @@ def plot_coarse_errors() -> None:
     axes[1].set_ylabel('$\\delta c_{\\mathrm{p}}$ (m / s)')
 
     cbar = plt.colorbar(img, cax=cax)
-    cbar.set_ticks(np.linspace(1 - width, 1 + width, 5))
+    cbar.set_ticks(np.linspace(0.25, 1, 4))
     cbar.set_label('normalized error')
 
     funcs = [errors.argmin, errors.argmax]
