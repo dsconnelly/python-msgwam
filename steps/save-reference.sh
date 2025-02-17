@@ -6,7 +6,7 @@ dep_arg=$2
 if [[ $name == icon* ]]; then
     arg="" #"ICON:data/ICON/202501"
 else
-    arg="descending-jets"
+    arg="save-mean-state:descending-jets"
 fi
 
 job_id=$(sbatch \
