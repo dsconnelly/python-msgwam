@@ -9,6 +9,7 @@ from ..hyperparameters import scenarios as hp
 from .utils import get_background_noise
 
 _REGIONS = {
+    'midlatitudes' : (30, 15),
     'tropics' : (0, 25),
     'vortex' : (60, 105)
 }

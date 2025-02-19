@@ -1,0 +1,13 @@
+[scenarios]
+ICON_component = 'u'
+ICON_region = 'midlatitudes'
+n_columns = 3
+noise_amplitude = 0
+spectrum_type = 'gaussians'
+
+[strategies]
+dr_min = 500
+dr_max = 5000
+n_ensemble = 25
+n_source_min = 8
+n_source_max = 44
