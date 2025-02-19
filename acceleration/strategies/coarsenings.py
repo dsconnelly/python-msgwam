@@ -1,3 +1,5 @@
+from typing import Literal
+
 import numpy as np
 import xarray as xr
 
@@ -10,35 +12,34 @@ from ..shared.distributed import product
 from .integration import get_integration, get_overrides
 from .utils import get_rmse, load_data
 
-def get_coarse_errors(ref: xr.DataArray) -> xr.DataArray:
+def get_coarse_errors() -> xr.Dataset:
     """
-    Get root-mean-square errors as a function of height for each coarsening.
-
-    Parameters
-    ----------
-    ref
-        Array of containing the reference flux time series.
+    Get the root-mean-square errors as a function of height for each coarsening.
 
     Returns
     -------
-    xr.DataArray
-        Array of errors with coordinates `'dr'` and `'n_source'` ranging over
-        the grid of coarsenings, along with `'z_faces'` ranging over cell faces
-        in the vertical grid.
+    xr.Dataset
+        Dataset with coordinates `'dr'` and `'n_source'` ranging over the grid
+        of coarsenings, along with `'z_faces'` ranging over cell faces in the
+        vertical grid. Also includes the RMS flux itself at each level.
 
     """
 
+    z, _ = get_vertical_grids()
     drs, n_sources = _get_grid()
-    profiles = np.zeros((len(drs), len(n_sources), config.n_grid))
+    error = np.zeros((len(drs), len(n_sources), len(z)))
 
+    ref = load_data('reference')
     for i, dr in enumerate(drs):
         for j, n_source in enumerate(n_sources):
             flux = load_data(_get_path(dr, n_source))
-            profiles[i, j] = get_rmse(ref, flux).values
+            error[i, j] = get_rmse(ref, flux).values
 
-    z, _ = get_vertical_grids()
-    coords = {'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
-    return xr.DataArray(profiles, coords)
+    data = {'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
+    data['error'] = (('dr', 'n_source', 'z_faces'), error)
+    data['rms'] = ('z_faces', get_rmse(ref))
+
+    return xr.Dataset(data)
 
 def save_coarsenings() -> None:
     """
@@ -60,9 +61,8 @@ def update_config() -> None:
     file to the best values found during the grid search.
     """
 
-    ref = load_data('reference')
-    errors = get_coarse_errors(ref)
-    errors = (errors / get_rmse(ref)).mean('z_faces')
+    ds = get_coarse_errors()
+    errors = (ds['error'] / ds['rms']).mean('z_faces')
     i, j = (da.item() for da in errors.argmin(...).values())
 
     with open(f'config/{config.name}.toml') as f:

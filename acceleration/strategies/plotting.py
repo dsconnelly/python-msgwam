@@ -37,11 +37,9 @@ def plot_coarse_errors() -> None:
     colors = ['darkgreen', 'w']
     cmap = LinearSegmentedColormap.from_list('custom', colors, 256)
 
-    ref = load_data('reference')
-    profiles = get_coarse_errors(ref)
-
-    rms = get_rmse(ref)
-    errors = (profiles / rms).mean('z_faces')
+    with get_coarse_errors() as ds:
+        errors = (ds['error'] / ds['rms']).mean('z_faces')
+        profiles = ds['error']
 
     drs = errors['dr'].values
     n_sources = errors['n_source'].values
@@ -98,7 +96,8 @@ def plot_coarse_errors() -> None:
                 zorder=zorder
             )
 
-    axes[0].plot(1000 * rms.values, z, color='k', ls='dashed', label='RMS')
+    curve = ds['rms'].values
+    axes[0].plot(1000 * curve, z, color='k', ls='dashed', label='RMS')
 
     axes[0].set_xlim(0, 2)
     axes[0].set_ylim(z.min(), z.max())

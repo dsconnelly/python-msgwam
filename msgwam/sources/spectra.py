@@ -139,8 +139,10 @@ def _gaussians() -> xr.Dataset:
 
     flux = config.flux_bc * flux / flux.sum(axis=1)[:, None]
     flux = flux[:, None].reshape(-1, 2, config.n_source // 2)
+
     cp = cp[(config.n_source // 2):]
-    phi = np.array([np.pi, 0])
+    angle = np.deg2rad(config.direction)
+    phi = np.array([angle + np.pi, angle])
 
     bounds = [3600 * config.T_hat_lo, 3600 * config.T_hat_hi]
     omega_hat = 2 * np.pi / make_colored_noise(*args, *bounds, rng=rng)

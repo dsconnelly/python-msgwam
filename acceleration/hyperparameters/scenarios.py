@@ -3,6 +3,7 @@ amp_max: float
 height_scale_cutoff: float
 height_scale_decay: float
 
+ICON_component: str
 ICON_region: str
 n_columns: int
 
