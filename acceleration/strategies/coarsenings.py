@@ -1,5 +1,3 @@
-from typing import Literal
-
 import numpy as np
 import xarray as xr
 
@@ -37,7 +35,7 @@ def get_coarse_errors() -> xr.Dataset:
 
     data = {'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
     data['error'] = (('dr', 'n_source', 'z_faces'), error)
-    data['rms'] = ('z_faces', get_rmse(ref))
+    data['rms'] = ('z_faces', get_rmse(ref).values)
 
     return xr.Dataset(data)
 

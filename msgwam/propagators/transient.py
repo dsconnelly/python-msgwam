@@ -257,10 +257,10 @@ class TransientPropagator(Propagator):
 
         idx = Q != 0
         kappa = np.zeros(P.shape)
-        kappa[idx] = np.maximum(P[idx], 0) / Q[idx]
+        kappa[idx] = P[idx] / Q[idx]
 
         maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa, pdx)
-        self._data[8] = self.dens * (1 - wvn_sq * maxes)
+        self._data[8] = self.dens * np.maximum(0, 1 - wvn_sq * maxes)
 
     def _check_boundaries(self, mean: MeanState) -> None:
         """
@@ -464,7 +464,7 @@ class TransientPropagator(Propagator):
 
         """
 
-        cg_max = np.nanmax(self._get_cg_r(mean))
+        cg_max = np.nanmax(abs(self._get_cg_r(mean)))
         for n in range(1, config.max_dt_multiplier + 1):
             dt, remainder = divmod(config.dt, n)
             if remainder != 0:

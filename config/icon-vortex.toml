@@ -24,13 +24,13 @@ n_day = 30
 # mean state
 ################################################################################
 boussinesq = false
-H_rho = 7e3
+H_rho = 8e3
 latitude = 60
 n_grid = 401
 N_ref = 0.02
 rho_ref = 1.2
-z_max = 100e3
-z_min = 40e3
+z_max = 80e3
+z_min = 20e3
 
 ################################################################################
 # viscosity and dissipation
@@ -70,14 +70,14 @@ epsilon = 1
 ################################################################################
 # 'gaussians' spectrum
 ################################################################################
-c_his = [55, -20]
-c_los = [20, -55]
+c_his = [60, -15]
+c_los = [15, -60]
 c_width = 20
 direction = 0
 dk_init = 1e-4
 dl_init = 1e-4
 T_hat_lo = 1
 T_hat_hi = 6
-tau_corr_days = 6
-tau_cutoff_days = 3
+tau_corr_days = 8
+tau_cutoff_days = 4
 seed = 123
