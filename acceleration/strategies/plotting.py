@@ -17,7 +17,8 @@ _COLORS = {
     'coarse' : 'k',
     'instantaneous' : 'tab:red',
     'stochastic-1' : 'royalblue',
-    'stochastic-25' : 'forestgreen'
+    'stochastic-25' : 'forestgreen',
+    'stochastic-100' : 'gold'
 }
 
 def plot_coarse_errors() -> None:
