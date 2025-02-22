@@ -5,12 +5,12 @@ from ..hyperparameters import scenarios as hp
 
 from .icon import get_ICON
 from .idealized import get_descending_jets
-from .plotting import plot_mean_state, plot_spectrum, plot_windows
+from .plotting import plot_mean_state, plot_mean_scales, plot_spectrum
 
 __all__ = [
     'plot_mean_state',
+    'plot_mean_scales',
     'plot_spectrum',
-    'plot_windows',
     'save_mean_state',
     'save_spectrum'
 ]

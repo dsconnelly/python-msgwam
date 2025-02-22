@@ -39,3 +39,27 @@ def get_background_noise(
 
     noise = make_colored_noise([seconds, z], _DECAYS, _CUTOFFS, -1, 1, rng)
     return hp.noise_amplitude * noise
+
+def round_sigfigs(a: np.ndarray, n: int) -> np.ndarray:
+    """
+    Round data to a given number of significant figures. Due to Scott Gigante on
+    StackExchange, adapted from https://stackoverflow.com/q/18915378.
+
+    Parameters
+    ----------
+    a
+        Data to round.
+    n
+        Number of significant figures to retain.
+
+    Returns
+    -------
+    np.ndarray
+        Rounded data.
+
+    """
+
+    a_pos = np.where(a != 0, abs(a), 10 ** (n - 1))
+    mags = 10 ** (n - 1 - np.floor(np.log10(a_pos)))
+
+    return np.round(a * mags) / mags
