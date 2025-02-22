@@ -31,7 +31,6 @@ def get_coarse_errors() -> xr.Dataset:
 
     rms = np.zeros((len(components), len(z)))
     error = np.zeros((len(components), len(drs), len(n_sources), len(z)))
-    data = {'c' : components, 'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
 
     for k, c in enumerate(components):
         ref = load_data('reference', f'flux_{c}')
@@ -42,10 +41,12 @@ def get_coarse_errors() -> xr.Dataset:
                 flux = load_data(_get_path(dr, n_source))
                 error[k, i, j] = get_rmse(ref, flux).values
 
-    data['error'] = (('c', 'dr', 'n_source', 'z_faces'), error)
-    data['rms'] = (('c', 'z_faces'), get_rmse(ref).values)
-
-    return xr.Dataset(data).mean('c')
+    return xr.Dataset({
+        'component' : components,
+        'dr' : drs, 'n_source' : n_sources, 'z_faces' : z,
+        'error' : (('component', 'dr', 'n_source', 'z_faces'), error),
+        'rms' : (('component', 'z_faces'), rms)
+    })
 
 def save_coarsenings() -> None:
     """
@@ -68,7 +69,7 @@ def update_config() -> None:
     """
 
     ds = get_coarse_errors()
-    errors = (ds['error'] / ds['rms']).mean('z_faces')
+    errors = (ds['error'] / ds['rms']).mean(['component', 'z_faces'])
     i, j = (da.item() for da in errors.argmin(...).values())
 
     with open(f'config/{config.name}.toml') as f:

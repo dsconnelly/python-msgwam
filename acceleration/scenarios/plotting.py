@@ -40,48 +40,54 @@ def plot_spectrum() -> None:
 
     with config.override(n_source=120):
         flux = 1000 * get_spectrum()['flux']
-        cos, _  = cos_and_sin(flux['phi'])
+        amax = 0.01 * (np.ceil(flux.max() / 0.01) + 1)
+        cos, sin  = cos_and_sin(flux['phi'])
 
-    flux = flux * abs(cos)
-    bins = flux['cp'] * cos
-    flux = flux.groupby(bins).sum()
-    flux = flux.rename(group='cp')
-
-    widths = [4.5, 0.2]
-    fig, (ax, cax) = plt.subplots(ncols=2, width_ratios=widths)
+    widths = [4.5] * len(hp.components)
+    widths = widths + ([0.2] if 'time' in flux.coords else [])
+    fig, axes = plt.subplots(ncols=len(widths), width_ratios=widths)
     fig.set_size_inches(1.15 * sum(widths), 1.15 * 3)
 
-    if 'time' in flux.coords:
-        time = flux['time']
-        data = flux.values
+    for c, ax in zip(hp.components, axes):
+        factor = {'x' : cos, 'y' : sin}[c]
+        bins, data = flux['cp'] * factor, flux * abs(factor)
+        data = data.groupby(bins).sum().rename(group='cp')
 
-    else:
-        time = get_time()
-        data = flux.values[None]
-        data = np.broadcast_to(data, (len(time), data.shape[1]))
+        if 'time' in flux.coords:
+            units = f'days since {EPOCH}'
+            days = cftime.date2num(flux['time'], units)
 
-    units = f'days since {EPOCH}'
-    days = cftime.date2num(time, units)
-    amax = 0.01 * np.ceil(flux.max() / 0.01)
-    
-    img = ax.pcolormesh(
-        days, flux['cp'], data.T,
-        shading='nearest',
-        cmap='Reds',
-        vmin=0,
-        vmax=amax
-    )
+            img = ax.pcolormesh(
+                days, data['cp'],
+                data.values.T,
+                shading='nearest',
+                vmin=0, vmax=amax,
+                cmap='Reds'
+            )
 
-    cbar = plt.colorbar(img, cax=cax)
-    cbar.set_label('source flux (mPa)')
-    cbar.set_ticks(np.linspace(0, amax, 5))
+            cbar = plt.colorbar(img, cax=axes[-1])
+            cbar.set_ticks(np.linspace(0, amax, 5))
+            cbar.set_label('flux (mPa)')
 
-    ax.set_xlim(days.min(), days.max())
-    ax.set_ylim(-config.c_max, config.c_max)
-    ax.set_yticks(np.linspace(*ax.get_ylim(), 5))
+            ax.set_xlim(days.min(), days.max())
+            ax.set_ylim(-config.c_max, config.c_max)
+            ax.set_yticks(np.linspace(*ax.get_ylim(), 5))
 
-    ax.set_xlabel('time (days)')
-    ax.set_ylabel('$c_\\mathrm{p}$ (m / s)')
+            ax.set_xlabel('time (days)')
+            ax.set_ylabel('$c_\\mathrm{p}$ (m / s)')
+
+        else:
+            ax.scatter(data['cp'], data.values, color='k')
+            ax.grid(color='lightgray')
+            ax.set_axisbelow(True)
+
+            ax.set_xlabel('$c_\\mathrm{p}$ (m / s)')
+            ax.set_ylabel('flux (mPa)')
+
+            ax.set_xlim(-config.c_max, config.c_max)
+            ax.set_ylim(0, amax)
+
+        ax.set_title(f'source $F^{c}$')
 
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/spectrum.png', dpi=400)
