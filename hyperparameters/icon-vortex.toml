@@ -1,5 +1,5 @@
 [scenarios]
-ICON_component = 'u'
+components = 'uv'
 ICON_region = 'vortex'
 n_columns = 25
 noise_amplitude = 0

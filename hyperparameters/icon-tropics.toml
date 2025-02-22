@@ -1,5 +1,5 @@
 [scenarios]
-ICON_component = 'v'
+components = 'uv'
 ICON_region = 'tropics'
 n_columns = 25
 noise_amplitude = 0

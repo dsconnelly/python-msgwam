@@ -1,5 +1,6 @@
 [scenarios]
 amp_max = 55
+components = 'u'
 height_scale_cutoff = 3e3
 height_scale_decay = 2e3
 noise_amplitude = 8

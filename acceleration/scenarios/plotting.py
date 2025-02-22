@@ -10,6 +10,7 @@ from msgwam.constants import EPOCH
 from msgwam.sources import get_spectrum
 from msgwam.utils import cos_and_sin, get_time, open_dataset
 
+from ..hyperparameters import scenarios as hp
 from ..shared.plotting import plot_summaries
 from .utils import round_sigfigs
 
@@ -25,9 +26,11 @@ def plot_mean_state() -> None:
     """
 
     with open_dataset(config.prescribed_wind_file) as ds:
-        datas = {'u' : ds['u'], 'v' : ds['v']}
+        datas = {c : ds[c] for c in hp.components}
+        units = ['m / s'] * len(datas)
+        amaxes = [80] * len(datas)
 
-    plot_summaries(datas, amaxes=[100, 60], units=['m / s', 'm / s'])
+    plot_summaries(datas, amaxes=amaxes, units=units)
     plt.savefig(f'plots/{config.name}/mean-state.png', dpi=400)
 
 def plot_spectrum() -> None:
@@ -81,20 +84,11 @@ def plot_spectrum() -> None:
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/spectrum.png', dpi=400)
 
-def plot_mean_scales(include: str='uv') -> None:
-    """
-    Plot power spectra in time and height for the loaded mean wind.
-    
-    Parameters
-    ----------
-    include
-        String describing which components of the mean wind to plot. Can contain
-        `'u'`, `'v'`, or both.
-
-    """
+def plot_mean_scales() -> None:
+    """Plot power spectra in time and height for the loaded mean wind."""
 
     with open_dataset(config.prescribed_wind_file) as ds:
-        winds = {c : ds[c].values for c in include}
+        winds = {c : ds[c].values for c in hp.components}
         z = ds['z_centers'].values / 1000
 
         units = f'days since {EPOCH}'
@@ -113,7 +107,7 @@ def plot_mean_scales(include: str='uv') -> None:
         lines.append(line)
 
     if len(lines) > 1:
-        handles = [f'$\\bar{{{c}}}$' for c in include]
+        handles = [f'$\\bar{{{c}}}$' for c in winds]
         axes[0].legend(lines, handles) 
 
     plt.tight_layout()

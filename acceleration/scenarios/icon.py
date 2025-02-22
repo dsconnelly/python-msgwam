@@ -31,21 +31,24 @@ def get_ICON(data_dir: str) -> xr.Dataset:
         z = ds['z_ifc'].isel(height=slice(None, -1))
         z = z.rename(ncells_2='ncells')
 
-    with xr.open_dataset(f'{data_dir}/{hp.ICON_component}.nc') as ds:
+    with xr.open_dataset(f'{data_dir}/u.nc') as ds:
         lats = np.rad2deg(ds['clat'].values)
         lons = np.rad2deg(ds['clon'].values)
         datetimes = ds['time'].values
-        u = ds[hp.ICON_component]
+        u = ds['u']
+
+    with xr.open_dataset(f'{data_dir}/v.nc') as ds:
+        v = ds['v']
 
     lat, lon = _REGIONS[hp.ICON_region]
     keep = np.argsort((lat - lats) ** 2 + (lon - lons) ** 2)[:hp.n_columns]
-    u, z = u.isel(ncells=keep).values, z.isel(ncells=keep).values.mean(axis=1)
+    u, v = u.isel(ncells=keep).values, v.isel(ncells=keep).values
+    z = z.isel(ncells=keep).values.mean(axis=1)
 
     seconds = (datetimes - datetimes[0]).astype(int) / 1e9
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     data = {'time' : time, 'z' : z, 'column' : np.arange(hp.n_columns)}
 
-    v = np.zeros_like(u)
     data['u'] = (('time', 'z', 'column'), u)
     data['v'] = (('time', 'z', 'column'), v)
     ds = xr.Dataset(data).mean('column')
@@ -53,11 +56,14 @@ def get_ICON(data_dir: str) -> xr.Dataset:
     time = get_time()
     _, z_centers = get_vertical_grids()
     kwargs = {'fill_value' : 'extrapolate'}
+
     ds = ds.interp(time=time, z=z_centers, kwargs=kwargs)
     ds['u'][:, 1:-1] = shapiro_filter(ds['u'].values.T).T
+    ds['v'][:, 1:-1] = shapiro_filter(ds['v'].values.T).T
 
     rng = np.random.default_rng(123)
     seconds = cftime.date2num(time, f'seconds since {EPOCH}')
     ds['u'] = ds['u'] + get_background_noise(seconds, z_centers, rng)
+    ds['v'] = ds['v'] + get_background_noise(seconds, z_centers, rng)
 
     return ds.rename(z='z_centers')
