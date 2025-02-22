@@ -4,7 +4,7 @@ import xarray as xr
 from msgwam import config
 from msgwam.utils import get_vertical_grids
 
-from ..hyperparameters import strategies as hp
+from .. import hyperparameters as hp
 from ..shared.distributed import product
 
 from .integration import get_integration, get_overrides
@@ -13,6 +13,8 @@ from .utils import get_rmse, load_data
 def get_coarse_errors() -> xr.Dataset:
     """
     Get the root-mean-square errors as a function of height for each coarsening.
+    If both zonal and meridional fluxes are considered, then the returned data
+    will be the average error over both components.
 
     Returns
     -------
@@ -25,19 +27,25 @@ def get_coarse_errors() -> xr.Dataset:
 
     z, _ = get_vertical_grids()
     drs, n_sources = _get_grid()
-    error = np.zeros((len(drs), len(n_sources), len(z)))
+    components = list(hp.scenarios.components)
 
-    ref = load_data('reference')
-    for i, dr in enumerate(drs):
-        for j, n_source in enumerate(n_sources):
-            flux = load_data(_get_path(dr, n_source))
-            error[i, j] = get_rmse(ref, flux).values
+    rms = np.zeros((len(components), len(z)))
+    error = np.zeros((len(components), len(drs), len(n_sources), len(z)))
+    data = {'c' : components, 'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
 
-    data = {'dr' : drs, 'n_source' : n_sources, 'z_faces' : z}
-    data['error'] = (('dr', 'n_source', 'z_faces'), error)
-    data['rms'] = ('z_faces', get_rmse(ref).values)
+    for k, c in enumerate(components):
+        ref = load_data('reference', f'flux_{c}')
+        rms[k] = get_rmse(ref).values
 
-    return xr.Dataset(data)
+        for i, dr in enumerate(drs):
+            for j, n_source in enumerate(n_sources):
+                flux = load_data(_get_path(dr, n_source))
+                error[k, i, j] = get_rmse(ref, flux).values
+
+    data['error'] = (('c', 'dr', 'n_source', 'z_faces'), error)
+    data['rms'] = (('c', 'z_faces'), get_rmse(ref).values)
+
+    return xr.Dataset(data).mean('c')
 
 def save_coarsenings() -> None:
     """
@@ -90,8 +98,9 @@ def _get_grid() -> tuple[list[int], list[int]]:
 
     """
 
-    drs = np.linspace(hp.dr_min, hp.dr_max, 10)
-    n_sources = np.linspace(hp.n_source_min, hp.n_source_max, 10)
+    _hp = hp.strategies
+    drs = np.linspace(_hp.dr_min, _hp.dr_max, 10)
+    n_sources = np.linspace(_hp.n_source_min, _hp.n_source_max, 10)
     drs, n_sources = drs.astype(int), n_sources.astype(int)[::-1]
 
     return drs.tolist(), n_sources.tolist()

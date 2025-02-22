@@ -22,6 +22,9 @@ _COLORS = {
     'stochastic-100' : 'gold'
 }
 
+_get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
+_get_labels = lambda c: [f'$F^{c}$', f'$D^{c}$']
+
 def plot_coarse_errors() -> None:
     """
     Plot the normalized error and RMSE as a function of height for integration
@@ -117,39 +120,43 @@ def plot_coarse_errors() -> None:
 def plot_error_profiles(*strategies: str) -> None:
     """Plot RMS errors as a function of height for each strategy."""
 
-    fields = ['flux', 'acceleration']
+    n_rows = len(hp.components)
+    fig, axes = plt.subplots(n_rows, 2, squeeze=False)
+    fig.set_size_inches(6, 4.5 * n_rows)
+
+    if len(hp.components) == 2:
+        axes = axes.T
+
     units = ['mPa', 'm / s / day']
-    factors = [1000, 86400]
+    factors = [1000, 86400]    
 
-    fig, axes = plt.subplots(ncols=2)
-    fig.set_size_inches(6, 4.5)
+    for i, c in enumerate(hp.components):
+        zipped = zip(_get_fields(c), units, factors, _get_labels(c), axes[i])
+        for j, (field, unit, factor, label, ax) in enumerate(zipped):
+            z = get_vertical_grids()[j] / 1000
+            ref = load_data('reference', field)
 
-    zipped = zip(fields, units, factors, axes)
-    for i, (field, unit, factor, ax) in enumerate(zipped):
-        z = get_vertical_grids()[i] / 1000
-        ref = load_data('reference', field)
+            for strategy in strategies:
+                data = load_data(strategy, field)
+                rmse = factor * get_rmse(data, ref)
+                ax.plot(rmse, z, color=_COLORS[strategy], label=strategy)
 
-        for strategy in strategies:
-            data = load_data(strategy, field)
-            rmse = factor * get_rmse(data, ref)
-            ax.plot(rmse, z, color=_COLORS[strategy], label=strategy)
+            rms = factor * get_rmse(ref)
+            ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
 
-        rms = factor * get_rmse(ref)
-        ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
+            ax.set_xlim([0, 1e-1][j], [2, 50][j])
+            ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
 
-        ax.set_xlim([0, 1e-1][i], [2, 50][i])
-        ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
+            if j == 1:
+                ax.set_xscale('log')
 
-        if i == 1:
-            ax.set_xscale('log')
+            ax.set_xlabel(f'{label} RMSE ({unit})')
+            ax.set_ylabel('height (km)')
 
-        ax.set_xlabel(f'{field} RMSE ({unit})')
-        ax.set_ylabel('height (km)')
+            ax.grid(color='lightgray')
+            ax.tick_params('both', direction='in')
 
-        ax.grid(color='lightgray')
-        ax.tick_params('both', direction='in')
-
-    axes[0].legend()
+    axes[0, 0].legend()
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/errors.png', dpi=400)
 
@@ -165,12 +172,9 @@ def plot_strategy(strategy: str) -> None:
 
     """
 
-    get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
-    get_labels = lambda c: [f'$F^{c}$', f'$D^{c}$']
-
     datas = {}
     for c in hp.components:
-        zipped = zip(get_fields(c), get_labels(c), [1e3, 86400])
+        zipped = zip(_get_fields(c), _get_labels(c), [1e3, 86400])
         extras = {s : x * load_data(strategy, f, 0) for f, s, x in zipped}
         datas.update(extras)
 
