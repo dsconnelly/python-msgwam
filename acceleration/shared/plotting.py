@@ -26,33 +26,40 @@ def plot_summaries(
 
     """
 
-    n_rows, widths = len(datas), [2, 4.5, 0.2]
-    fig = plt.figure(constrained_layout=True)
+    n_cols = (len(datas) + 1) // 2
+    n_rows = len(datas) // n_cols
+    n_x = 3 + 2 * (n_cols - 1)
 
+    fig = plt.figure(constrained_layout=True)
+    widths = [2, 4.5] * (n_cols - 1) + [2, 4.5, 0.2]
     fig.set_size_inches(1.2 * sum(widths), 1.2 * 3 * n_rows)
-    spec = gs.GridSpec(n_rows, 3, figure=fig, width_ratios=widths)
-    axes = np.empty((n_rows, 3), dtype=object)
+
+    spec = gs.GridSpec(n_rows, n_x, figure=fig, width_ratios=widths)
+    axes = np.empty((n_rows, n_x), dtype=object)
 
     for i in range(n_rows):
-        for j in range(3):
+        for j in range(n_x):
             axes[i, j] = fig.add_subplot(spec[i, j])
 
     zipped = zip(datas.items(), amaxes, units)
-    for i, ((field, data), amax, unit) in enumerate(zipped):
-        _, cbar = plot_time_series(data, amax, axes[i, 1:])
-        cbar.set_label(f'{field} ({unit})')
+    for k, ((field, data), amax, unit) in enumerate(zipped):
+        i, j = k % 2, 2 * (k // 2)
+        cax = axes[i, -1]
+
+        _, cbar = plot_time_series(data, amax, [axes[i, j + 1], cax])
+        cbar.set_label(unit)
 
         rms = np.sqrt((data ** 2).mean('time'))
         z = np.linspace(config.z_min, config.z_max, data.shape[1]) / 1000
-        axes[i, 0].plot(rms, z, color='k')
+        axes[i, j].plot(rms, z, color='k')
 
-        axes[i, 0].set_xlim(0, amax)
-        axes[i, 0].set_ylim(z.min(), z.max())
-        axes[i, 0].tick_params('both', direction='in')
+        axes[i, j].set_xlim(0, amax)
+        axes[i, j].set_ylim(z.min(), z.max())
+        axes[i, j].tick_params('both', direction='in')
 
         ticks = np.linspace(0, amax, 5)
-        axes[i, 0].set_xticks(ticks)
+        axes[i, j].set_xticks(ticks)
 
-        axes[i, 0].grid(color='lightgray')
-        axes[i, 0].set_xlabel(f'RMS {field} ({unit})')
-        axes[i, 0].set_ylabel('height (km)')
+        axes[i, j].grid(color='lightgray')
+        axes[i, j].set_xlabel(f'RMS {field} ({unit})')
+        axes[i, j].set_ylabel('height (km)')

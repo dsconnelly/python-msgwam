@@ -1,5 +1,5 @@
 [scenarios]
-components = 'uv'
+components = 'xy'
 ICON_region = 'midlatitudes'
 n_columns = 3
 noise_amplitude = 0

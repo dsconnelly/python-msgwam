@@ -19,14 +19,16 @@ if TYPE_CHECKING:
     from matplotlib.lines import Line2D
 
 _COLORS = {'u' : 'tab:red', 'v' : 'royalblue'}
+_WIND_COMPONENTS = {'x' : 'u', 'y' : 'v'}
 
 def plot_mean_state() -> None:
     """
     Plot the mean flow as a time series, and show its RMS values.
     """
 
+    components = map(_WIND_COMPONENTS.get, hp.components)
     with open_dataset(config.prescribed_wind_file) as ds:
-        datas = {c : ds[c] for c in hp.components}
+        datas = {c : ds[c] for c in components}
         units = ['m / s'] * len(datas)
         amaxes = [80] * len(datas)
 
@@ -87,8 +89,9 @@ def plot_spectrum() -> None:
 def plot_mean_scales() -> None:
     """Plot power spectra in time and height for the loaded mean wind."""
 
+    components = map(_WIND_COMPONENTS.get, hp.components)
     with open_dataset(config.prescribed_wind_file) as ds:
-        winds = {c : ds[c].values for c in hp.components}
+        winds = {c : ds[c].values for c in components}
         z = ds['z_centers'].values / 1000
 
         units = f'days since {EPOCH}'

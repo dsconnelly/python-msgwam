@@ -32,7 +32,7 @@ def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
 
 def load_data(
     path: str,
-    field: str='flux',
+    field: str='flux_x',
     spinup_days: int=5,
     filter_width: Optional[int]=21600
 ) -> xr.DataArray:
@@ -46,9 +46,9 @@ def load_data(
         a strategy, in which case the path will be chosen automatically.
     field
         Name of the data variable to return. Should be either the name of a
-        variable in the dataset; `'flux'`, in which case the total (westerly
-        plus easterly) momentum flux is returned; or `'acceleration'`, in which
-        case the corresponding mean wind forcing is computed and returned.
+        variable in the dataset; `'flux_{x | y}'`, in which case the total flux
+        in the specified direction is returned; or `'accleration_{x | y}'`, in
+        which case the corresponding mean wind forcing is returned.
     spinup_days
         Number of days to discard from the beginning of the simulation.
     filter_width
@@ -71,13 +71,13 @@ def load_data(
         z_faces, z_centers = get_vertical_grids()
         ds = ds.interp(z_faces=z_faces, z_centers=z_centers)
 
-        if field in ['flux', 'acceleration']:
-            data = ds['pmf_e'] + ds['pmf_w']
+        if field.startswith(('flux', 'acceleration')):
+            a, b = {'x' : 'ew', 'y' : 'ns'}[field[-1]]
+            data = ds[f'pmf_{a}'] + ds[f'pmf_{b}']
 
-            if field == 'acceleration':
-                dz = z_faces[1] - z_faces[0]
+            if field.startswith('acceleration'):
                 rho = xr.DataArray(get_rho(z_faces), [ds['z_faces']])
-                data = -data.diff('z_faces') / dz / rho
+                data = -data.diff('z_faces') / (z_faces[1] - z_faces[0]) / rho
                 data = data.rename(z_faces='z_centers')
 
         else:

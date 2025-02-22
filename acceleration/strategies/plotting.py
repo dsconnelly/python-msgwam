@@ -8,6 +8,7 @@ from matplotlib.patches import Rectangle
 from msgwam import config
 from msgwam.utils import get_vertical_grids
 
+from ..hyperparameters import scenarios as hp
 from ..shared.plotting import plot_summaries
 
 from .coarsenings import get_coarse_errors
@@ -164,9 +165,18 @@ def plot_strategy(strategy: str) -> None:
 
     """
 
-    zipped = zip(['flux', 'acceleration'], [1e3, 86400])
-    datas = {s : f * load_data(strategy, s, 0) for s, f in zipped}
-    plot_summaries(datas, amaxes=[3, 40], units=['mPa', 'm / s / day'])
+    get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
+    get_labels = lambda c: [f'$F^{c}$', f'$D^{c}$']
+
+    datas = {}
+    for c in hp.components:
+        zipped = zip(get_fields(c), get_labels(c), [1e3, 86400])
+        extras = {s : x * load_data(strategy, f, 0) for f, s, x in zipped}
+        datas.update(extras)
+
+    amaxes = [3, 60] * len(datas)
+    units = ['mPa', 'm / s / day'] * len(datas)
+    plot_summaries(datas, amaxes=amaxes, units=units)
     plt.savefig(f'plots/{config.name}/{strategy}.png', dpi=400)
 
 def _get_dc(n: int) -> float:
