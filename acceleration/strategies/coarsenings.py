@@ -100,8 +100,8 @@ def _get_grid() -> tuple[list[int], list[int]]:
     """
 
     _hp = hp.strategies
-    drs = np.linspace(_hp.dr_min, _hp.dr_max, 10)
-    n_sources = np.linspace(_hp.n_source_min, _hp.n_source_max, 10)
+    drs = np.linspace(_hp.dr_min, _hp.dr_max, _hp.n_dr)
+    n_sources = np.linspace(_hp.n_source_min, _hp.n_source_max, _hp.n_n_source)
     drs, n_sources = drs.astype(int), n_sources.astype(int)[::-1]
 
     return drs.tolist(), n_sources.tolist()

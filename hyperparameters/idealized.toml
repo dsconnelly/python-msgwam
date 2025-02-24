@@ -18,6 +18,8 @@ wvl_power = 2
 [strategies]
 dr_min = 500
 dr_max = 5000
+n_dr = 10
 n_ensemble = 25
+n_n_source = 10
 n_source_min = 8
 n_source_max = 44

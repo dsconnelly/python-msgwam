@@ -48,19 +48,7 @@ class TransientPropagator(Propagator):
 
         self._r_ghost = config.z_min - 3 * config.dt
         self._ghosts = np.zeros(config.n_source).astype(int)
-        datas, cdx = self._source.launch(mean, 0)
-
-        if config.source_type == 'constant':
-            r_init = self._r_ghost - 0.5 * config.dr_init
-        else:
-            r_init = config.z_min - 0.5 * config.dr_init
-
-        for k, data in zip(cdx, datas.T):
-            self._ghosts[k] = self._add_ray(data, r_init)
-
-        if config.jitter:
-            noise = np.random.rand(self._n_max) - 0.5
-            self._data[0] += config.dr_init * noise / 4
+        self._check_source(mean, 0)
 
         z_lo = config.z_min - 1.5 * config.dt
         padding = (z_lo, mean.z_centers[-1] + mean.dz)
@@ -301,6 +289,19 @@ class TransientPropagator(Propagator):
             Index of the current time step.
 
         """
+
+        if n_step == 0 and config.source_type == 'constant':
+            r_init = self._r_ghost - 0.5 * config.dr_init
+            datas, cdx = self._source.launch(mean, 0)
+
+            for k, data in zip(cdx, datas.T):
+                self._ghosts[k] = self._add_ray(data, r_init)
+
+            if config.jitter:
+                noise = np.random.rand(self._n_max) - 0.5
+                self._data[0] += config.dr_init * noise / 4
+
+            return
 
         cdx: Optional[np.ndarray] = None
         if config.source_type == 'constant':

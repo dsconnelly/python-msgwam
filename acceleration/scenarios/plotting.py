@@ -28,7 +28,7 @@ def plot_mean_state() -> None:
 
     components = map(_WIND_COMPONENTS.get, hp.components)
     with open_dataset(config.prescribed_wind_file) as ds:
-        datas = {c : ds[c] for c in components}
+        datas = {f'$\\bar{{{c}}}' : ds[c] for c in components}
         units = ['m / s'] * len(datas)
         amaxes = [80] * len(datas)
 
@@ -40,7 +40,7 @@ def plot_spectrum() -> None:
 
     with config.override(n_source=120):
         flux = 1000 * get_spectrum()['flux']
-        amax = 0.01 * np.ceil(flux.max() / 0.01)
+        amax = 0.01 * np.ceil(flux.max() / 0.01).item()
         cos, sin  = cos_and_sin(flux['phi'])
 
     widths = [4.5] * len(hp.components)
@@ -87,7 +87,8 @@ def plot_spectrum() -> None:
             ax.set_xlim(-config.c_max, config.c_max)
             ax.set_ylim(0, amax)
 
-        ax.set_title(f'source $F^{c}$')
+        if len(hp.components) == 2:
+            ax.set_title(f'source $F^{c}$')
 
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/spectrum.png', dpi=400)

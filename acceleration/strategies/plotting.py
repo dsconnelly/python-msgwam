@@ -144,11 +144,8 @@ def plot_error_profiles(*strategies: str) -> None:
             rms = factor * get_rmse(ref)
             ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
 
-            ax.set_xlim([0, 1e-1][j], [2, 50][j])
+            ax.set_xlim([0, 0][j], [3, 40][j])
             ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
-
-            if j == 1:
-                ax.set_xscale('log')
 
             ax.set_xlabel(f'{label} RMSE ({unit})')
             ax.set_ylabel('height (km)')
