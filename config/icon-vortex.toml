@@ -29,8 +29,8 @@ latitude = 60
 n_grid = 401
 N_ref = 0.02
 rho_ref = 1.2
-z_max = 80e3
-z_min = 20e3
+z_max = 70e3
+z_min = 10e3
 
 ################################################################################
 # viscosity and dissipation
@@ -41,9 +41,10 @@ mu = 1e-3
 ################################################################################
 # gravity wave source and spectrum
 ################################################################################
-c_max = 75
+c_max = 36
 dt_launch = -1
-flux_bc = 3e-3
+extrinsic = false
+flux_bc = 10e-3
 n_source = 16
 
 ################################################################################
@@ -68,16 +69,10 @@ shapiro_filter = true
 epsilon = 1
 
 ################################################################################
-# 'gaussians' spectrum
+# 'desaubies' spectrum
 ################################################################################
-c_his = [60, -15]
-c_los = [15, -60]
-c_width = 20
-direction = 0
-dk_init = 1e-4
-dl_init = 1e-4
-T_hat_lo = 1
-T_hat_hi = 6
-tau_corr_days = 8
-tau_cutoff_days = 4
-seed = 123
+n_omega = 2
+n_phi = 4
+omega_hat_max = 5e-4
+omega_hat_min = 1e-4
+wvl_star = 2e3

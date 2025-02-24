@@ -178,7 +178,7 @@ def plot_strategy(strategy: str) -> None:
         extras = {s : x * load_data(strategy, f, 0) for f, s, x in zipped}
         datas.update(extras)
 
-    amaxes = [3, 60] * len(datas)
+    amaxes = [5, 60] * len(datas)
     units = ['mPa', 'm / s / day'] * len(datas)
     plot_summaries(datas, amaxes=amaxes, units=units)
     plt.savefig(f'plots/{config.name}/{strategy}.png', dpi=400)

@@ -53,6 +53,7 @@ mu: float
 ################################################################################
 c_max: float
 dt_launch: int
+extrinsic: bool
 flux_bc: float
 n_source: int
 

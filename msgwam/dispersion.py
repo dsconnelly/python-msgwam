@@ -26,7 +26,7 @@ def get_cg_r(
 
     """
 
-    wvn_sq = k ** 2 + l ** 2 + m ** 2
+    wvn_sq = k ** 2 + l ** 2 + m ** 2 + get_gamma() ** 2
     omega_hat = get_omega_hat(k, l, m, N)
 
     return -m * (omega_hat ** 2 - config.f ** 2) / omega_hat / wvn_sq
@@ -82,6 +82,19 @@ def get_dm(
     """
 
     return dc * m ** 2 / N
+
+def get_gamma() -> float:
+    """
+    Compute the scale height correction term.
+
+    Returns
+    -------
+    float
+        Scale height correction.
+
+    """
+
+    return (1 / 2 - 2 / 7) / config.H_rho
 
 def get_m(
     k: np.ndarray,
@@ -139,9 +152,11 @@ def get_omega_hat(
 
     """
 
+    m2 = m ** 2 + get_gamma() ** 2
+
     return _sqrt(
-        (N ** 2 * (k ** 2 + l ** 2) + config.f ** 2 * m ** 2) /
-        (k ** 2 + l ** 2 + m ** 2)
+        (N ** 2 * (k ** 2 + l ** 2) + config.f ** 2 * m2) /
+        (k ** 2 + l ** 2 + m2)
     )
 
 def _sqrt(a: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:

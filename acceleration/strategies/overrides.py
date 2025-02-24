@@ -41,7 +41,7 @@ def _get_instantaneous_overrides() -> dict[str, Any]:
     gains allow us to increase the spectral resolution of the source.
     """
 
-    return {'propagator_type' : 'instantaneous', 'n_source' : 124}
+    return {'propagator_type' : 'instantaneous', 'n_source' : 120}
 
 def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""

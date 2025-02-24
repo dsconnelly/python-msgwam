@@ -104,17 +104,19 @@ class Source(FactoryABC):
         dk, dl, omega_hat, flux = self._data[i][:, cdx]
         cos, sin = cos_and_sin(self._phi[cdx])
 
-        u, v = mean.wind[:, 0]
-        wind = cos * u + sin * v
-        wvn_hor = omega_hat / (self._cp[cdx] - wind)
+        cp = self._cp[cdx]
+        if config.extrinsic:
+            u, v = mean.wind[:, 0]
+            cp = cp - cos * u - sin * v
+
+        wvn_hor = omega_hat / cp
         k, l = wvn_hor * cos, wvn_hor * sin
 
         m = get_m(k, l, omega_hat, mean.N[0])
         dm = get_dm(m, self._dc, mean.N[0])
         cg_r = get_cg_r(k, l, m, mean.N[0])
 
-        norm_K = np.sqrt(k ** 2 + l ** 2)
-        dens = flux / abs(norm_K * dk * dl * dm * cg_r)
+        dens = flux / abs(wvn_hor * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))
 
         return self._postprocess(

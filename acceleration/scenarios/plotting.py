@@ -40,7 +40,7 @@ def plot_spectrum() -> None:
 
     with config.override(n_source=120):
         flux = 1000 * get_spectrum()['flux']
-        amax = 0.01 * (np.ceil(flux.max() / 0.01) + 1)
+        amax = 0.01 * np.ceil(flux.max() / 0.01)
         cos, sin  = cos_and_sin(flux['phi'])
 
     widths = [4.5] * len(hp.components)
