@@ -5,15 +5,6 @@ from .. import config
 from .base import Source
 
 class StochasticSource(Source):
-    def __init__(self):
-        """
-        The stochastic source keeps a record of whether or not it has been
-        called, so that at the beginning of the run no random sampling is done.
-        """
-
-        super().__init__()
-        self.called = False
-
     def _postprocess(
         self, *,
         cg_r: np.ndarray,
@@ -26,10 +17,6 @@ class StochasticSource(Source):
         such that the average wait time between launches is 1 / config.epsilon
         what it would be in the absence of randomness.
         """
-
-        if not self.called:
-            self.called = True
-            return data, cdx
 
         p = config.epsilon * cg_r * config.dt / config.dr_init
         keep = np.random.rand(data.shape[1]) < p
