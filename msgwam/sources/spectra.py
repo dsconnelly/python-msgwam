@@ -83,8 +83,8 @@ def _desaubies() -> xr.Dataset:
     flux = m_star ** 3 * top / bottom
     flux = config.flux_bc * flux / flux.sum() / config.n_phi
 
+    domega = np.diff(edges)[0]
     K = omega_hat[:, None] / cp
-    domega = np.diff(omega_hat)[0]
     p, q = domega / cp, K * dphi
 
     shape = (config.n_phi, config.n_omega, n)

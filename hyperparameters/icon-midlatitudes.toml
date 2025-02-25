@@ -6,10 +6,10 @@ noise_amplitude = 0
 spectrum_type = 'desaubies'
 
 [strategies]
-dr_min = 200
-dr_max = 2000
+dr_min = 300
+dr_max = 3000
 n_dr = 10
 n_ensemble = 25
-n_n_source = 5
-n_source_min = 16
-n_source_max = 48
+n_n_source = 10
+n_source_min = 8
+n_source_max = 44

@@ -8,7 +8,7 @@ job_id=$(sbatch \
     --ntasks=1 \
     --mem=32G \
     --time=1:00:00 \
-    --array=0-59 \
+    --array=0-99 \
     -J coarsening \
     -o logs/$name/coarsening-%a.out \
     $dep_arg \
