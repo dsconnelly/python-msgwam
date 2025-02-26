@@ -19,7 +19,8 @@ _COLORS = {
     'instantaneous' : 'tab:red',
     'stochastic-1' : 'royalblue',
     'stochastic-25' : 'forestgreen',
-    'stochastic-100' : 'gold'
+    'stochastic-100' : 'gold',
+    'ICONlike' : 'fuchsia'
 }
 
 _get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']

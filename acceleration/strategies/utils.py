@@ -34,7 +34,8 @@ def load_data(
     path: str,
     field: str='flux_x',
     spinup_days: int=5,
-    filter_width: Optional[int]=21600
+    time_filter: Optional[int]=21600,
+    z_filter: Optional[int]=4e3
 ) -> xr.DataArray:
     """
     Load data from the integration of a particular strategy.
@@ -51,10 +52,11 @@ def load_data(
         which case the corresponding mean wind forcing is returned.
     spinup_days
         Number of days to discard from the beginning of the simulation.
-    filter_width
-        Time scale at which to apply a filter, in seconds. A Gaussian filter
-        with standard deviation equal to a 1 / 4 of this value will be applied,
-        so that ~95% of the mass is within `filter_width / 2` of the center.
+    time_filter, z_filter
+        Time and height scales at which to apply filters, in seconds and meters,
+        respectively. A Gaussian filter with standard deviation equal to 1 / 4
+        of this value will be applied, so that ~95% of the kernel mass is within
+        `{time | z}_filter / 2` of the center.
 
     Returns
     -------
@@ -90,9 +92,15 @@ def load_data(
     days = cftime.date2num(data['time'], units)
     data = data.isel(time=(days >= spinup_days))
 
-    if filter_width is not None:
-        sigma = int(filter_width / (days[1] - days[0]) / 86400 / 4)
-        filtered = filter(data.values, sigma, axis=0)
+    widths = [time_filter, z_filter]
+    coords = [days * 86400, z_faces]
+
+    for i, (width, coord) in enumerate(zip(widths, coords)):
+        if width is None:
+            continue
+
+        sigma = int(width / (coord[1] - coord[0]) / 4)
+        filtered = filter(data.values, sigma, axis=i)
         data = xr.DataArray(filtered, data.coords)
 
     return data

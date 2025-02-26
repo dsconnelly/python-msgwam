@@ -35,6 +35,11 @@ def _get_coarse_overrides() -> dict[str, Any]:
 
     return {'jitter' : True}
 
+def _get_ICONlike_overrides() -> dict[str, Any]:
+    """Use a configuration similar to that in Bölöni et al. (2020)."""
+
+    return {'dr_init' : 1000, 'n_source' : 48, 'n_max' : 2500, 'jitter' : True}
+
 def _get_instantaneous_overrides() -> dict[str, Any]:
     """
     Use an instantaneous propagator instead of the ray tracer. The computational

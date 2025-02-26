@@ -299,7 +299,7 @@ class TransientPropagator(Propagator):
 
             if config.jitter:
                 noise = np.random.rand(self._n_max) - 0.5
-                self._data[0] += config.dr_init * noise / 4
+                self._data[0] += config.dr_init * noise
 
             return
 
