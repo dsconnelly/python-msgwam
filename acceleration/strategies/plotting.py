@@ -136,11 +136,17 @@ def plot_error_profiles(*strategies: str) -> None:
         for j, (field, unit, factor, label, ax) in enumerate(zipped):
             z = get_vertical_grids()[j] / 1000
             ref = load_data('reference', field)
+            z_filter = [None, 4e3][j]
 
             for strategy in strategies:
-                data = load_data(strategy, field)
+                data = load_data(strategy, field, z_filter=z_filter)
                 rmse = factor * get_rmse(data, ref)
-                ax.plot(rmse, z, color=_COLORS[strategy], label=strategy)
+
+                ax.plot(
+                    rmse, z,
+                    color=_COLORS[strategy],
+                    label=strategy
+                )
 
             rms = factor * get_rmse(ref)
             ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
