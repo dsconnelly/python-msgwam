@@ -35,7 +35,7 @@ def load_data(
     field: str='flux_x',
     spinup_days: int=5,
     time_filter: Optional[int]=21600,
-    z_filter: Optional[int]=4e3
+    z_filter: Optional[int]=None
 ) -> xr.DataArray:
     """
     Load data from the integration of a particular strategy.
@@ -64,6 +64,9 @@ def load_data(
         Array of requested data values, subselected and filtered as appropriate.
 
     """
+
+    if z_filter is None and field.startswith('acceleration'):
+        z_filter = 4e3
 
     if not path.endswith('.nc'):
         data_dir = f'data/{config.name}/strategies'

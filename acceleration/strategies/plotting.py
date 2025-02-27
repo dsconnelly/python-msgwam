@@ -44,7 +44,8 @@ def plot_coarse_errors() -> None:
     cmap = LinearSegmentedColormap.from_list('custom', colors, 256)
 
     with get_coarse_errors() as ds:
-        errors = (ds['error'] / ds['rms']).mean(('component', 'z_faces'))
+        errors = np.minimum(1, ds['error'] / ds['rms'])
+        errors = errors.mean(('component', 'z_faces'))
         profiles = ds['error'].mean('component')
 
     drs = errors['dr'].values

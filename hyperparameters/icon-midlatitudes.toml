@@ -3,11 +3,11 @@ components = 'xy'
 ICON_region = 'midlatitudes'
 n_columns = 3
 noise_amplitude = 0
-spectrum_type = 'desaubies'
+spectrum_type = 'gaussians'
 
 [strategies]
-dr_min = 300
-dr_max = 3000
+dr_min = 500
+dr_max = 5000
 n_dr = 10
 n_ensemble = 25
 n_n_source = 10

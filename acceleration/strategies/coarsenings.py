@@ -38,7 +38,7 @@ def get_coarse_errors() -> xr.Dataset:
 
         for i, dr in enumerate(drs):
             for j, n_source in enumerate(n_sources):
-                flux = load_data(_get_path(dr, n_source))
+                flux = load_data(_get_path(dr, n_source), f'flux_{c}')
                 error[k, i, j] = get_rmse(ref, flux).values
 
     return xr.Dataset({

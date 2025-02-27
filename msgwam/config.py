@@ -105,10 +105,12 @@ wvl_star: float
 ################################################################################
 c_his: list[float]
 c_los: list[float]
-c_width: float
+c_width_in: float
+c_width_out: float
 direction: float
 dk_init: float
 dl_init: float
+n_axes: Literal[1, 2]
 T_hat_lo: float
 T_hat_hi: float
 tau_corr_days: float

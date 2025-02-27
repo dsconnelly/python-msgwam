@@ -52,6 +52,7 @@ def plot_spectrum() -> None:
         factor = {'x' : cos, 'y' : sin}[c]
         bins, data = flux['cp'] * factor, flux * abs(factor)
         data = data.groupby(bins).sum().rename(group='cp')
+        data = data.isel(cp=(data['cp'] != 0))        
 
         if 'time' in flux.coords:
             units = f'days since {EPOCH}'

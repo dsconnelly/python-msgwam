@@ -119,11 +119,11 @@ def _gaussians() -> xr.Dataset:
     decay_scale = 2 * np.pi * 86400 * config.tau_corr_days
     args = [seconds, decay_scale, 86400 * config.tau_cutoff_days]
 
-    n_half = config.n_source // 2
+    n_half = config.n_source // (2 * config.n_axes)
     cp = _get_phase_velocities(n_half)
     cp = np.concatenate((-cp, cp))
 
-    flux = np.zeros((len(seconds), config.n_source))
+    flux = np.zeros((len(seconds), len(cp)))
     rng = np.random.default_rng(config.seed)
 
     for c_lo, c_hi in zip(config.c_los, config.c_his):
@@ -134,15 +134,23 @@ def _gaussians() -> xr.Dataset:
             rng=rng
         )[:, None]
 
-        arg = (cp - center) / config.c_width
+        arg = cp - center
+        idx_in = np.sign(arg) != np.sign(center)
+
+        arg[idx_in] = arg[idx_in] / config.c_width_in
+        arg[~idx_in] = arg[~idx_in] / config.c_width_out
         flux = flux + np.exp(-0.5 * arg ** 2)
 
-    flux = config.flux_bc * flux / flux.sum(axis=1)[:, None]
-    flux = flux[:, None].reshape(-1, 2, config.n_source // 2)
-
-    cp = cp[(config.n_source // 2):]
+    cp = cp[n_half:]
     angle = np.deg2rad(config.direction)
     phi = np.array([angle + np.pi, angle])
+
+    flux = config.flux_bc * flux / flux.sum(axis=1)[:, None] / config.n_axes
+    flux = flux[:, None].reshape(-1, 2, n_half)
+
+    if config.n_axes == 2:
+        phi = np.concatenate((phi, phi + np.pi / 2))
+        flux = np.hstack((flux, flux))
 
     bounds = [3600 * config.T_hat_lo, 3600 * config.T_hat_hi]
     omega_hat = 2 * np.pi / make_colored_noise(*args, *bounds, rng=rng)
@@ -153,12 +161,20 @@ def _gaussians() -> xr.Dataset:
 
     time = cftime.num2date(seconds, f'seconds since {EPOCH}')
     data: dict[str, Any] = {'time' : time, 'phi' : phi, 'cp' : cp}
-    data['flux'] = (('time', 'phi', 'cp'), flux)
-
     for i, name in enumerate(['dk', 'dl', 'omega_hat']):
         data[name] = ('time', stacked[i])
 
-    return xr.Dataset(data)
+    data['flux'] = (('time', 'phi', 'cp'), flux)
+    ds = xr.Dataset(data)
+
+    zipped = zip(config.c_los, config.c_his)
+    varying = any([c_lo != c_hi for c_lo, c_hi in zipped])
+    varying = varying or (config.T_hat_lo != config.T_hat_hi)
+
+    if not varying:
+        ds = ds.isel(time=0, drop=True)
+
+    return ds
 
 def _get_phase_velocities(n: int) -> np.ndarray:
     """
