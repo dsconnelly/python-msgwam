@@ -35,10 +35,12 @@ n_day: int
 # mean state
 ################################################################################
 boussinesq: bool
+geostrophic : bool
 H_rho: float
 n_grid: int
 N_ref: float
 rho_ref: float
+w_star: float
 z_max: float
 z_min: float
 

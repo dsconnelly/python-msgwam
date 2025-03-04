@@ -22,8 +22,10 @@ class InteractiveWind(MeanState):
         """
 
         super().__init__()
-        self.last: list[np.ndarray] = []
+        
         self.A, self.B = self._init_AB()
+        self.grad_p = self._init_grad_p()
+        self.last: list[np.ndarray] = []
 
     def step(self, prop: Propagator, _) -> Self:
         """
@@ -65,8 +67,16 @@ class InteractiveWind(MeanState):
 
         """
 
+        coriolis = config.f * np.vstack((self.v, -self.u))
+        geo = (-self.grad_p / self.rho + coriolis) * config.geostrophic
         flux_div = np.diff(prop.get_fluxes(self), axis=1) / self.dz
-        return -flux_div / self.rho
+
+        du_dz, dv_dz = np.diff(self.wind, axis=1) / self.dz
+        du_dz = np.interp(self.z_centers, self.z_faces[1:-1], du_dz)
+        dv_dz = np.interp(self.z_centers, self.z_faces[1:-1], dv_dz)
+        upwelling = config.w_star * np.vstack((du_dz, dv_dz))
+
+        return -flux_div / self.rho + geo - upwelling
 
     def _init_AB(self) -> tuple[tuple, tuple]:
         """
@@ -96,12 +106,58 @@ class InteractiveWind(MeanState):
         B = lu_factor(3 * np.eye(m) / 2 - config.dt * D)
 
         return A, B
+    
+    def _init_grad_p(self) -> np.ndarray:
+        """
+        Initialize the pressure gradients to be used in the geostrophic forcing,
+        assuming the mean state is in balance at initialization.
+
+        Returns
+        -------
+        np.ndarray
+            Array of pressure gradients at vertical grid cell centers, whose two
+            rows contain zonal and meridional gradients, respectively.
+
+        """
+
+        dp_dx = self.rho * config.f * self.v
+        dp_dy = -self.rho * config.f * self.u
+
+        return np.vstack((dp_dx, dp_dy))
 
     def _init_wind(self) -> np.ndarray:
         """
-        Interactive runs start with a small perturbation in the interior of the
-        domain, so that the wind has some asymmetry.        
+        Interactive runs start with a positive perturbation in the zonal wind
+        field, and compensating positive and negative perturbations in the
+        meridional wind field.      
         """
 
-        u = 0.25 * np.exp(-0.5 * ((self.z_centers - 50e3) / 3e3) ** 2)
-        return np.vstack((u, np.zeros_like(u)))
+        center = (config.z_min + config.z_max) / 2
+        u = 10 * _get_bump(self.z_centers, center, 10e3)
+        v = 5 * _get_bump(self.z_centers, center + 15e3, 10e3)
+        v = v - 5 * _get_bump(self.z_centers, center - 15e3, 10e3)
+
+        return np.vstack((u, v))
+    
+def _get_bump(z: np.ndarray, center: float, width: float) -> np.ndarray:
+    """
+    Calculate a Gaussian bump of unit amplitude on the provided grid.
+
+    Parameters
+    ----------
+    z
+        Vertical grid points on which to compute the profile.
+    center
+        Location of the center of the bump.
+    width
+        Width of the bump.
+
+    Returns
+    -------
+    np.ndarray
+        Calculated bump profile. Has the same shape as `z`.
+
+    """
+
+    arg = (z - center) / width
+    return np.exp(-0.5 * arg ** 2)

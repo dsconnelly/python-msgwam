@@ -15,12 +15,10 @@ from .coarsenings import get_coarse_errors
 from .utils import get_rmse, load_data
 
 _COLORS = {
-    'coarse' : 'k',
+    'coarse' : 'forestgreen',
     'instantaneous' : 'tab:red',
-    'stochastic-1' : 'royalblue',
-    'stochastic-25' : 'forestgreen',
-    'stochastic-100' : 'gold',
-    'ICONlike' : 'fuchsia'
+    'stochastic-25' : 'royalblue',
+    'ICONlike' : 'k'
 }
 
 _get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
@@ -179,12 +177,14 @@ def plot_strategy(strategy: str) -> None:
 
     datas = {}
     for c in hp.components:
-        zipped = zip(_get_fields(c), _get_labels(c), [1e3, 86400])
-        extras = {s : x * load_data(strategy, f, 0) for f, s, x in zipped}
+        specs = zip(*_get_plot_specs(c))
+        extras = {l : x * load_data(strategy, f, 0) for l, f, x, *_ in specs}
         datas.update(extras)
 
-    amaxes = [5, 60] * len(datas)
-    units = ['mPa', 'm / s / day'] * len(datas)
+    *_, units, amaxes = _get_plot_specs(c)
+    units = units * len(hp.components)
+    amaxes = amaxes * len(hp.components)
+
     plot_summaries(datas, amaxes=amaxes, units=units)
     plt.savefig(f'plots/{config.name}/{strategy}.png', dpi=400)
 
@@ -206,3 +206,41 @@ def _get_dc(n: int) -> float:
     """
 
     return np.diff(np.linspace(-config.c_max, config.c_max, n + 1))[0]
+
+def _get_plot_specs(
+    c: str
+) -> tuple[list[str], list[str], list[float], list[str], list[float]]:
+    """
+    Get information used to construct summary plots.
+
+    Parameters
+    ----------
+    c
+        Current component. Must be `'x'` or `'y'`.
+
+    Returns
+    -------
+    list[str], list[str], list[float], list[str], list[float]
+        Lists of labels, field names, scale factors, units, and axis maxima to
+        use during plotting, respectively. Includes data for the mean wind if
+        this scenario is interactive.
+
+    """
+
+    labels = [f'$F^{c}$', f'$D^{c}$']
+    fields = [f'flux_{c}', f'acceleration_{c}']
+    factors = [1e3, 86400]
+
+    units = ['mPa', 'm / s / day']
+    amaxes = [3, 40]
+
+    wind = {'x' : 'u', 'y' : 'v'}[c]
+    if config.mean_state_type == 'interactive':
+        labels = [f'$\\bar{{{wind}}}$'] + labels
+        fields = [wind] + fields
+        factors = [1] + factors
+
+        units = ['m / s'] + units
+        amaxes = [50] + amaxes
+
+    return labels, fields, factors, units, amaxes
