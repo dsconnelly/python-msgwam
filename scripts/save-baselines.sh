@@ -12,15 +12,15 @@ job_id=$(sbatch \
     -o logs/$name/baselines.out \
     $dep_arg \
     submit.slurm config/$name.toml \
+        save-strategy:ICONlike \
         save-strategy:coarse \
         save-strategy:stochastic:25 \
-        save-strategy:stochastic:100 \
         save-strategy:instantaneous \
+        plot-strategy:ICONlike \
         plot-strategy:coarse \
         plot-strategy:stochastic-25 \
-        plot-strategy:stochastic-100 \
         plot-strategy:instantaneous \
-        plot-error-profiles:coarse:instantaneous:stochastic-25:stochastic-100
+        plot-error-profiles:ICONlike:instantaneous:coarse:stochastic-25
 )
 
 echo $job_id
