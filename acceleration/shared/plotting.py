@@ -26,7 +26,7 @@ def plot_summaries(
 
     """
 
-    n_cols = (len(datas) + 1) // 2
+    n_cols = 1 if len(datas) < 4 else 2
     n_rows = len(datas) // n_cols
     n_x = 3 + 2 * (n_cols - 1)
 
@@ -43,7 +43,7 @@ def plot_summaries(
 
     zipped = zip(datas.items(), amaxes, units)
     for k, ((field, data), amax, unit) in enumerate(zipped):
-        i, j = k % 2, 2 * (k // 2)
+        i, j = k % n_rows, 2 * (k // n_rows)
         cax = axes[i, -1]
 
         _, cbar = plot_time_series(data, amax, [axes[i, j + 1], cax])
