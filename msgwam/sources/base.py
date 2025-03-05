@@ -38,7 +38,7 @@ class Source(FactoryABC):
         self._data = data
         self._cp = ds['cp'].values
         self._phi = ds['phi'].values
-        self._dc = np.diff(np.unique(self._cp))[0]
+        self._dc = config.c_max / len(np.unique(self._cp))
 
     def launch(
         self,
@@ -111,6 +111,12 @@ class Source(FactoryABC):
 
         wvn_hor = omega_hat / cp
         k, l = wvn_hor * cos, wvn_hor * sin
+
+        # q = cp * cos - u
+        # idx = np.sign(q) != np.sign(k)
+        # if idx.sum() > 0:
+        #     print(cp[idx], k[idx])
+        #     print()
 
         m = get_m(k, l, omega_hat, mean.N[0])
         dm = get_dm(m, self._dc, mean.N[0])
