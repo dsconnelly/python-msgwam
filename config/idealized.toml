@@ -73,10 +73,12 @@ epsilon = 1
 ################################################################################
 c_his = [45, -5]
 c_los = [5, -45]
-c_width = 10
+c_width_in = 10
+c_width_out = 10
 direction = 0
 dk_init = 1e-4
 dl_init = 1e-4
+n_axes = 1
 T_hat_lo = 1
 T_hat_hi = 6
 tau_corr_days = 6

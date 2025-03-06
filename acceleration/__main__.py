@@ -8,6 +8,7 @@ sys.path.insert(0, '.')
 from msgwam import config
 
 from . import hyperparameters as hp
+from .learning import *
 from .scenarios import *
 from .strategies import *
 

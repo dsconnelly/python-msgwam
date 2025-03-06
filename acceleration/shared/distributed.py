@@ -6,6 +6,33 @@ from .. import hyperparameters as hp
 
 N_TASKS = int(environ.get('SLURM_ARRAY_TASK_COUNT', 1))
 
+def add_task_info(fname: str) -> str:
+    """
+    Given a file name, return a version of that string with information about
+    the current task added just before the file suffix, so that distributed
+    computations can easily save their results.
+
+    Parameters
+    ----------
+    fname
+        File name without task information.
+
+    Returns
+    -------
+    str
+        File name with added task information, unless there is only one task, in
+        which case this function is a no-op.
+
+    """
+
+    if N_TASKS == 1:
+        return fname
+    
+    *parts, suffix = fname.split('.')
+    stem = '.'.join(parts)
+
+    return stem + f'_task-{hp.task_id}' + f'.{suffix}'
+
 def get_workload(n: int) -> tuple[int, int]:
     """
     Given the total size of the data on which a calculation needs to be run, get

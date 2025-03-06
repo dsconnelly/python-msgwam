@@ -23,3 +23,6 @@ n_ensemble = 25
 n_n_source = 10
 n_source_min = 8
 n_source_max = 44
+
+[generation]
+n_samples = 2500000
