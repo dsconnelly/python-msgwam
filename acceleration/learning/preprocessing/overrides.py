@@ -25,9 +25,10 @@ def get_overrides() -> dict[str, Any]:
         'prescribed_wind_file' : add_task_info(mean_path),
         'spectrum_file' : add_task_info(spectrum_path),
         'n_day' : n_day,
-        'dr_init' : 200,
+        'dr_init' : 250,
         'n_source' : 50,
-        'n_max' : 30000
+        'n_max' : 10000,
+        'max_dt_multiplier' : 20
     }
 
 def _get_n_day() -> int:

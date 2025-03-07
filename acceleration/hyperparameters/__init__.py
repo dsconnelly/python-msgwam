@@ -6,13 +6,19 @@ from warnings import warn
 
 from numpy import meshgrid, stack
 
+from . import architectures
+from . import generation
 from . import scenarios
 from . import strategies
+from . import training
 
 __all__ = [
+    'architectures',
+    'generation',
     'grid_path',
     'scenarios',
     'strategies',
+    'training',
     'task_id'
 ]
 

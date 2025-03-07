@@ -10,6 +10,8 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.utils import get_rho, get_vertical_grids, open_dataset
 
+from ..shared.filtering import gaussian_filter
+
 def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
     """
     Compute the root-mean-square error over time between two arrays. The second
@@ -35,7 +37,7 @@ def load_data(
     field: str='flux_x',
     spinup_days: int=5,
     time_filter: Optional[int]=21600,
-    z_filter: Optional[int]=None
+    z_filter: Optional[float]=None
 ) -> xr.DataArray:
     """
     Load data from the integration of a particular strategy.
@@ -95,15 +97,9 @@ def load_data(
     days = cftime.date2num(data['time'], units)
     data = data.isel(time=(days >= spinup_days))
 
-    widths = [time_filter, z_filter]
-    coords = [days * 86400, z_faces]
-
-    for i, (width, coord) in enumerate(zip(widths, coords)):
-        if width is None:
-            continue
-
-        sigma = int(width / (coord[1] - coord[0]) / 4)
-        filtered = filter(data.values, sigma, axis=i)
-        data = xr.DataArray(filtered, data.coords)
+    z_name = list(data.coords)[1]
+    zipped = zip(['seconds', z_name], [time_filter, z_filter])
+    kwargs = {k : v for k, v  in zipped if v is not None}
+    data = gaussian_filter(data, **kwargs)
 
     return data
