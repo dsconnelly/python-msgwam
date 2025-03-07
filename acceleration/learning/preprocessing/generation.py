@@ -6,7 +6,9 @@ import numpy as np
 from msgwam import config
 from msgwam.integration import integrate
 
+from ...hyperparameters import generation as hp
 from ...shared.distributed import add_task_info
+from ...shared.filtering import gaussian_filter
 from .overrides import get_overrides
 
 if TYPE_CHECKING:
@@ -14,8 +16,8 @@ if TYPE_CHECKING:
     from msgwam.means import PrescribedWind
     from msgwam.propagators import TransientPropagator
 
-_STATE_PROPS = ['r', 'k', 'm', 'action', 'age']
 _SOURCE_PROPS = ['k', 'action']
+_STATE_PROPS = ['r', 'k', 'm', 'action', 'age']
 
 def save_training_data():
     """
@@ -30,7 +32,12 @@ def save_training_data():
         R = np.zeros((config.n_steps, len(_STATE_PROPS), config.n_max))
         
         ds = integrate(_make_callback(u, S, R))
-        F = np.stack((ds['pmf_e'], ds['pmf_w']), axis=1)
+        kwargs = {'hours' : hp.filter_hours, 'z_faces' : hp.filter_meters}
+
+        F = np.stack((
+            gaussian_filter(ds['pmf_e'], **kwargs),
+            gaussian_filter(ds['pmf_w'], **kwargs)
+        ), axis=1)
 
     R = np.vstack((np.zeros_like(R[:1]), R))
     F = np.vstack((np.zeros_like(F[:1]), F))
