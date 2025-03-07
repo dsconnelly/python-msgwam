@@ -37,7 +37,8 @@ def load_data(
     field: str='flux_x',
     spinup_days: int=5,
     time_filter: Optional[int]=21600,
-    z_filter: Optional[float]=None
+    z_filter: Optional[float]=None,
+    ensemble_mean: bool=True
 ) -> xr.DataArray:
     """
     Load data from the integration of a particular strategy.
@@ -59,6 +60,8 @@ def load_data(
         respectively. A Gaussian filter with standard deviation equal to 1 / 4
         of this value will be applied, so that ~95% of the kernel mass is within
         `{time | z}_filter / 2` of the center.
+    ensemble_mean
+        Whether to take the ensemble mean, if there are multiple members.
 
     Returns
     -------
@@ -90,7 +93,7 @@ def load_data(
         else:
             data = ds[field]
 
-    if 'member' in data.coords:
+    if ensemble_mean and ('member' in data.coords):
         data = data.mean('member')
 
     units = f'days since {EPOCH}'    

@@ -2,7 +2,7 @@ import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
 
-from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.patches import Rectangle
 
 from msgwam import config
@@ -116,6 +116,52 @@ def plot_coarse_errors() -> None:
     axes[0].legend()
 
     plt.savefig(f'plots/{config.name}/coarsenings.png', dpi=400)
+
+def plot_ensemble_errors(strategy: str) -> None:
+    """Plot errors as a function of ensemble size."""
+
+    n_rows = len(hp.components)
+    fig, ax = plt.subplots(n_rows, ncols=2)
+    fig.set_size_inches(6, 4.5 * n_rows)
+
+    if len(hp.components) == 2:
+        axes = axes.T
+
+    units = ['mPa', 'm / s / day']
+    factors = [1000, 86400]    
+
+    for i, c in enumerate(hp.components):
+        zipped = zip(_get_fields(c), units, factors, _get_labels(c), axes[i])
+        for j, (field, unit, factor, label, ax) in enumerate(zipped):
+            z = get_vertical_grids()[j] / 1000
+            ref = load_data('reference', field)
+            z_filter = [None, 4e3][j]
+
+            kwargs = {'z_filter' : z_filter, 'ensemble_mean' : False}
+            data = load_data(strategy, field, **kwargs)
+
+            cmap = plt.get_cmap('viridis_r')
+            norm = Normalize(1, len(data['member']))
+
+            for k in range(len(data['member'])):
+                subset = data.isel(member=slice(None, k))
+                rmse = factor * get_rmse(subset, ref)
+                ax.plot(rmse, z, color=cmap(norm(k)))
+
+            rms = factor * get_rmse(ref)
+            ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
+
+            ax.set_xlim([0, 0][j], [3, 40][j])
+            ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
+
+            ax.set_xlabel(f'{label} RMSE ({unit})')
+            ax.set_ylabel('height (km)')
+
+            ax.grid(color='lightgray')
+            ax.tick_params('both', direction='in')
+
+    plt.tight_layout()
+    plt.savefig(f'plots/{config.name}/{strategy}-ensemble.png', dpi=400)
 
 def plot_error_profiles(*strategies: str) -> None:
     """Plot RMS errors as a function of height for each strategy."""
