@@ -25,7 +25,9 @@ n_source_min = 8
 n_source_max = 44
 
 [generation]
-n_samples = 850000
+filter_hours = 1
+filter_meters = 1000
+n_samples = 25000
 
 [architectures]
 batch_norm_pos = 1

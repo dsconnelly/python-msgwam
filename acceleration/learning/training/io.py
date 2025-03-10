@@ -6,13 +6,35 @@ from typing import Iterator, Literal, Optional
 import numpy as np
 import torch
 
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 from msgwam import config
 
+from ...hyperparameters import training as hp
+
 _Phase = Literal[1, 2, 3]
 
-class MultifileDataset(Dataset):
+def get_loader(phase: _Phase, subsets: list[str]) -> DataLoader:
+    """
+    Get a `DataLoader` that properly samples from training data saved across
+    multiple files on disk.
+
+    Parameters
+    ----------
+    phase, subsets
+        Arguments to pass to `_MultifileDataset`.
+
+    Returns
+    -------
+    DataLoader
+        Loader sampling from multiple files with smart caching.
+
+    """
+
+    ds = _MultifileDataset(phase, subsets)
+    return DataLoader(ds, hp.batch_size, sampler=_MultifileSampler(ds))
+
+class _MultifileDataset(Dataset):
 
     def __init__(self, phase: _Phase, subsets: list[str]) -> None:
         """
@@ -152,11 +174,11 @@ class MultifileDataset(Dataset):
 
         return data
 
-class MultifileSampler(Sampler):
+class _MultifileSampler(Sampler):
 
     def __init__(
         self,
-        dataset: MultifileDataset,
+        dataset: _MultifileDataset,
         seed: Optional[int]=123
     ) -> None:
         """

@@ -13,7 +13,7 @@ from msgwam import config
 from ... import hyperparameters as hp
 from .. import architectures
 
-from .io import _Phase, MultifileDataset, MultifileSampler
+from .io import _Phase, get_loader
 from .utils import get_flux_statistics, standardize
 
 if TYPE_CHECKING:
@@ -126,13 +126,7 @@ def _load_datasets(
     
     loaders = []
     for subsets in (subsets_tr, subsets_ev):
-        dataset = MultifileDataset(phase, subsets)
-
-        loaders.append(DataLoader(
-            dataset=dataset,
-            batch_size=hp.training.batch_size,
-            sampler=MultifileSampler(dataset)
-        ))
+        loaders.append(get_loader(phase, subsets))
 
     return tuple(loaders)
 
