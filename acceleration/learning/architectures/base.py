@@ -1,9 +1,13 @@
+from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import Optional
 
 import torch, torch.nn as nn
 
+from msgwam import config
+
 from ...hyperparameters import architectures as hp
-from .utils import get_block, get_layer_size, xavier_init
+from .utils import get_block, get_layer_sizes, xavier_init
 
 class BaseNet(nn.Module, ABC):
 
@@ -14,6 +18,7 @@ class BaseNet(nn.Module, ABC):
 
         super().__init__()
         self._init_blocks()
+        self._init_norms()
 
         self._online = False
         self.apply(xavier_init)
@@ -37,13 +42,41 @@ class BaseNet(nn.Module, ABC):
         """
 
         X = self._preprocess(*Xs)
-        X = self._norm(X)
 
         output = X
         for block in self._blocks[:-1]:
             output = block(output) + X
 
         return self._blocks[-1](output)
+    
+    @classmethod
+    def from_kwargs(cls, *, name: str, tag: Optional[str]=None) -> BaseNet:
+        """
+        Load a `BaseNet` subclass by name, potentially also loading pretrained
+        weights from disk.
+
+        Parameters
+        ----------
+        name
+            Subclass to load.
+        tag
+            Suffix on file containing trained data, as by `train_networks`.
+
+        Returns
+        -------
+        BaseNet
+            Initialized model, possibly with pretrained weights loaded.
+        
+        """
+
+        subs = cls.__subclasses__()
+        model = [s for s in subs if s.__name__.lower() == name][0]()
+
+        if tag is not None:
+            path = f'data/{config.name}/models/{name}-{tag}.pkl'
+            model.load_state_dict(torch.load(path, weights_only=True))
+
+        return model
 
     @property
     def online(self) -> bool:
@@ -81,15 +114,22 @@ class BaseNet(nn.Module, ABC):
     def _init_blocks(self) -> None:
         """Initialize the layers of the neural network."""
 
-        n_in = get_layer_size(self._inputs)
-        self._norm = nn.BatchNorm1d(n_in, affine=False)
+        ns = get_layer_sizes(flat=True)
+        n_in = sum(map(ns.get, self._inputs))
         self._blocks = nn.ModuleList()
 
         for i in range(hp.n_blocks):
             final = i == hp.n_blocks - 1
-            n_out = get_layer_size(self._output) if final else n_in
+            n_out = ns[self._output] if final else n_in
             sizes = [n_in] + [hp.n_hidden] * (hp.n_per_block - 1) + [n_out]
             self._blocks.append(get_block(sizes, final))
+
+    def _init_norms(self) -> None:
+        """Initialize the input normalization layers."""
+
+        ns = get_layer_sizes(flat=False)
+        func = lambda s: nn.BatchNorm1d(ns[s], affine=False)
+        self._norms = nn.ModuleList(map(func, self._inputs))
 
     @property
     @abstractmethod
@@ -145,7 +185,7 @@ class BaseNet(nn.Module, ABC):
             raise ValueError(msg)
 
         to_stack = []
-        for name, X in zip(self._inputs, Xs):
+        for name, norm, X in zip(self._inputs, self._norms, Xs):
             X_hat = torch.clone(X)
 
             if name == 'S':
@@ -154,8 +194,9 @@ class BaseNet(nn.Module, ABC):
 
             elif name == 'R':
                 X_hat[:, 1:3] = 2 * torch.pi / X_hat[:, 1:3]
-                X_hat[:, 3] = torch.log(X_hat[:, 3])
+                X_hat[:, 3] = torch.log(X_hat[:, 3] + 1e-8)
 
+            X_hat = norm(torch.nan_to_num(X_hat))
             to_stack.append(X_hat.flatten(1))
 
-        return torch.nan_to_num(torch.hstack(to_stack))
+        return torch.hstack(to_stack)

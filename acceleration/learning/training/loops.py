@@ -11,52 +11,36 @@ from torch.utils.data import DataLoader
 from msgwam import config
 
 from ... import hyperparameters as hp
-from .. import architectures
+from ..architectures import BaseNet
 
-from .io import _Phase, get_loader
-from .utils import get_flux_statistics, standardize
+from .io import get_loader
+from .utils import get_kinds, get_pipeline_spec, get_subsets, standardize
 
 if TYPE_CHECKING:
-    from ..architectures import BaseNet
-
     Transform = Callable[[torch.Tensor], torch.Tensor]
 
-def train_network(phase: _Phase, eval_type: str) -> None:
+def train_networks(phase: str, eval_type: str) -> None:
     """
-    
+    Train the neural networks associated with a particular phase.
+
+    Parameters
+    ----------
+    phase
+        Which phase of training to run. Can be `'encoding'`, `'stepping'`, or
+        `'joint'`, in which case all the networks will be tuned together.
+    eval_type
+        Whether to use `'validation'` or `'test'` sets for evaluation.
+
     """
 
-    phase = int(phase)
-
-    if phase == 1:
-        pipeline = {
-            'encoder' : 'new',
-            'observer' : 'new'
-        }
-
-    elif phase == 2:
-        pipeline = {
-            'encoder' : 'frozen',
-            'stepper' : 'new'
-        }
-
-    elif phase == 3:
-        pipeline = {
-            'encoder' : 'load',
-            'stepper' : 'load',
-            'observer' : 'load'
-        }
-
+    spec = get_pipeline_spec(phase)
+    subsets = get_subsets(eval_type)
     tag = 'best' if eval_type == 'test' else str(hp.task_id)
-    loader_tr, loader_ev = _load_datasets(phase, eval_type)
+
     args = OrderedDict()
-
-    for name, mode in pipeline.items():
-        model: BaseNet = getattr(architectures, name.capitalize())()
-
-        if mode in ['load', 'frozen']:
-            path = f'data/{config.name}/models/{name}-{tag}.pkl'
-            model.load_state_dict(torch.load(path))
+    for name, mode in spec.items():
+        kwargs = {'name' : name, 'tag' : None if mode == 'new' else tag}
+        model = BaseNet.from_kwargs(**kwargs)
 
         if mode == 'frozen':
             for p in model.parameters():
@@ -64,71 +48,33 @@ def train_network(phase: _Phase, eval_type: str) -> None:
 
         args[name] = model
 
-    if phase == 2:
+    kinds = get_kinds(phase)
+    subsets = get_subsets(eval_type)
+    loader_tr = get_loader(kinds, subsets[0])
+    loader_ev = get_loader(kinds, subsets[1])
+
+    if phase == 'stepping':
         transform = args['encoder']
 
     else:
-        means, stds = get_flux_statistics(loader_tr.dataset)
+        loader = get_loader('F', subsets[0], 4096)
+        fluxes = torch.vstack([a[0] for a in loader])
+        means, stds = fluxes.mean(dim=0), fluxes.std(dim=0)
         transform = lambda a: standardize(a, means, stds)[0]
 
+        torch.save(means, f'data/{config.name}/models/means-{tag}.pkl')
+        torch.save(stds, f'data/{config.name}/models/stds-{tag}.pkl')
+
     model = nn.Sequential(args)
-    states = _train(model, loader_tr, loader_ev, transform)
-    states = states['model']
+    state = _train(model, loader_tr, loader_ev, transform)
 
-    torch.save(means, f'data/{config.name}/training/flux-means.pkl')
-    torch.save(stds, f'data/{config.name}/training/flux-stds.pkl')
-
-    for name, mode in pipeline.items():
+    for name, mode in spec.items():
         if mode == 'frozen':
             continue
-        
-        state = {}
-        for k, v in states.items():
-            if not k.startswith(name):
-                continue
 
-            state['.'.join(k.split('.')[1:])] = v
-
-        path = f'data/{config.name}/models/{name}-{tag}.pkl'
-        torch.save(state, path)
-
-def _load_datasets(
-    phase: _Phase,
-    eval_type: str
-) -> tuple[DataLoader, DataLoader]:
-    """
-    Load training and evaluation sets, wrapped in `DataLoader` objects.
-
-    Parameters
-    ----------
-    phase
-        Phase of training, to be passed to `MultifileDataset`.
-    eval_type
-        Evaluation dataset specifier, as passed to `train_network`.
-
-    Returns
-    -------
-    tuple[DataLoader, DataLoader]
-        Tuples of input and target tensors for the training and evaluation sets.
-
-    """
-
-    if eval_type == 'validation':
-        subsets_tr = ['tr']
-        subsets_ev = ['va']
-
-    elif eval_type == 'test':
-        subsets_tr = ['tr', 'va']
-        subsets_ev = ['te']
-
-    else:
-        raise ValueError(f'Unknown eval_type: {eval_type}')
-    
-    loaders = []
-    for subsets in (subsets_tr, subsets_ev):
-        loaders.append(get_loader(phase, subsets))
-
-    return tuple(loaders)
+        parse = lambda k: '.'.join(k.split('.')[1:])
+        _state = {parse(k) : v for k, v in state.items() if k.startswith(name)}
+        torch.save(_state, f'data/{config.name}/models/{name}-{tag}.pkl')
 
 def _train(
     model: nn.Module,
@@ -138,24 +84,37 @@ def _train(
     n_print: int=1
 ) -> dict[str, Any]:
     """
-    
+    Run the main training loop for an initialized model.
+
+    Parameters
+    ----------
+    model
+        Model to train.
+    loader_tr, loader_ev
+        Loaders for training and evaluation sets, respectively.
+    transform
+        Transform to apply to targets before computing losses.
+    n_print
+        How often to print training and evaluation scores.
+
+    Returns
+    -------
+    dict[str, Any]
+        Trained model state.
+
     """
 
     best_loss = torch.inf
     state = {'task_id' : hp.task_id}
 
     def loss_func(output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        """
-        
-        """
+        """Compute the MSE between outputs and transformed targets."""
 
         return ((output - transform(target)) ** 2).mean()
 
-    optimizer = Adam(
-        model.parameters(),
-        lr=hp.training.learning_rate,
-        weight_decay=(hp.training.weight_decay * hp.training.learning_rate)
-    )
+    lr = hp.training.learning_rate
+    decay = hp.training.weight_decay * lr
+    optimizer = Adam(model.parameters(), lr, weight_decay=decay)
 
     max_epochs = hp.training.max_epochs
     max_hours = hp.training.max_hours
@@ -170,7 +129,7 @@ def _train(
             print(f'loss_tr = {loss_tr:.6f}')
             print(f'loss_ev = {loss_ev:.6f}')
 
-        if loss_ev < best_loss:
+        if True or loss_ev < best_loss:
             state['model'] = model.state_dict()
             state['optimizer'] = optimizer.state_dict()
             best_loss = loss_ev
@@ -180,7 +139,7 @@ def _train(
     print(f'Best loss was {best_loss:.6f}')
     model.load_state_dict(state['model'])
 
-    return state
+    return state['model']
 
 def _run_epoch(
     model: nn.Module,
@@ -230,7 +189,7 @@ def _run_epoch(
             output = model(*Xs)
 
         weight = Y.shape[0]
-        loss = loss_func(Y, output)
+        loss = loss_func(output, Y)
         total = total + weight * loss.item()
         weight_sum = weight_sum + weight
 

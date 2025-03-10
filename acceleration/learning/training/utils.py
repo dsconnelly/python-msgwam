@@ -2,21 +2,86 @@ from typing import Optional
 
 import torch
 
-from .io import MultifileDataset
+def get_kinds(phase: str) -> list[str]:
+    """
+    Get the kinds of data that should be loaded for a given training phase.
 
-def get_flux_statistics(
-    dataset: MultifileDataset
-) -> tuple[torch.Tensor, torch.Tensor]:
+    Parameters
+    ----------
+    phase
+        Phase of training, as passed to `train_networks`.
+
+    Returns
+    -------
+    list[str]
+        List of kinds to pass to `get_loader`.
+
+    """
+
+    return {
+        'encoding' : ['Ro', 'Fo'],
+        'stepping' : ['u', 'S', 'Ri', 'Ro'],
+        'joint' : ['u', 'S', 'Ri', 'Fo']
+    }[phase]
+
+def get_pipeline_spec(phase: str) -> dict[str, str]:
+    """
+    Get a dictionary describing the data pipeline for a given training phase.
+
+    Parameters
+    ----------
+    phase
+        Phase of training, as passed to `train_networks`.
+
+    Returns
+    -------
+    dict[str, str]
+        Dictionary whose keys indicate `BaseNet` subclasses and whose values are
+        either `'new'`, in which case a new component will be created, `'load'`,
+        in which case a previously-trained component will be loaded and trained,
+        or `'frozen'`, in which case a previously-trained component will be
+        loaded but its weights should be frozen.
+
     """
     
+    if phase == 'encoding':
+        return {'encoder' : 'new', 'observer' : 'new'}
+    
+    if phase == 'stepping':
+        return {'encoder' : 'frozen', 'stepper' : 'new'}
+    
+    if phase == 'joint':
+        return {
+            'encoder' : 'loaded',
+            'stepper' : 'loaded',
+            'observer' : 'loaded'
+        }
+    
+    raise ValueError(f'Unknown phase: {phase}')
+
+def get_subsets(eval_type: str) -> tuple[list[str], list[str]]:
+    """
+    Return the subset suffixes for a given evaluation type.
+
+    Parameters
+    ----------
+    eval_type
+        Evaluation dataset specifier, as passed to `train_networks`.
+
+    Returns
+    -------
+    list[str], list[str]
+        Subsets to use for training and evaluation, respectively.
+
     """
 
-    to_stack = []
-    for i in range(dataset.n_tasks):
-        to_stack.append(dataset._load('F', i))
-
-    Y = torch.vstack(to_stack)
-    return Y.mean(dim=0), Y.std(dim=0)
+    if eval_type == 'validation':
+        return ['tr'], ['va']
+    
+    if eval_type == 'test':
+        return ['tr', 'va'], ['te']
+    
+    raise ValueError(f'Unknown eval_type: {eval_type}')
 
 def standardize(
     a: torch.Tensor,

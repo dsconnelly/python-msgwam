@@ -41,36 +41,34 @@ def get_block(sizes: list[int], final: bool) -> nn.Sequential:
 
     return nn.Sequential(*args)
 
-def get_layer_size(kinds: str | list[str]) -> int:
+def get_layer_sizes(flat: bool) -> dict[str, int]:
     """
     Calculate the size that an input or output layer should have depending on
-    which kinds of data it is to represent.
+    what kinds of data it is to represent. Provided as a function because the
+    `config` module is not initially available.
 
     Parameters
     ----------
-    kinds
-        String or list of strings representing kinds of data.
-
-    Returns
-    -------
-    int
-        Total size of the corresponding layer.
+    flat
+        Whether to return values for flattened input arrays (e.g for actual
+        fully-connected layers) or on a per-channel basis (for normalization).
 
     """
-
-    if not isinstance(kinds, list):
-        kinds = [kinds]
 
     with config.override(**get_overrides()):
         values = {
             'u' : config.n_grid - 1,
-            'S' : 2 * config.n_source,
-            'R' : 5 * config.n_max,
+            'S' : 2,
+            'R' : 5,
             'Z' : hp.n_latent,
             'F' : config.n_grid
         }
 
-    return sum([values[k] for k in kinds])
+        if flat:
+            values['S'] = values['S'] * config.n_source
+            values['R'] = values['R'] * config.n_max
+
+    return values
 
 def xavier_init(layer: nn.Module) -> None:
     """

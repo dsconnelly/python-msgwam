@@ -1,7 +1,7 @@
 import os
 
 from itertools import cycle
-from typing import Iterator, Literal, Optional
+from typing import Iterator, Optional
 
 import numpy as np
 import torch
@@ -12,17 +12,25 @@ from msgwam import config
 
 from ...hyperparameters import training as hp
 
-_Phase = Literal[1, 2, 3]
-
-def get_loader(phase: _Phase, subsets: list[str]) -> DataLoader:
+def get_loader(
+    kinds: str | list[str],
+    subsets: str | list[str],
+    batch_size: Optional[int]=None
+) -> DataLoader:
     """
     Get a `DataLoader` that properly samples from training data saved across
     multiple files on disk.
 
     Parameters
     ----------
-    phase, subsets
-        Arguments to pass to `_MultifileDataset`.
+    kinds
+        What kind of data to load. Available kinds are `'u'`, `'S'`, `'R'`,
+        and `'F'`, corresponding to mean wind, source activity, ray volume
+        state, and momentum flux profiles, respectively. In addition, `'R'`
+        and `'F'` can be suffixed with `'i'` or `'o'` in training tasks
+        where inputs and outputs should be offset.
+    subsets
+        Which subsets to load. Must be `'tr'`, `'va'`, or `'te'`.
 
     Returns
     -------
@@ -31,62 +39,76 @@ def get_loader(phase: _Phase, subsets: list[str]) -> DataLoader:
 
     """
 
-    ds = _MultifileDataset(phase, subsets)
-    return DataLoader(ds, hp.batch_size, sampler=_MultifileSampler(ds))
+    if not isinstance(kinds, list):
+        kinds = [kinds]
+
+    if not isinstance(subsets, list):
+        subsets = [subsets]
+
+    if batch_size is None:
+        batch_size = hp.batch_size
+
+    ds = _MultifileDataset(kinds, subsets)
+    return DataLoader(ds, batch_size, sampler=_MultifileSampler(ds))
 
 class _MultifileDataset(Dataset):
+    """
+    Internal class for loading and caching training data saved across multiple
+    files. Should be used in concert with `_MultifileSampler`.
+    """
 
-    def __init__(self, phase: _Phase, subsets: list[str]) -> None:
+    def __init__(self, kinds: list[str], subsets: list[str]) -> None:
         """
         At initialization, the file names in the data directory are parsed to
-        determine the number of available tasks, and the size of the dataset is
+        determine the number of available chunks, and the size of the dataset is
         stored accordingly.
 
         Parameters
         ----------
-        phase
-            What phase of training this dataset is to be used for. Will affect
-            which files are treated as inputs and which as targets.
- 
+        kinds, subsets
+            Parameters as passed to `get_loader`.
+
         """
+
+        self._i = -1
+        self._cache: list[torch.Tensor] = []
+        self._kinds = kinds
 
         self._data_dir = f'data/{config.name}/training'
         parse = lambda s: int(s.split('.')[0].split('-')[-1])
-        n_tasks = max(map(parse, os.listdir(self._data_dir))) + 1
+        n_chunks = max(map(parse, os.listdir(self._data_dir))) + 1
 
-        a = int(0.7 * n_tasks)
-        b = a + int(0.15 * n_tasks)
-        idx = list(range(n_tasks))
+        a = min(int(0.7 * n_chunks), n_chunks - 2)
+        b = a + max(int(0.15 * n_chunks), 1)
+        idx = list(range(n_chunks))
 
-        self._tasks = []
+        self._chunks = []
         for s in subsets:
-            start, end = {'tr' : (0, a), 'va' : (a, b), 'te' : (b, n_tasks)}[s]
-            self._tasks = self._tasks + idx[start:end]
+            start, end = {'tr' : (0, a), 'va' : (a, b), 'te' : (b, n_chunks)}[s]
+            self._chunks = self._chunks + idx[start:end]
 
-        k = self._tasks[0]
+        k = self._chunks[0]
         data: np.ndarray = np.load(f'{self._data_dir}/S_task-{k}.npy')
-        self.n_per_task = data.shape[0] + (phase == 1)
-        self._phase = phase
-
-        self._i: Optional[int] = None
-        self._cache: Optional[list[torch.Tensor]] = None
+        is_offset = any([len(kind) > 1 for kind in self._kinds])
+        self.n_per_chunk = data.shape[0] + (not is_offset)
 
     def __getitem__(self, idx: tuple[int, int]) -> tuple[torch.Tensor, ...]:
         """
         Samples are retrieved by first checking whether the requested file is
-        already loaded, and loading that file if not. Then the requested samples
+        already cached, and caching that file if not. Then the requested samples
         within that file are returned for each input and target tensor.
 
         Parameters
         ----------
         idx
-            Tuple whose first entry corresponds to the task file to be loaded
-            and whose second entry indicates the rows within that file.
+            Tuple whose first entry corresponds to the chunk to be loaded and
+            whose second entry indicates rows within that chunk. Note that the
+            chunk is given by index, so that it always starts at zero.
 
         Returns
         -------
         tuple[torch.Tensor, ...]
-            Input and target tensors. The last tensor is the target data.
+            Requsted samples.
 
         """
 
@@ -95,58 +117,31 @@ class _MultifileDataset(Dataset):
             self._update_cache(i)
 
         return tuple([a[j] for a in self._cache])
-
+    
     def __len__(self) -> int:
         """
-        The number of samples in the dataset is the number of task files found
-        times the number of samples in each file.
+        The number of samples in the dataset is the number of chunk files found
+        times the number of samples in each chunk.
 
         Returns
         -------
         int
-            Number of samples across all files.
+            Number of samples across all chunks.
 
         """
 
-        return self.n_tasks * self.n_per_task
-    
+        return self.n_chunks * self.n_per_chunk
+
     @property
-    def n_tasks(self) -> int:
+    def n_chunks(self) -> int:
         """
-        At initialization, the dataset records the task file numbers that should
-        load depending on whether the dataset holds training, validation, or
-        test data. The number of task files is just the length of that list.
-        """
-
-        return len(self._tasks)
-
-    def _update_cache(self, i: int) -> None:
-        """
-        Load input and output files corresponding to the given task. Which files
-        are treated as inputs and outputs is determined by `self._phase`. The
-        loaded files are cached as instance attributes, as is the index `i`.
-
-        Parameters
-        ----------
-        i
-            Integer corresponding to one of the tasks during generation.
-
+        At initialization, the dataset records the chunk numbers that should be
+        loaded depending on whether it is to hold training, validation or test
+        data. The number of chunks is just the length of that list.
         """
 
-        print(f'caching {i}')
-
-        inputs = ['R'] if self._phase == 1 else ['u', 'S', 'R']
-        Xs = list(map(self._load, inputs, cycle([i])))
-        output = 'R' if self._phase == 2 else 'F'
-        Y = self._load(output, i)
-
-        if self._phase != 1:
-            Xs[-1] = Xs[-1][:-1]
-            Y = Y[1:]
-
-        self._i = i
-        self._cache = Xs + [Y]
-
+        return len(self._chunks)
+    
     def _load(self, kind: str, i: int) -> torch.Tensor:
         """
         Load a particular kind of data from a given task file. Builds the right
@@ -155,9 +150,9 @@ class _MultifileDataset(Dataset):
         Parameters
         ----------
         kind
-            What kind of data to load. Must be `'u'`, `'S'`, `'R'`, or `'F'`.
+            What kind of data to load, as passed to `__init__`.
         i
-            Task file to load from.
+            Index of the chunk to load.
         
         Returns
         -------
@@ -166,15 +161,39 @@ class _MultifileDataset(Dataset):
 
         """
 
-        path = f'{self._data_dir}/{kind}_task-{self._tasks[i]}.npy'
-        data = torch.as_tensor(np.load(path))
+        try:
+            kind, shift = kind
+            start = {'i' : None, 'o' : 1}[shift]
+            end = {'i' : -1, 'o' : None}[shift]
+
+        except ValueError:
+            start, end = None, None
+
+        path = f'{self._data_dir}/{kind}_task-{self._chunks[i]}.npy'
+        data = torch.as_tensor(np.load(path))[slice(start, end)]
 
         if kind == 'F':
             data = data.sum(dim=1)
 
         return data
 
+    def _update_cache(self, i: int) -> None:
+        """
+        Load files corresponding to the given chunk. The loaded files are cached
+        as instance attributes, as is the currently cached index.
+
+        Parameters
+        ----------
+        i
+            Integer indexing one of the chunks produced during generation.
+
+        """
+
+        self._cache = list(map(self._load, self._kinds, cycle([i])))
+        self._i = i
+
 class _MultifileSampler(Sampler):
+    """Internal class for sampling from a `_MultifileDataset`."""
 
     def __init__(
         self,
@@ -188,14 +207,14 @@ class _MultifileSampler(Sampler):
         Parameters
         ----------
         dataset
-            Initialized `MultifileDataset` used to build the iterator.
+            Initialized `_MultifileDataset` used to build the iterator.
         seed
             Seed for the random number generator.
 
         """
 
-        self._i_max = dataset.n_tasks
-        self._j_max = dataset.n_per_task
+        self._i_max = dataset.n_chunks
+        self._j_max = dataset.n_per_chunk
         self._rng = np.random.default_rng(seed)
 
     def __iter__(self) -> Iterator[tuple[int, int]]:
