@@ -33,7 +33,7 @@ def gaussian_filter(da: xr.DataArray, **kwargs: float) -> xr.DataArray:
             coord = da[name]
             i = list(da.coords).index(name)
 
-        sigma = int(width / abs(coord[1] - coord[0]) / 4)
+        sigma = max(1, int(width / abs(coord[1] - coord[0]) / 4))
         filtered = _filter(da.values, sigma, axis=i)
         da = xr.DataArray(filtered, da.coords)
 
