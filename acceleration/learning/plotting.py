@@ -22,31 +22,34 @@ def plot_training_fluxes(tag: Optional[str]=None) -> None:
 
     """
 
+    fig, axes = plt.subplots(nrows=2, ncols=4)
+    fig.set_size_inches(4 * 3, 2 * 4.5)
+
     z = get_vertical_grids()[0] / 1000
-    for *Xs, Y in get_loader(['R', 'F'], 'tr', 4096):
-        if tag is not None:
-            output = _apply_model(tag, *Xs)
+    for i, subset in enumerate(['tr', 'te']):
+        for *Xs, Y in get_loader(['R', 'F'], subset, 4096):
+            if tag is not None:
+                output = _apply_model(tag, *Xs)
 
-        break
+            break
 
-    kdx = np.random.permutation(Y.shape[0])
-    fig, axes = plt.subplots(ncols=4)
-    fig.set_size_inches(12, 4.5)
+        kdx = np.random.permutation(Y.shape[0])
+        for j, (k, ax) in enumerate(zip(kdx, axes[i])):
+            ax.plot(1000 * Y[k], z, color='k')
 
-    for i, (k, ax) in enumerate(zip(kdx, axes)):
-        ax.plot(1000 * Y[k], z, color='k')
+            if tag is not None:
+                ax.plot(1000 * output[k], z, color='royalblue')
 
-        if tag is not None:
-            ax.plot(1000 * output[k], z, color='royalblue')
+            ax.set_xlim(-2, 2)
+            ax.set_ylim(z.min(), z.max())
+            ax.grid(color='lightgray')
 
-        ax.set_xlim(-2, 2)
-        ax.set_ylim(z.min(), z.max())
-        ax.grid(color='lightgray')
+            ax.set_xlabel('flux (mPa)')
+            name = {'tr' : 'train', 'te' : 'test'}[subset]
+            ax.set_title(f'sample {k} ({name})')
 
-        ax.set_xlabel('flux (mPa)')
-
-        if i == 0:
-            ax.set_ylabel('height (km)')
+            if j == 0:
+                ax.set_ylabel('height (km)')
 
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/training-fluxes.png')

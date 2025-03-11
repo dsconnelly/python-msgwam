@@ -27,7 +27,7 @@ n_source_max = 44
 [generation]
 filter_hours = 1
 filter_meters = 1000
-n_samples = 25000
+n_samples = 750000
 
 [architectures]
 batch_norm_pos = 1
@@ -40,6 +40,6 @@ n_per_block = 4
 [training]
 batch_size = 256
 learning_rate = 1e-3
-max_epochs = 25
+max_epochs = 20
 max_hours = 4
 weight_decay = 0

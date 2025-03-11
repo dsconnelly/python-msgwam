@@ -39,9 +39,7 @@ def save_training_data():
             gaussian_filter(ds['pmf_w'], **kwargs)
         ), axis=1)
 
-    R = np.vstack((np.zeros_like(R[:1]), R))
-    F = np.vstack((np.zeros_like(F[:1]), F))
-
+    u, S = u[1:], S[1:]
     for data, name in zip([u, S, R, F], ['u', 'S', 'R', 'F']):
         path = f'data/{config.name}/training/{name}.npy'
         np.save(add_task_info(path), data)

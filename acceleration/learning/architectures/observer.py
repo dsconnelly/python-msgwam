@@ -4,7 +4,7 @@ from msgwam import config
 
 from ...hyperparameters import architectures as hp
 from .base import BaseNet
-from .utils import get_block
+from .utils import apply_with_skips, get_block
 
 class Observer(BaseNet):
     """
@@ -18,11 +18,7 @@ class Observer(BaseNet):
         added to the intermediate outputs.
         """
 
-        output = Z
-        for block in self._blocks[:-1]:
-            output = block(output) + Z
-
-        return self._blocks[-1](output)
+        return apply_with_skips(self._blocks, Z)
 
     def _init_layers(self):
         """

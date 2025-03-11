@@ -1,9 +1,34 @@
-import torch.nn as nn
+import torch, torch.nn as nn
 
 from msgwam import config
 
 from ...hyperparameters import architectures as hp
 from ..preprocessing import get_overrides
+
+def apply_with_skips(blocks: nn.ModuleList, X: torch.Tensor) -> torch.Tensor:
+    """
+    Apply a set of modules with skip connections. It is assumed that each module
+    except the last returns a tensor that broadcasts with the input.
+
+    Parameters
+    ----------
+    blocks
+        Modules to apply.
+    X
+        Tensor to apply and use as skip connections.
+
+    Returns
+    -------
+    torch.Tensor
+        Output of last module in `blocks`.
+
+    """
+
+    output = X
+    for block in blocks[:-1]:
+        output = block(output) + X
+
+    return blocks[-1](output)
 
 def get_block(sizes: list[int], final: bool) -> nn.Sequential:
     """

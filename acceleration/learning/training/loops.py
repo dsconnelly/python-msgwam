@@ -46,6 +46,8 @@ def train_networks(phase: str, eval_type: str) -> None:
             for p in model.parameters():
                 p.requires_grad_(False)
 
+        n = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(f'{name.capitalize()} has {n} trainable parameters')
         args[name] = model
 
     kinds = get_kinds(phase)
