@@ -6,21 +6,26 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from ...hyperparameters import architectures as hp
-from .utils import get_block, get_layer_sizes, xavier_init
+from .utils import get_layer_sizes, xavier_init
 
 class BaseNet(nn.Module, ABC):
+    """
+    Abstract class for the neural networks used in the ray tracing emulator.
+    Provides input preprocessing and normalization as well as useful functions
+    at initialization time.
+    """
 
     def __init__(self) -> None:
         """
-        
+        Call functions to implement subclass-specific layer construction and
+        create input normalization layers, and then set the whole model to use
+        double precision and Xavier initialization.
         """
 
         super().__init__()
-        self._init_blocks()
+        self._init_layers()
         self._init_norms()
 
-        self._online = False
         self.apply(xavier_init)
         self.to(torch.double)
 
@@ -41,14 +46,9 @@ class BaseNet(nn.Module, ABC):
 
         """
 
-        X = self._preprocess(*Xs)
+        Xs = self._preprocess(*Xs)
+        return self._forward(*Xs)
 
-        output = X
-        for block in self._blocks[:-1]:
-            output = block(output) + X
-
-        return self._blocks[-1](output)
-    
     @classmethod
     def from_kwargs(cls, *, name: str, tag: Optional[str]=None) -> BaseNet:
         """
@@ -77,52 +77,37 @@ class BaseNet(nn.Module, ABC):
             model.load_state_dict(torch.load(path, weights_only=True))
 
         return model
-
-    @property
-    def online(self) -> bool:
-        """
-        The `online` property determines whether the neural network should
-        behave as it would during an online run. Some architectures might not
-        have different online behavior.
-        """
-
-        return self._online
     
-    @online.setter
-    def online(self, value: bool) -> None:
+    @abstractmethod
+    def _forward(self, *Xs: torch.Tensor) -> torch.Tensor:
         """
-        Set the `online` property. If the model is in training mode and `value`
-        is `True`, an error will be raised.
+        Forward function logic, called by `forward` after preprocessing. Each
+        subclass must provide an implementation based on the layers created by
+        `_init_layers` at initialization.
+
+        Parameters
+        ----------
+        Xs
+            Tensor or tensors of input information. The tensors come with any
+            necessary variable transformations applied and normalized.
+
+        Returns
+        -------
+        torch.Tensor
+            Neural network output.
+
         """
-
-        if self.training and value:
-            raise ValueError('Cannot switch to online mode in training mode')
-        
-        self._online = value
-
-    def train(self, mode: bool=True) -> None:
+        ...
+    
+    @abstractmethod
+    def _init_layers(self) -> None:
         """
-        If the model is put into training mode, the `online` property must be
-        set to `False`.
+        Initialize the layers of the neural network. Each subclass must provide
+        an implementation of this method. Layer initialization is done here and
+        not as an override to `__init__` so that it can occur before Xavier
+        initialization and proper `dtype` assignment.
         """
-
-        super().train(mode)
-
-        if mode:
-            self._online = False
-
-    def _init_blocks(self) -> None:
-        """Initialize the layers of the neural network."""
-
-        ns = get_layer_sizes(flat=True)
-        n_in = sum(map(ns.get, self._inputs))
-        self._blocks = nn.ModuleList()
-
-        for i in range(hp.n_blocks):
-            final = i == hp.n_blocks - 1
-            n_out = ns[self._output] if final else n_in
-            sizes = [n_in] + [hp.n_hidden] * (hp.n_per_block - 1) + [n_out]
-            self._blocks.append(get_block(sizes, final))
+        ...
 
     def _init_norms(self) -> None:
         """Initialize the input normalization layers."""
@@ -162,7 +147,7 @@ class BaseNet(nn.Module, ABC):
         """
         ...
 
-    def _preprocess(self, *Xs: torch.Tensor) -> torch.Tensor:
+    def _preprocess(self, *Xs: torch.Tensor) -> tuple[torch.Tensor]:
         """
         Preprocess the input tensors for computation, depending on what type of
         data each subclass accepts, and then flatten and stack the data.
@@ -184,7 +169,7 @@ class BaseNet(nn.Module, ABC):
             msg = msg + f'but got {len(Xs)}'
             raise ValueError(msg)
 
-        to_stack = []
+        outputs = []
         for name, norm, X in zip(self._inputs, self._norms, Xs):
             X_hat = torch.clone(X)
 
@@ -193,10 +178,11 @@ class BaseNet(nn.Module, ABC):
                 X_hat[:, 1] = torch.log(X_hat[:, 1])
 
             elif name == 'R':
+                idx = torch.argsort(X_hat[:, :1], dim=-1)
+                X_hat = torch.take_along_dim(X, idx, dim=-1)
                 X_hat[:, 1:3] = 2 * torch.pi / X_hat[:, 1:3]
                 X_hat[:, 3] = torch.log(X_hat[:, 3] + 1e-8)
 
-            X_hat = norm(torch.nan_to_num(X_hat))
-            to_stack.append(X_hat.flatten(1))
+            outputs.append(norm(torch.nan_to_num(X_hat)))
 
-        return torch.hstack(to_stack)
+        return tuple(outputs)

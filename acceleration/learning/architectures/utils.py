@@ -32,7 +32,7 @@ def get_block(sizes: list[int], final: bool) -> nn.Sequential:
         ]
         
         if hp.batch_norm_pos != 0:
-            k = (hp.batch_norm_pos - 5) // 2
+            k = (hp.batch_norm_pos - 3) // 2
             args.insert(k, nn.BatchNorm1d(b))
 
     if final:
