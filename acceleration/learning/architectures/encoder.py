@@ -43,14 +43,15 @@ class Encoder(BaseNet):
         while n_c * n_s > hp.n_latent:
             padding = (kernel_size - 1) // 2
             n_out = 8 if n_c == 5 else 2 * n_c
-
+            pool = min((n_out * n_s) // (2 * hp.n_latent), 4)
+            
             layer = nn.Conv1d(n_c, n_out, kernel_size, 2, padding)
-            args.extend([layer, nn.ReLU(), nn.AvgPool1d(4, 4)])
+            args.extend([layer, nn.ReLU(), nn.AvgPool1d(pool, pool)])
 
             if hp.batch_norm_pos == 1:
                 args.append(nn.BatchNorm1d(n_out))
 
-            n_c, n_s = n_out, n_s // 8
+            n_c, n_s = n_out, n_s // 2 // pool
             kernel_size = max(kernel_size - 2, 3)
 
         return nn.Sequential(*args, nn.Flatten())

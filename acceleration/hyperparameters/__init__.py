@@ -22,6 +22,8 @@ __all__ = [
     'task_id'
 ]
 
+_OPTIONS: list[str] = []
+
 grid_path: str
 task_id: int
 
@@ -59,6 +61,7 @@ def load(path: str, i: Optional[int]=None) -> None:
     
     mesh = meshgrid(*options.values(), indexing='ij')
     params = stack(mesh, axis=0).reshape(len(options), -1)
+    globals()['_OPTIONS'] = list(options.keys())
 
     if i >= params.shape[1]:
         warn('more jobs than hyperparameter settings')
@@ -66,6 +69,23 @@ def load(path: str, i: Optional[int]=None) -> None:
 
     for name, value in zip(options.keys(), params[:, i]):
         _set_hyperparameter(*name.split('.'), value)    
+
+def show_hyperparameters() -> None:
+    """Print the currently loaded set of hyperparameters."""
+
+    to_print = {}
+    for name in _OPTIONS:
+        sub_name, var_name = name.split('.')
+        value = getattr(globals()[sub_name], var_name)
+        to_print.setdefault(sub_name, {})[var_name] = value
+
+    for sub_name, params in to_print.items():
+        print(f'==== {sub_name} ====')
+
+        for var_name, value in params.items():
+            print(f'{var_name}: {value}')
+
+        print()
 
 def _parse_grid(grid: dict[str, Any]) -> tuple[dict[str, list], dict[str, Any]]:
     """

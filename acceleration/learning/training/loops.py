@@ -19,7 +19,7 @@ from .utils import get_kinds, get_pipeline_spec, get_subsets, standardize
 if TYPE_CHECKING:
     Transform = Callable[[torch.Tensor], torch.Tensor]
 
-def train_networks(phase: str, eval_type: str) -> None:
+def train_pipeline(phase: str, eval_type: str) -> None:
     """
     Train the neural networks associated with a particular phase.
 
@@ -36,6 +36,7 @@ def train_networks(phase: str, eval_type: str) -> None:
     spec = get_pipeline_spec(phase)
     subsets = get_subsets(eval_type)
     tag = 'best' if eval_type == 'test' else str(hp.task_id)
+    hp.show_hyperparameters()
 
     args = OrderedDict()
     for name, mode in spec.items():
@@ -50,10 +51,17 @@ def train_networks(phase: str, eval_type: str) -> None:
         print(f'{name.capitalize()} has {n} trainable parameters')
         args[name] = model
 
+        if name == 'encoder':
+            print(model)
+
     kinds = get_kinds(phase)
     subsets = get_subsets(eval_type)
     loader_tr = get_loader(kinds, subsets[0])
     loader_ev = get_loader(kinds, subsets[1])
+
+    print()
+    n_tr, n_ev = len(loader_tr.dataset), len(loader_ev.dataset)
+    print(f'Loaded {n_tr} training and {n_ev} evaluation samples\n')
 
     if phase == 'stepping':
         transform = args['encoder']
@@ -131,7 +139,7 @@ def _train(
             print(f'loss_tr = {loss_tr:.6f}')
             print(f'loss_ev = {loss_ev:.6f}')
 
-        if True or loss_ev < best_loss:
+        if loss_ev < best_loss:
             state['model'] = model.state_dict()
             state['optimizer'] = optimizer.state_dict()
             best_loss = loss_ev
