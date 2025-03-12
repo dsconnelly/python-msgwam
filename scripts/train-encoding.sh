@@ -15,3 +15,5 @@ job_id=$(sbatch \
     submit.slurm config/$name.toml \
         train-pipeline:encoding:validation
 )
+
+echo $job_id
