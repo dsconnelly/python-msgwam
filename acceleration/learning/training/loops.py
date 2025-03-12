@@ -51,9 +51,6 @@ def train_pipeline(phase: str, eval_type: str) -> None:
         print(f'{name.capitalize()} has {n} trainable parameters')
         args[name] = model
 
-        if name == 'encoder':
-            print(model)
-
     kinds = get_kinds(phase)
     subsets = get_subsets(eval_type)
     loader_tr = get_loader(kinds, subsets[0])
