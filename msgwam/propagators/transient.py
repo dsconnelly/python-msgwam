@@ -381,27 +381,6 @@ class TransientPropagator(Propagator):
 
         N = interp(r, mean.z_centers, mean.N)
         return get_cg_r(self.k, self.l, self.m, N)
-    
-    def _get_cp_x(self, mean: MeanState) -> np.ndarray:
-        """
-        Return the zonal phase velocity of each propagating ray volume. This
-        function is a wrapper around `get_cg_r` called with the appropriate wave
-        properties and using the buoyancy frequency at each ray's position.
-
-        Parameters
-        ----------
-        mean
-            Current mean state of the system.
-
-        Returns
-        -------
-        np.ndarray
-            Array of zonal phase velocities.
-
-        """
-
-        N = interp(self.r, mean.z_centers, mean.N)
-        return get_cp_x(self.k, self.l, self.m, N)
 
     def _get_drays_dt(self, mean: MeanState) -> np.ndarray:
         """
@@ -631,6 +610,10 @@ class TransientPropagator(Propagator):
         for A, B in zip(As, Bs):
             increment = self._get_drays_dt(mean) * dt + A * increment
             self._data[:8] = self._data[:8] + B * increment
+
+        self._data[1] = abs(self.dr)
+        self._data[1, self.dr < config.dr_min] = config.dr_min
+        self._data[1, self.dr > config.dr_max] = config.dr_max
 
         self._data[9] = self._data[9] + dt
 

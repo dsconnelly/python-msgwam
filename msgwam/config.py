@@ -21,7 +21,7 @@ spectrum_type: Literal['custom', 'from_file', 'desaubies', 'gaussians', 'mima']
 # input and output
 ################################################################################
 average_output: bool
-prescribed_wind_file: str
+prescribed_mean_file: str
 spectrum_file: str
 
 ################################################################################
@@ -65,6 +65,8 @@ n_source: int
 ################################################################################
 cfl_mode: Literal['warn', 'raise']
 dr_init: float
+dr_max: float
+dr_min: float
 jitter: bool
 max_age: int
 max_dt_multiplier: int
