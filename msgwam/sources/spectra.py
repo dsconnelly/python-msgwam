@@ -176,6 +176,36 @@ def _gaussians() -> xr.Dataset:
 
     return ds
 
+def _mima() -> xr.Dataset:
+    """
+    Constant-in-time spectrum designed to mirror the source used in the MiMA
+    test runs. Behavior varies depending on latitude. Note that this function
+    also sets the value of `config.extrinsic` based on latitude.
+    """
+
+    cp = _get_phase_velocities(config.n_source // 4)
+    arg = abs(config.latitude) - (config.lat_tropics - config.source_dlat)
+    arg = min(1, max(0, arg / (2 * config.source_dlat)))
+
+    flux_bc = config.flux_bc_tr * (1 - arg) + config.flux_bc_ex * arg
+    cp_width = config.cp_width_tr * (1 - arg) + config.cp_width_ex * arg
+    flux = np.exp(-0.5 * (cp / cp_width) ** 2)
+    flux = flux_bc * flux / flux.sum() / 2
+
+    extrinsic = abs(config.latitude) > config.lat_tropics
+    config.force(extrinsic=extrinsic, flux_bc=flux_bc)
+
+    phi = np.linspace(0, 3 * np.pi / 2, 4)
+    data = {'phi' : phi, 'cp' : cp}
+    ones = np.ones_like(cp)
+
+    data['dk'] = ('cp', config.dk_init * ones)
+    data['dl'] = ('cp', config.dl_init * ones)
+    data['omega_hat'] = ('cp', 2 * np.pi * ones / config.T_hat_source)
+    data['flux'] = ('cp', flux)
+
+    return xr.Dataset(data)
+
 def _get_phase_velocities(n: int) -> np.ndarray:
     """
     Return a grid of zonal phase velocities at source ray volume centers.

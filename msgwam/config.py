@@ -15,7 +15,7 @@ _DEFAULTS = {}
 mean_state_type: Literal['interactive', 'prescribed']
 propagator_type: Literal['instantaneous', 'network', 'transient']
 source_type: Literal['constant', 'network', 'packet', 'stochastic']
-spectrum_type: Literal['custom', 'from_file', 'desaubies', 'gaussians']
+spectrum_type: Literal['custom', 'from_file', 'desaubies', 'gaussians', 'mima']
 
 ################################################################################
 # input and output
@@ -37,6 +37,7 @@ n_day: int
 boussinesq: bool
 geostrophic : bool
 H_rho: float
+latitude : float
 n_grid: int
 N_ref: float
 rho_ref: float
@@ -120,12 +121,44 @@ tau_cutoff_days: float
 seed: int
 
 ################################################################################
+# 'mima' spectrum
+################################################################################
+flux_bc_ex: float
+flux_bc_tr: float
+cp_width_ex: float
+cp_width_tr: float
+lat_tropics: float
+source_dlat: float
+T_hat_source: float
+
+################################################################################
 # derived settings
 ################################################################################
 f: float
 name: str
 n_skip: int
 n_steps: int
+
+def force(**kwargs) -> None:
+    """
+    Force a configuration value to take a particular value for the rest of the
+    program's execution (or until it is otherwise modified). Should be used only
+    when absolutely necessary; otherwise, `override` is preferred. This function
+    modifies the contents of `DEFAULTS`, so the original configuration settings
+    will not be able to be recovered.
+
+    Parameters
+    ----------
+    kwargs
+        Pairs of configuration keys and values to permanently override.
+
+    """
+
+    for key, value in kwargs.items():
+        print(f'Forcing config.{key} = {value}')
+
+    _DEFAULTS.update(kwargs)
+    _update(_DEFAULTS)
 
 def load(path: str) -> None:
     """
@@ -191,7 +224,7 @@ def _add_derived(config: dict[str, Any]) -> None:
     config['n_steps'] = int(86400 * config['n_day'] / config['dt']) + 1
     config['n_skip'] = round(config['dt_output'] / config['dt'])
 
-    latitude = np.deg2rad(config.pop('latitude'))
+    latitude = np.deg2rad(config['latitude'])
     config['f'] = 2 * ROT_EARTH * np.sin(latitude)
 
 def _is_valid(value: Any, annotation: Any) -> bool:
