@@ -6,7 +6,7 @@ import numpy as np
 
 from .. import config
 from ..constants import PROP_NAMES
-from ..dispersion import get_cg_r, get_cp_x, get_omega_hat
+from ..dispersion import get_cg_r, get_gamma, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
@@ -222,7 +222,9 @@ class TransientPropagator(Propagator):
         """
 
         omega_hat = self._get_omega_hat(mean)
-        wvn_sq = self.k ** 2 + self.l ** 2 + self.m ** 2
+        wvn_hor_sq = self.k ** 2 + self.l ** 2
+        wvn_ver_sq = self.m ** 2 + get_gamma() ** 2
+        wvn_sq = wvn_hor_sq + wvn_ver_sq
 
         nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f ** 2 / (omega_hat ** 2))
@@ -230,10 +232,10 @@ class TransientPropagator(Propagator):
 
         if config.n_chromatic == 0:
             return
-        
-        threshold = mean.rho * mean.N ** 2 / 2
-        S = self.m ** 2 * omega_hat * self.action
 
+        threshold = mean.rho / 2
+        S = self.action * wvn_hor_sq * wvn_ver_sq / (omega_hat * wvn_sq)
+        
         if config.n_chromatic == -1:
             pdx = np.zeros(self._n_max).astype(int)
         else:

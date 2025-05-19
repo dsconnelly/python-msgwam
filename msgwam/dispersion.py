@@ -94,7 +94,7 @@ def get_gamma() -> float:
 
     """
 
-    return (1 / 2 - 2 / 7) / config.H_rho
+    return (1 / 2 - 2 / 7) / (2 * config.H_rho)
 
 def get_m(
     k: np.ndarray,

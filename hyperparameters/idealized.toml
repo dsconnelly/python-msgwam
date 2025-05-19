@@ -1,18 +1,18 @@
 [scenarios]
 amp_max = 55
 components = 'x'
-height_scale_cutoff = 5e3
-height_scale_decay = 1e3
+height_scale_cutoff = 8e3
+height_scale_decay = 3e3
 noise_amplitude = 8
 osc_bottom = 14e3
 osc_top = 56e3
-period_max = 4
+period_max = 6
 period_min = 0.5
 spectrum_type = 'gaussians'
 time_scale_cutoff = 5
 time_scale_decay = 1
-wvl_max = 10e3
-wvl_min = 250
+wvl_max = 30e3
+wvl_min = 500
 wvl_power = 2
 
 [strategies]
