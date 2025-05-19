@@ -31,7 +31,7 @@ def save_mean_state(scenario: str, *args: str) -> None:
     """
 
     with config.override(n_grid=401, dt=30):
-        path = config.prescribed_wind_file
+        path = config.prescribed_mean_file
         scenario = scenario.replace('-', '_')
         globals()[f'get_{scenario}'](*args).to_netcdf(path)
 

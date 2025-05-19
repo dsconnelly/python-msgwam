@@ -38,7 +38,7 @@ def _get_coarse_overrides() -> dict[str, Any]:
 def _get_ICONlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that in Bölöni et al. (2020)."""
 
-    return {'dr_init' : 1000, 'n_source' : 48, 'n_max' : 2500, 'jitter' : True}
+    return {'dr_init' : 1000, 'n_source' : 24, 'n_max' : 1250, 'jitter' : True}
 
 def _get_instantaneous_overrides() -> dict[str, Any]:
     """

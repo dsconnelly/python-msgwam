@@ -27,7 +27,7 @@ def plot_mean_state() -> None:
     """
 
     components = map(_WIND_COMPONENTS.get, hp.components)
-    with open_dataset(config.prescribed_wind_file) as ds:
+    with open_dataset(config.prescribed_mean_file) as ds:
         datas = {f'$\\bar{{{c}}}$' : ds[c] for c in components}
         units = ['m / s'] * len(datas)
         amaxes = [80] * len(datas)
