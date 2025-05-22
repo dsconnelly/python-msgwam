@@ -6,7 +6,7 @@ dep_arg=$2
 if [[ $name == icon* ]]; then
     arg=""
 else
-    arg="save-mean-state:descending-jets"
+    arg="save-mean-state:gated-oscillation"
 fi
 
 job_id=$(sbatch \
