@@ -110,8 +110,11 @@ def _parse_grid(grid: dict[str, Any]) -> tuple[dict[str, list], dict[str, Any]]:
     options, constants = {}, {}
     for sub_name, subgrid in grid.items():
         for var_name, value in subgrid.items():
-            key = f'{sub_name}.{var_name}'
+            if var_name.endswith('_t'):
+                var_name = var_name[:-2]
+                value = tuple(value)
 
+            key = f'{sub_name}.{var_name}'
             if isinstance(value, list):
                 options[key] = value
 

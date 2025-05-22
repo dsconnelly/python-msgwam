@@ -6,48 +6,53 @@ import xarray as xr
 
 from msgwam import config
 from msgwam.constants import EPOCH
-from msgwam.utils import get_vertical_grids, make_colored_noise
+from msgwam.utils import get_vertical_grids, make_colored_noise as noise
 
 from ..hyperparameters import scenarios as hp
 
-from .utils import get_background_noise
+def get_gated_oscillation(seed: int=177485) -> xr.Dataset:
+    """
+    Generate a mean wind scenario consisting of a low-level jet, which acts as a
+    rapidly opening and closing gate to certain chunks of the source spectrum,
+    and an upper-level descending oscillation, which provides shear zones in
+    those waves that make it through the gate deposit momentum.
+    """
 
-def get_descending_jets(seed: int=123) -> xr.Dataset:
-    """
-    Generate a mean wind scenario consisting of an upper-atmosphere oscillation
-    with (possibly) varying period. The lower atmosphere features a much slower
-    oscillation so that no section of the spectrum is systematically filtered.
-    """
+    if seed is None:
+        seed = np.random.randint(int(1e6))
+        print(f'Using random seed {seed}')
 
     rng = np.random.default_rng(seed)
     n_steps = int(86400 * config.n_day / config.dt) + 1
     seconds = config.dt * np.arange(n_steps)
+    days = seconds / 86400
 
     units = f'seconds since {EPOCH}'
     time = cftime.num2date(seconds, units)
     _, z = get_vertical_grids()
 
-    decays = [86400 * hp.time_scale_decay, hp.height_scale_decay]
-    cutoffs = [86400 * hp.time_scale_cutoff, hp.height_scale_cutoff]
-    bounds = np.array([hp.wvl_min, hp.wvl_max]) ** (1 / hp.wvl_power)
+    a, b = hp.gate_open
+    a, b = hp.gate_closed - a, a - b
+    amp = a + b * noise(days, *hp.time_scales, 0, 1, rng) ** 2
+    gate = hp.gate_closed - amp * np.cos(2 * np.pi * days / hp.gate_period) ** 4
 
-    wvl = make_colored_noise([seconds, z], decays, cutoffs, *bounds, rng)
-    phase = np.cumsum(1 / wvl ** hp.wvl_power, axis=1) * (z[1] - z[0])
+    z_gate = noise(days, *hp.time_scales, *hp.z_gate_bounds, rng)
+    env = np.exp(-0.5 * ((z - z_gate[:, None]) / hp.gate_width) ** 2)
+    u = env * gate[:, None]
 
-    bounds = [86400 * hp.period_min, 86400 * hp.period_max]
-    period = make_colored_noise(seconds, decays[0], cutoffs[0], *bounds, rng)
-    k = (np.diff(phase, axis=0, append=phase[-1:]) / config.dt).mean(axis=1)
-    phase = phase + np.cumsum(1 / period - k)[:, None] * config.dt
+    tides = np.sin(2 * np.pi * (days[:, None] + z / hp.wvl))
+    z_tide = noise(days, *hp.time_scales, *hp.z_tide_bounds, rng)
+    env = _make_env(z, z_tide[:, None], width=hp.shear_width)
+    u = u + env * hp.wave_amp * tides
 
-    t = (z - hp.osc_bottom) / (hp.osc_top - hp.osc_bottom)
-    amp = (1 - t) * hp.noise_amplitude + t * (hp.amp_max)
-    amp = np.clip(amp, hp.noise_amplitude, hp.amp_max)
-
-    env = _make_env(z, hp.osc_bottom, hp.osc_top)
-    u = env * amp * np.exp(2j * np.pi * phase).real    
-    u = u + get_background_noise(seconds, z, rng)
+    u = u + hp.noise_amp * noise(
+        [days, z],
+        hp.noise_decays,
+        hp.noise_cutoffs,
+        rng=rng
+    )
+    
     v = np.zeros_like(u)
-
     data = {'time' : time, 'z_centers' : z}
     data['u'] = (('time', 'z_centers'), u)
     data['v'] = (('time', 'z_centers'), v)
@@ -58,7 +63,7 @@ def _make_env(
     z: np.ndarray,
     z_bot: Optional[float]=None,
     z_top: Optional[float]=None,
-    decay: float=1e3
+    width: float | tuple[float, float]=1e3
 ) -> np.ndarray:
     """
     Make an envelope that selects certain regions of the column.
@@ -70,7 +75,7 @@ def _make_env(
     z_bot, z_top
         Lower and upper decay locations, respectively. If either is `None`, the
         envelope will not decay in that direction.
-    decay
+    width
         Scale at which the rolloff should happen.
 
     Returns
@@ -81,15 +86,14 @@ def _make_env(
     """
 
     if isinstance(z_bot, np.ndarray) or isinstance(z_top, np.ndarray):
-        env = np.ones((43201, 400))
-
+        env = np.ones((config.n_steps, config.n_grid - 1))
     else:
         env = np.ones_like(z)
 
     if z_bot is not None:
-        env[z < z_bot] = np.exp(-0.5 * ((z - z_bot) / decay) ** 2)[z < z_bot]
+        env[z < z_bot] = np.exp(-0.5 * ((z - z_bot) / width) ** 2)[z < z_bot]
 
     if z_top is not None:
-        env[z > z_top] = np.exp(-0.5 * ((z - z_top) / decay) ** 2)[z > z_top]
+        env[z > z_top] = np.exp(-0.5 * ((z - z_top) / width) ** 2)[z > z_top]
 
     return env

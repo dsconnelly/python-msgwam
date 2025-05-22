@@ -1,19 +1,21 @@
 [scenarios]
-amp_max = 55
+
 components = 'x'
-height_scale_cutoff = 8e3
-height_scale_decay = 3e3
-noise_amplitude = 8
-osc_bottom = 14e3
-osc_top = 56e3
-period_max = 6
-period_min = 0.5
 spectrum_type = 'gaussians'
-time_scale_cutoff = 5
-time_scale_decay = 1
-wvl_max = 30e3
-wvl_min = 500
-wvl_power = 2
+
+gate_closed = 55
+gate_open_t = [35, -45]
+gate_period = 3.1
+gate_width = 2e3
+noise_amp = 20
+noise_cutoffs_t = [0.1, 1.2e3]
+noise_decays_t = [1, 5e3]
+shear_width = 3e3
+time_scales_t = [4, 2]
+wave_amp = 55
+wvl = 10e3
+z_gate_bounds_t = [18e3, 22e3]
+z_tide_bounds_t = [44e3, 55e3]
 
 [strategies]
 dr_min = 500

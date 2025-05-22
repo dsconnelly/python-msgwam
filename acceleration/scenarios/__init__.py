@@ -4,7 +4,7 @@ from msgwam.sources import spectra
 from ..hyperparameters import scenarios as hp
 
 from .icon import get_ICON
-from .idealized import get_descending_jets
+from .idealized import get_gated_oscillation
 from .plotting import plot_mean_state, plot_mean_scales, plot_spectrum
 
 __all__ = [

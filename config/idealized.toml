@@ -25,7 +25,7 @@ n_day = 10
 ################################################################################
 boussinesq = false
 H_rho = 7e3
-latitude = 10
+latitude = 30
 n_grid = 401
 N_ref = 0.015
 rho_ref = 1.2
@@ -43,7 +43,7 @@ mu = 1e-3
 ################################################################################
 c_max = 50
 dt_launch = -1
-extrinsic = false
+extrinsic = true
 flux_bc = 5e-3
 n_source = 8
 
@@ -51,7 +51,7 @@ n_source = 8
 # 'transient' propagator
 ################################################################################
 cfl_mode = 'warn'
-dr_init = 3000
+dr_init = 4000
 dr_max = 10000
 dr_min = 50
 jitter = false
@@ -73,16 +73,16 @@ epsilon = 1
 ################################################################################
 # 'gaussians' spectrum
 ################################################################################
-c_his = [35, -10]
-c_los = [10, -35]
-c_width_in = 10
-c_width_out = 20
+c_his = [0]
+c_los = [0]
+c_width_in = 40
+c_width_out = 40
 direction = 0
 dk_init = 1e-4
 dl_init = 1e-4
 n_axes = 1
 T_hat_lo = 3
 T_hat_hi = 18
-tau_corr_days = 6
-tau_cutoff_days = 3
+tau_corr_days = 3
+tau_cutoff_days = 1
 seed = 123
