@@ -10,7 +10,7 @@ spectrum_type = 'from_file'
 # input and output
 ################################################################################
 average_output = true
-prescribed_mean_file = 'data/idealized/input/descending-jets.nc'
+prescribed_mean_file = 'data/idealized/input/mean-state.nc'
 spectrum_file = 'data/idealized/input/spectrum.nc'
 
 ################################################################################
@@ -24,10 +24,13 @@ n_day = 30
 # mean state
 ################################################################################
 boussinesq = false
+H_N = 15e3
 H_rho = 7e3
 latitude = 30
 n_grid = 401
-N_ref = 0.015
+N_ref_max = 0.02
+N_ref_min = 0.01
+N_ref_noise = 0.0015
 rho_ref = 1.2
 z_max = 60e3
 z_min = 10e3

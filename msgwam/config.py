@@ -1,3 +1,4 @@
+import termcolor
 import tomllib
 
 from contextlib import contextmanager
@@ -36,10 +37,13 @@ n_day: int
 ################################################################################
 boussinesq: bool
 geostrophic : bool
+H_N: float
 H_rho: float
 latitude : float
 n_grid: int
-N_ref: float
+N_ref_max: float
+N_ref_min: float
+N_ref_noise: float
 rho_ref: float
 w_star: float
 z_max: float
@@ -157,7 +161,8 @@ def force(**kwargs) -> None:
     """
 
     for key, value in kwargs.items():
-        print(f'Forcing config.{key} = {value}')
+        message = f'Forcing config.{key} = {value}'
+        print(termcolor.colored(message, 'red'))
 
     _DEFAULTS.update(kwargs)
     _update(_DEFAULTS)

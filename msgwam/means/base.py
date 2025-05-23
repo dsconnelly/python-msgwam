@@ -5,10 +5,12 @@ from typing import TYPE_CHECKING, Self
 import numpy as np
 
 from .. import config
-from ..utils import FactoryABC, get_rho, get_vertical_grids
+from ..utils import FactoryABC, get_rho, get_vertical_grids, make_colored_noise
 
 if TYPE_CHECKING:
     from ..propagators import Propagator
+
+_SEED = 111
 
 class MeanState(FactoryABC):
     def __init__(self) -> None:
@@ -86,8 +88,17 @@ class MeanState(FactoryABC):
 
         """
 
-        return config.N_ref * np.ones_like(self.z_centers)
-    
+        z_mid = (config.z_min + config.z_max) / 2
+        t = np.tanh((self.z_centers - z_mid) / config.H_N)
+        a = config.N_ref_max - config.N_ref_min
+        N = config.N_ref_min + a * (t + 1) / 2
+
+        rng = np.random.default_rng(_SEED)
+        scales = [config.H_N, 0.25 * config.H_N]
+        noise = make_colored_noise(self.z_centers, *scales, rng=rng)
+
+        return N + config.N_ref_noise * noise
+
     def _init_nu(self) -> np.ndarray:
         """
         Initialize the kinematic viscosity profile.
