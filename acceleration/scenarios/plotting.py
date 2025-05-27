@@ -98,7 +98,7 @@ def plot_mean_scales() -> None:
     """Plot power spectra in time and height for the loaded mean wind."""
 
     components = map(_WIND_COMPONENTS.get, hp.components)
-    with open_dataset(config.prescribed_wind_file) as ds:
+    with open_dataset(config.prescribed_mean_file) as ds:
         winds = {c : ds[c].values for c in components}
         z = ds['z_centers'].values / 1000
 

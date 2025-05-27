@@ -7,7 +7,7 @@ gate_closed = 55
 gate_open_t = [35, -45]
 gate_period = 3.1
 gate_width = 2e3
-noise_amp = 20
+noise_amp = 10
 noise_cutoffs_t = [0.1, 1.2e3]
 noise_decays_t = [1, 5e3]
 shear_width = 3e3
@@ -15,9 +15,10 @@ time_scales_t = [4, 2]
 wave_amp = 55
 wvl = 10e3
 z_gate_bounds_t = [18e3, 22e3]
-z_tide_bounds_t = [44e3, 55e3]
+z_tide_bounds_t = [46e3, 58e3]
 
 [strategies]
+debug = false
 dr_min = 500
 dr_max = 5000
 n_dr = 10

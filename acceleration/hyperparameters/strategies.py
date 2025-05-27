@@ -1,3 +1,4 @@
+debug: bool
 dr_min: int
 dr_max: int
 n_dr: int

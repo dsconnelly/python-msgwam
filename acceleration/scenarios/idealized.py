@@ -33,7 +33,7 @@ def get_gated_oscillation(seed: int=177485) -> xr.Dataset:
 
     a, b = hp.gate_open
     a, b = hp.gate_closed - a, a - b
-    amp = a + b * noise(days, *hp.time_scales, 0, 1, rng) ** 2
+    amp = a + b * noise(days, *hp.time_scales, 0, 1, rng)
     gate = hp.gate_closed - amp * np.cos(2 * np.pi * days / hp.gate_period) ** 4
 
     z_gate = noise(days, *hp.time_scales, *hp.z_gate_bounds, rng)

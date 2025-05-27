@@ -2,6 +2,8 @@ from typing import Any
 
 from msgwam import config
 
+from ..hyperparameters import strategies as hp
+
 def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     """
     Load the configuration overrides particular to a given strategy. Implemented
@@ -50,6 +52,13 @@ def _get_instantaneous_overrides() -> dict[str, Any]:
 
 def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""
+
+    if hp.debug:
+        return {
+            'dr_init' : 250,
+            'n_source' : 96,
+            'n_max' : 100_000
+        }
 
     return {
         'dt' : 30,
