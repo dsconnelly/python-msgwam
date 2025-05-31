@@ -225,6 +225,13 @@ def _add_derived(config: dict[str, Any]) -> None:
     
     """
 
+    for k, v in config.items():
+        if not k.endswith('file'):
+            continue
+
+        data_dir = 'data/' + config['name']
+        config[k] = v.replace('DATA_DIR', data_dir)
+
     if config['dt_launch'] < 0:
         config['dt_launch'] = config['dt']
 

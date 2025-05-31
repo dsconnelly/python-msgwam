@@ -5,6 +5,8 @@ dep_arg=$2
 
 if [[ $name == icon* ]]; then
     arg=""
+elif [[ $name == mima* ]]; then
+    arg="save-mean-state:mima-scenario"
 else
     arg="save-mean-state:gated-oscillation"
 fi

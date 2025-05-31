@@ -62,30 +62,47 @@ def save_coarsenings() -> None:
             ds = get_integration().mean('member')
             ds.to_netcdf(_get_path(dr, n_source))
 
-def update_config() -> None:
+def update_config(*rnames: list[str]) -> None:
     """
     Update the values of `dr_init` and `n_source` in the loaded configuration
     file to the best values found during the grid search.
+
+    Parameters
+    ----------
+    dnames
+        List of run names to use in choosing the best coarse coordinates. Allows
+        the optimization to be performed over multiple integrations and the best
+        coarse values to be set for all integrations.
+
     """
 
-    ds = get_coarse_errors()
-    errors = (ds['error'] / ds['rms']).mean(['component', 'z_faces'])
+    if not rnames:
+        rnames = [config.name]
+
+    errors = 0
+    for rname in rnames:
+        with config.override(name=rname):
+            dims = ['component', 'z_faces']
+            get_norms = lambda ds: (ds['error'] / ds['rms']).mean(dims)
+            errors = errors + get_norms(get_coarse_errors())
+
     i, j = (da.item() for da in errors.argmin(...).values())
 
-    with open(f'config/{config.name}.toml') as f:
-        lines = f.readlines()
+    for rname in rnames:
+        with open(f'config/{rname}.toml') as f:
+            lines = f.readlines()
 
-    drs, n_sources = _get_grid()
-    with open(f'config/{config.name}.toml', 'w') as f:
-        for line in lines:
-            if line.startswith('dr_init'):
-                f.write(f'dr_init = {drs[i]}\n')
+        drs, n_sources = _get_grid()
+        with open(f'config/{rname}.toml', 'w') as f:
+            for line in lines:
+                if line.startswith('dr_init'):
+                    f.write(f'dr_init = {drs[i]}\n')
 
-            elif line.startswith('n_source'):
-                f.write(f'n_source = {n_sources[j]}\n')
+                elif line.startswith('n_source'):
+                    f.write(f'n_source = {n_sources[j]}\n')
 
-            else:
-                f.write(line)
+                else:
+                    f.write(line)
 
 def _get_grid() -> tuple[list[int], list[int]]:
     """
