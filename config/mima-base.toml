@@ -10,7 +10,7 @@ spectrum_type = 'mima'
 # input and output
 ################################################################################
 average_output = true
-prescribed_mean_file = 'DATA_DIR/input/descending-jets.nc'
+prescribed_mean_file = 'DATA_DIR/input/mean-state.nc'
 spectrum_file = 'DATA_DIR/input/spectrum.nc'
 
 ################################################################################
@@ -18,7 +18,7 @@ spectrum_file = 'DATA_DIR/input/spectrum.nc'
 ################################################################################
 dt = 120
 dt_output = 14400
-n_day = 360
+n_day = 30
 
 ################################################################################
 # mean state

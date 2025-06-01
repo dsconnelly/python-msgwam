@@ -14,6 +14,14 @@ for i in "${!sites[@]}"; do
     site=${sites[i]}
     lat=${lats[i]}
 
+    case $site in
+        "new-york"|"singapore"|"amundsen-sea")
+            ;;
+        *)
+            continue
+            ;;
+    esac
+
     cp config/mima-base.toml config/mima-$site.toml
     cp hyperparameters/mima-base.toml hyperparameter/mima-$site.toml
     sed -i "s/^latitude = .*/latitude = $lat/" config/mima-$site.toml
@@ -39,5 +47,14 @@ job_id=$(sbatch \
 
 for i in "${!sites[@]}"; do
     site=${sites[i]}
-    ./submit.sh mima-$site save-baselines
+
+    case $site in
+        "new-york"|"singapore"|"amundsen-sea")
+            ;;
+        *)
+            continue
+            ;;
+    esac
+
+    ./submit.sh -d $job_id mima-$site save-baselines
 done
