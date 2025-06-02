@@ -228,8 +228,15 @@ class TransientPropagator(Propagator):
 
         nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f ** 2 / (omega_hat ** 2))
-        self._data[8] = self.dens * np.exp(-config.dt * damping)
+        damping = np.exp(-config.dt * damping)
 
+        if config.n_sponge > 0:
+            gap = mean.z_faces[-1] - self.r
+            idx = self.r > mean.z_faces[-(config.n_sponge + 1)]
+            sponge = 1 - (self._get_cg_r(mean) * config.dt / gap)
+            damping[idx] = np.minimum(np.maximum(sponge[idx], 0), 1)
+
+        self._data[8] = self.dens * damping
         if config.n_chromatic == 0:
             return
 

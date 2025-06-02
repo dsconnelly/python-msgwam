@@ -79,6 +79,7 @@ min_flux: float
 n_chromatic: int
 n_increment: int
 n_max: int
+n_sponge: int
 prune_by: Literal['energy', 'none', 'random']
 shapiro_filter: bool
 

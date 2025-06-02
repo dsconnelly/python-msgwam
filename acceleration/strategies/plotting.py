@@ -278,7 +278,7 @@ def _get_plot_specs(
     factors = [1e3, 86400]
 
     units = ['mPa', 'm / s / day']
-    amaxes = [3, 40]
+    amaxes = [10, 40]
 
     wind = {'x' : 'u', 'y' : 'v'}[c]
     if config.mean_state_type == 'interactive':
