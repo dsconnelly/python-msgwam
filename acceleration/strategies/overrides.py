@@ -63,12 +63,11 @@ def _get_reference_overrides() -> dict[str, Any]:
     return {
         'dt' : 30,
         'dr_init' : 100,
-        'dr_min' : 20,
-        'n_source' : 100,
+        'n_source' : 60,
         'n_max' : int(250e3),
         'n_increment' : 1000,
         'prune_by' : 'none',
-        'max_dt_multiplier' : 6
+        'max_dt_multiplier' : 1
     }
 
 def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:

@@ -69,7 +69,7 @@ def update_config(*rnames: list[str]) -> None:
 
     Parameters
     ----------
-    dnames
+    rnames
         List of run names to use in choosing the best coarse coordinates. Allows
         the optimization to be performed over multiple integrations and the best
         coarse values to be set for all integrations.

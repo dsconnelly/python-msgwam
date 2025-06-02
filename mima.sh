@@ -7,6 +7,22 @@ sites=($(ncdump -v site -l 1000 data/mima-scenarios.nc | tail \
 lats=($(ncdump -v lat -l 1000 data/mima-scenarios.nc \
     | awk '/lat = / {gsub(/[;,]/, ""); for(i=3; i<=NF; i++) print $i}'))
 
+is_calibration() {
+    case "$1" in
+        "copenhagen"   | \
+        "new-york"     | \
+        "miami"        | \
+        "singapore"    | \
+        "santiago"     | \
+        "amundsen-sea" )
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 job_ids=()
 rnames=()
 
@@ -22,13 +38,9 @@ for i in "${!sites[@]}"; do
         extr="false"
     fi
 
-    case $site in
-        "new-york"|"singapore"|"amundsen-sea")
-            ;;
-        *)
-            continue
-            ;;
-    esac
+    if ! is_calibration "$site"; then
+        continue
+    fi
 
     cp config/mima-base.toml config/mima-$site.toml
     cp hyperparameters/mima-base.toml hyperparameters/mima-$site.toml
@@ -57,13 +69,9 @@ job_id=$(sbatch \
 for i in "${!sites[@]}"; do
     site=${sites[i]}
 
-    case $site in
-        "new-york"|"singapore"|"amundsen-sea")
-            ;;
-        *)
-            continue
-            ;;
-    esac
+    if ! is_calibration "$site"; then
+        continue
+    fi
 
     ./submit.sh -d $job_id mima-$site save-baselines
 done
