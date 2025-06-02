@@ -145,28 +145,6 @@ name: str
 n_skip: int
 n_steps: int
 
-def force(**kwargs) -> None:
-    """
-    Force a configuration value to take a particular value for the rest of the
-    program's execution (or until it is otherwise modified). Should be used only
-    when absolutely necessary; otherwise, `override` is preferred. This function
-    modifies the contents of `DEFAULTS`, so the original configuration settings
-    will not be able to be recovered.
-
-    Parameters
-    ----------
-    kwargs
-        Pairs of configuration keys and values to permanently override.
-
-    """
-
-    for key, value in kwargs.items():
-        message = f'Forcing config.{key} = {value}'
-        print(termcolor.colored(message, 'red'))
-
-    _DEFAULTS.update(kwargs)
-    _update(_DEFAULTS)
-
 def load(path: str) -> None:
     """
     Load configuration data from a TOML file and update the module namespace so

@@ -32,6 +32,12 @@ def plot_mean_state() -> None:
         units = ['m / s'] * len(datas)
         amaxes = [80] * len(datas)
 
+        if ('flux_x' in ds) and ('flux_y' in ds):
+            datas['$F_{x}$'] = 1000 * ds['flux_x']
+            datas['$F_{y}$'] = 1000 * ds['flux_y']
+            units = units + ['mPa'] * 2
+            amaxes = amaxes + [10] * 2
+
     plot_summaries(datas, amaxes=amaxes, units=units)
     plt.savefig(f'plots/{config.name}/mean-state.png', dpi=400)
 

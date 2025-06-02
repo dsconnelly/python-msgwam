@@ -55,15 +55,16 @@ def _get_reference_overrides() -> dict[str, Any]:
 
     if hp.debug:
         return {
-            'dr_init' : 250,
+            'dr_init' : 200,
             'n_source' : 96,
             'n_max' : 100_000
         }
 
     return {
         'dt' : 30,
-        'dr_init' : 50,
-        'n_source' : 144,
+        'dr_init' : 100,
+        'dr_min' : 20,
+        'n_source' : 100,
         'n_max' : int(250e3),
         'n_increment' : 1000,
         'prune_by' : 'none',

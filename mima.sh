@@ -14,6 +14,14 @@ for i in "${!sites[@]}"; do
     site=${sites[i]}
     lat=${lats[i]}
 
+    lat_tropics="25"
+    abs_lat=$(echo "if ($lat < 0) -1 * $lat else $lat" | bc)
+    if (( $(echo "$abs_lat > $lat_tropics" | bc) )); then
+        extr="true"
+    else
+        extr="false"
+    fi
+
     case $site in
         "new-york"|"singapore"|"amundsen-sea")
             ;;
@@ -23,8 +31,9 @@ for i in "${!sites[@]}"; do
     esac
 
     cp config/mima-base.toml config/mima-$site.toml
-    cp hyperparameters/mima-base.toml hyperparameter/mima-$site.toml
+    cp hyperparameters/mima-base.toml hyperparameters/mima-$site.toml
     sed -i "s/^latitude = .*/latitude = $lat/" config/mima-$site.toml
+    sed -i "s/^extrinsic = .*/extrinsic = $extr/" config/mima-$site.toml
 
     job_ids+=($(./submit.sh mima-$site save-reference save-coarsenings))
     rnames+=("mima-${site}")
@@ -38,8 +47,8 @@ job_id=$(sbatch \
     --ntasks=1 \
     --mem=32G \
     --time=1:00:00 \
-    -J update \
-    -o logs/$name/coarsening-update.out \
+    -J group-update \
+    -o logs/mima-$site/coarsening-update.out \
     --dependency=afterok:${dep_list} \
     submit.slurm config/mima-$site.toml \
         update-config:${rname_args}

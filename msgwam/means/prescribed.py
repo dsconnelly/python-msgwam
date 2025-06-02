@@ -37,6 +37,6 @@ class PrescribedWind(MeanState):
             self._wind = np.stack((ds['u'], ds['v']), axis=1)
 
             if 'N' in ds:
-                self._N = ds['N']
+                self._N = ds['N'].values
 
         return self._wind[0]

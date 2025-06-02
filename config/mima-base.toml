@@ -1,10 +1,10 @@
 ################################################################################
 # global integration settings
 ################################################################################
-mean_state_type = 'interactive'
+mean_state_type = 'prescribed'
 propagator_type = 'transient'
 source_type = 'constant'
-spectrum_type = 'mima'
+spectrum_type = 'from_file'
 
 ################################################################################
 # input and output
@@ -55,6 +55,8 @@ n_source = 16
 ################################################################################
 cfl_mode = 'warn'
 dr_init = 2500
+dr_max = 10000
+dr_min = 50
 jitter = false
 max_age = -1
 max_dt_multiplier = 10

@@ -585,10 +585,10 @@ class TransientPropagator(Propagator):
         elif config.prune_by == 'random':
             criterion = np.random.rand(self._n_max)
 
-        idx = np.argsort(criterion)
-        r_lo = self.r - 0.5 * self.dr
-        keep = (r_lo > config.z_min)[idx] & self._valid[idx]
-        self._delete_rays(idx[keep][:excess])
+        ubound = np.nanmax(criterion)
+        criterion[~self._valid] = 3 * ubound
+        criterion[self.r - 0.5 * self.dr < config.z_min] = 2 * ubound
+        self._delete_rays(np.argsort(criterion)[:excess])
 
     def _take_RK3_step(self, mean: MeanState, dt: int) -> None:
         """

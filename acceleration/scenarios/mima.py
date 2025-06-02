@@ -40,15 +40,21 @@ def get_mima_scenario() -> xr.Dataset:
         time = cftime.num2date(time - time[0], f'minutes since {EPOCH}')
         data = {'time' : time, 'z_centers' : z}
 
-        grav, c_p = 9.8, 10004
+        grav, c_p, N_min = 9.8, 10004, 0.005
         T = xr.DataArray(ds['T'].values, {'T' : time, 'z' : z})
-        N2 = ((grav / T) * (T.differentiate('z') + grav / c_p)).values
-        N = np.sqrt(np.maximum(N2, 0.005 ** 2))
+        N2 = ((grav / T) * (T.differentiate('z') + grav / c_p))
+        N2 = np.maximum(N2, N_min ** 2)
 
         data['u'] = (('time', 'z_centers'), ds['u'].values)
         data['v'] = (('time', 'z_centers'), ds['v'].values)
-        data['N'] = (('time', 'z_centers'), N)
+        data['N'] = (('time', 'z_centers'), np.sqrt(N2.values))
+
+        data['flux_x'] = (('time', 'z_centers'), ds['gw_flux_x'].values)
+        data['flux_y'] = (('time', 'z_centers'), ds['gw_flux_y'].values)
 
     _, z_centers = get_vertical_grids()
     kwargs = {'fill_value' : 'extrapolate'}
-    return xr.Dataset(data).interp(z_centers=z_centers, kwargs=kwargs)
+    ds = xr.Dataset(data).interp(z_centers=z_centers, kwargs=kwargs)
+    ds['N'] = np.maximum(ds['N'], N_min)
+
+    return ds

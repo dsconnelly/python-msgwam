@@ -1,6 +1,6 @@
 [scenarios]
 
-components = 'x'
+components = 'xy'
 spectrum_type = 'mima'
 
 # gate_closed = 55
@@ -18,7 +18,7 @@ spectrum_type = 'mima'
 # z_tide_bounds_t = [46e3, 58e3]
 
 [strategies]
-debug = false
+debug = true
 dr_min = 500
 dr_max = 5000
 n_dr = 10
