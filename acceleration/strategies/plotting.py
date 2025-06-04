@@ -104,7 +104,7 @@ def plot_coarse_errors() -> None:
     curve = ds['rms'].mean('component').values
     axes[0].plot(1000 * curve, z, color='k', ls='dashed', label='RMS')
 
-    axes[0].set_xlim(0, 2)
+    axes[0].set_xlim(0, 6)
     axes[0].set_ylim(z.min(), z.max())
     axes[0].tick_params('both', direction='in')
 
@@ -196,7 +196,7 @@ def plot_error_profiles(*strategies: str) -> None:
             rms = factor * get_rmse(ref)
             ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
 
-            ax.set_xlim([0, 0][j], [3, 40][j])
+            ax.set_xlim([0, 0][j], [6, 40][j])
             ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
 
             ax.set_xlabel(f'{label} RMSE ({unit})')

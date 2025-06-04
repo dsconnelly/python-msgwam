@@ -30,16 +30,16 @@ for i in "${!sites[@]}"; do
     site=${sites[i]}
     lat=${lats[i]}
 
+    if ! is_calibration "$site"; then
+        continue
+    fi
+
     lat_tropics="25"
     abs_lat=$(echo "if ($lat < 0) -1 * $lat else $lat" | bc)
     if (( $(echo "$abs_lat > $lat_tropics" | bc) )); then
         extr="true"
     else
         extr="false"
-    fi
-
-    if ! is_calibration "$site"; then
-        continue
     fi
 
     cp config/mima-base.toml config/mima-$site.toml
@@ -51,8 +51,9 @@ for i in "${!sites[@]}"; do
     rnames+=("mima-${site}")
 done
 
+site="${rnames[0]}"
 dep_list=$(IFS=','; echo "${job_ids[*]}")
-rname_arge=$(IFS=':'; echo "${rnames[*]}")
+rname_args=$(IFS=':'; echo "${rnames[*]}")
 
 job_id=$(sbatch \
     --parsable \
@@ -60,7 +61,7 @@ job_id=$(sbatch \
     --mem=32G \
     --time=1:00:00 \
     -J group-update \
-    -o logs/mima-$site/coarsening-update.out \
+    -o logs/mima-$site/group-update.out \
     --dependency=afterok:${dep_list} \
     submit.slurm config/mima-$site.toml \
         update-config:${rname_args}
