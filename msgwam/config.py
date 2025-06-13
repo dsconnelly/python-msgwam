@@ -1,4 +1,3 @@
-import termcolor
 import tomllib
 
 from contextlib import contextmanager

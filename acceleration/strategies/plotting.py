@@ -48,7 +48,7 @@ def plot_coarse_errors() -> None:
 
     drs = errors['dr'].values
     n_sources = errors['n_source'].values
-    dcs = [round(_get_dc(n), 2) for n in n_sources]
+    dcs = [round(_get_dc(n // 2), 2) for n in n_sources]
     z = get_vertical_grids()[0] / 1000
 
     img = axes[1].imshow(
@@ -196,7 +196,7 @@ def plot_error_profiles(*strategies: str) -> None:
             rms = factor * get_rmse(ref)
             ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
 
-            ax.set_xlim([0, 0][j], [6, 40][j])
+            ax.set_xlim([0, 0][j], [5, 40][j])
             ax.set_ylim(config.z_min / 1e3, config.z_max / 1e3)
 
             ax.set_xlabel(f'{label} RMSE ({unit})')

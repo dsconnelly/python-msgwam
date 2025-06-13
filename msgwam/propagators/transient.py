@@ -421,11 +421,11 @@ class TransientPropagator(Propagator):
 
         omega_hat = self._get_omega_hat(mean)
         wvn_hor_sq = self.k ** 2 + self.l ** 2
-        coeff = N * wvn_hor_sq / omega_hat / (wvn_hor_sq + self.m ** 2)
+        wvn_ver_sq = self.m ** 2 + get_gamma() ** 2
+        coeff = N * wvn_hor_sq / omega_hat / (wvn_hor_sq + wvn_ver_sq)
 
-        dk_dt, dl_dt, ddk_dt, ddl_dt = np.zeros((4, self._n_max))
+        dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
         dm_dt = -(self.k * du_dr + self.l * dv_dr + coeff * dN_dr)
-        ddm_dt = -self.dm * ddr_dt / self.dr
 
         idx = self.r < config.z_min
         dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
@@ -615,6 +615,7 @@ class TransientPropagator(Propagator):
         As = [0, -5 / 9, -153 / 128]
         Bs = [1 / 3, 15 / 16, 8 / 15]
         increment: float | np.ndarray = 0
+        area = self.dr * self.dm
 
         for A, B in zip(As, Bs):
             increment = self._get_drays_dt(mean) * dt + A * increment
@@ -623,6 +624,7 @@ class TransientPropagator(Propagator):
         self._data[1] = abs(self.dr)
         self._data[1, self.dr < config.dr_min] = config.dr_min
         self._data[1, self.dr > config.dr_max] = config.dr_max
+        self._data[7] = area / self.dr
 
         self._data[9] = self._data[9] + dt
 
