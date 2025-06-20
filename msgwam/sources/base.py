@@ -112,9 +112,9 @@ class Source(FactoryABC):
         wvn_hor = omega_hat / cp
         k, l = wvn_hor * cos, wvn_hor * sin
 
-        m = get_m(k, l, omega_hat, mean.N[0])
         dm = get_dm(m, self._dc, mean.N[0])
-        cg_r = get_cg_r(k, l, m, mean.N[0])
+        m = get_m(k, l, omega_hat, mean.N[0])
+        cg_r = get_cg_r(k, l, m, mean.N[0], mean.G2[0])
 
         dens = flux / abs(wvn_hor * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))

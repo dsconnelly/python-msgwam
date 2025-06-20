@@ -6,7 +6,7 @@ import numpy as np
 
 from .. import config
 from ..constants import PROP_NAMES
-from ..dispersion import get_cg_r, get_gamma, get_omega_hat
+from ..dispersion import get_cg_r, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
@@ -222,8 +222,10 @@ class TransientPropagator(Propagator):
         """
 
         omega_hat = self._get_omega_hat(mean)
+        G2 = np.interp(self.r, mean.z_centers, mean.G2)
+
+        wvn_ver_sq = self.m ** 2 + G2        
         wvn_hor_sq = self.k ** 2 + self.l ** 2
-        wvn_ver_sq = self.m ** 2 + get_gamma() ** 2
         wvn_sq = wvn_hor_sq + wvn_ver_sq
 
         nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
@@ -389,7 +391,9 @@ class TransientPropagator(Propagator):
             r = self.r
 
         N = interp(r, mean.z_centers, mean.N)
-        return get_cg_r(self.k, self.l, self.m, N)
+        G2 = interp(r, mean.z_centers, mean.G2)
+
+        return get_cg_r(self.k, self.l, self.m, N, G2)
 
     def _get_drays_dt(self, mean: MeanState) -> np.ndarray:
         """
@@ -415,20 +419,28 @@ class TransientPropagator(Propagator):
         ddr_dt = cg_hi - cg_lo
 
         N = interp(self.r, mean.z_centers, mean.N)
+        G2 = interp(self.r, mean.z_centers, mean.G2)
+
         du_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.u) / mean.dz)
         dv_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.v) / mean.dz)
         dN_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.N) / mean.dz)
+        dG2_dr = interp(self.r, mean.z_faces[1:-1], np.diff(mean.G2) / mean.dz)
 
+        dN2_dr = 2 * N * dN_dr
         omega_hat = self._get_omega_hat(mean)
         wvn_hor_sq = self.k ** 2 + self.l ** 2
-        wvn_ver_sq = self.m ** 2 + get_gamma() ** 2
-        coeff = N * wvn_hor_sq / omega_hat / (wvn_hor_sq + wvn_ver_sq)
+        wvn_sq = wvn_hor_sq + self.m ** 2 + G2
 
-        dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
-        dm_dt = -(self.k * du_dr + self.l * dv_dr + coeff * dN_dr)
+        dm_dt = -(
+            self.k * du_dr + self.l * dv_dr + (
+                wvn_hor_sq * dN2_dr +
+                (config.f ** 2 - omega_hat ** 2) * dG2_dr
+            ) / (2 * wvn_sq * omega_hat)
+        )
 
         idx = self.r < config.z_min
         dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
+        dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
 
         return np.vstack((
             dr_dt, ddr_dt,
@@ -486,7 +498,9 @@ class TransientPropagator(Propagator):
         """
 
         N = interp(self.r, mean.z_centers, mean.N)
-        return get_omega_hat(self.k, self.l, self.m, N)
+        G2 = interp(self.r, mean.z_centers, mean.G2)
+        
+        return get_omega_hat(self.k, self.l, self.m, N, G2)
 
     def _get_packet_info(self) -> tuple[np.ndarray, np.ndarray]:
         """

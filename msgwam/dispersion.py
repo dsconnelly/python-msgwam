@@ -7,7 +7,8 @@ def get_cg_r(
     k: np.ndarray,
     l: np.ndarray,
     m: np.ndarray,
-    N: float | np.ndarray
+    N: float | np.ndarray,
+    G2: float | np.ndarray
 ) -> np.ndarray:
     """
     Calculate the vertical group velocities of internal gravity waves.
@@ -18,7 +19,9 @@ def get_cg_r(
         Arrays of zonal, meridional, and vertical wavenumbers, respectively.
     N
         Buoyancy frequency or array of buoyancy frequencies.
-
+    G2
+        Scale heigh correction.
+        
     Returns
     -------
     np.ndarray
@@ -26,35 +29,10 @@ def get_cg_r(
 
     """
 
-    wvn_sq = k ** 2 + l ** 2 + m ** 2 + get_gamma() ** 2
-    omega_hat = get_omega_hat(k, l, m, N)
+    wvn_sq = k ** 2 + l ** 2 + m ** 2 + G2
+    omega_hat = get_omega_hat(k, l, m, N, G2)
 
     return -m * (omega_hat ** 2 - config.f ** 2) / omega_hat / wvn_sq
-
-def get_cp_x(
-    k: np.ndarray,
-    l: np.ndarray,
-    m: np.ndarray,
-    N: float | np.ndarray
-) -> np.ndarray:
-    """
-    Calculate the zonal phase velocities of internal gravity waves.
-
-    Parameters
-    ----------
-    k, l, m
-        Arrays of zonal, meridional, and vertical wavenumbers, respectively.
-    N
-        Buoyancy frequency or array of buoyancy frequencies.
-
-    Returns
-    -------
-    np.ndarray
-        Array of zonal phase velocities.
-
-    """
-
-    return get_omega_hat(k, l, m, N) / k
 
 def get_dm(
     m: np.ndarray,
@@ -82,19 +60,6 @@ def get_dm(
     """
 
     return dc * m ** 2 / N
-
-def get_gamma() -> float:
-    """
-    Compute the scale height correction term.
-
-    Returns
-    -------
-    float
-        Scale height correction.
-
-    """
-
-    return (1 / 2 - 2 / 7) / (2 * config.H_rho)
 
 def get_m(
     k: np.ndarray,
@@ -133,7 +98,8 @@ def get_omega_hat(
     k: np.ndarray,
     l: np.ndarray,
     m: np.ndarray,
-    N: float | np.ndarray
+    N: float | np.ndarray,
+    G2: float | np.ndarray
 ) -> np.ndarray:
     """
     Calculate the intrinsic frequency of internal gravity waves.
@@ -144,6 +110,8 @@ def get_omega_hat(
         Arrays of zonal, meridional, and vertical wavenumbers, respectively.
     N
         Buoyancy frequency or array of buoyancy frequencies.
+    G2
+        Scale height correction.
 
     Returns
     -------
@@ -152,11 +120,12 @@ def get_omega_hat(
 
     """
 
-    m2 = m ** 2 + get_gamma() ** 2
+    wvn_hor_sq = k ** 2 + l ** 2
+    wvn_ver_sq = m ** 2 + G2
 
     return _sqrt(
-        (N ** 2 * (k ** 2 + l ** 2) + config.f ** 2 * m2) /
-        (k ** 2 + l ** 2 + m2)
+        (N ** 2 * wvn_hor_sq + config.f ** 2 * wvn_ver_sq) /
+        (wvn_hor_sq + wvn_ver_sq)
     )
 
 def _sqrt(a: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
