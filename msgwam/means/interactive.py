@@ -1,4 +1,5 @@
 from __future__ import annotations
+from contextlib import AbstractContextManager, nullcontext
 from typing import TYPE_CHECKING, Self
 
 import numpy as np
@@ -7,13 +8,14 @@ from scipy.linalg import lu_factor, lu_solve as _lu_solve
 lu_solve = lambda A, b: _lu_solve(A, b.T).T
 
 from .. import config
+from ..utils import get_rho, make_colored_noise
 
 from .base import MeanState
 
 if TYPE_CHECKING:
     from ..propagators import Propagator
 
-class InteractiveWind(MeanState):
+class InteractiveWind(MeanState[int]):
     def __init__(self) -> None:
         """
         The interactive mean also initializes an array to hold the last wind
@@ -49,7 +51,7 @@ class InteractiveWind(MeanState):
             self.wind = lu_solve(self.B, rhs)
 
         return self
-
+    
     def _get_dwind_dt(self, prop: Propagator) -> np.ndarray:
         """
         Calculate the mean wind tendency, which is given by minus the vertical
@@ -77,7 +79,12 @@ class InteractiveWind(MeanState):
         upwelling = config.w_star * np.vstack((du_dz, dv_dz))
 
         return -flux_div / self.rho + geo - upwelling
+    
+    def _get_init_context(self) -> AbstractContextManager[int]:
+        """Return a seed to use during initialization."""
 
+        return nullcontext(111)
+    
     def _init_AB(self) -> tuple[tuple, tuple]:
         """
         Interactive time stepping requires LU decompositions of matrices for
@@ -106,7 +113,7 @@ class InteractiveWind(MeanState):
         B = lu_factor(3 * np.eye(m) / 2 - config.dt * D)
 
         return A, B
-    
+
     def _init_grad_p(self) -> np.ndarray:
         """
         Initialize the pressure gradients to be used in the geostrophic forcing,
@@ -125,7 +132,28 @@ class InteractiveWind(MeanState):
 
         return np.vstack((dp_dx, dp_dy))
 
-    def _init_wind(self) -> np.ndarray:
+    def _init_thermo(self, context: int):
+        """
+        Initialize thermodynamic state variables with reasonable profiles that
+        are constant in time.
+        """
+
+        z_mid = (config.z_min + config.z_max) / 2
+        t = np.tanh((self.z_centers - z_mid) / config.H_N)
+        a = config.N_ref_max - config.N_ref_min
+        N = config.N_ref_min + a * (t + 1) / 2
+
+        rng = np.random.default_rng(context)
+        scales = [config.H_N, 0.25 * config.H_N]
+        noise = make_colored_noise(self.z_centers, *scales, rng=rng)
+
+        rho = get_rho(self.z_centers)
+        ones = np.ones_like(self.z_centers)
+        G2 = ((1 / 2 - 2 / 7) / (2 * config.H_rho)) ** 2 * ones
+
+        return rho, N, G2
+
+    def _init_wind(self, _) -> np.ndarray:
         """
         Interactive runs start with a positive perturbation in the zonal wind
         field, and compensating positive and negative perturbations in the

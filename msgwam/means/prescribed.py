@@ -8,35 +8,47 @@ from ..utils import get_time, open_dataset
 
 from .base import MeanState
 
-class PrescribedWind(MeanState):
+class PrescribedWind(MeanState[xr.Dataset]):
     def step(self, _, n_step: int) -> Self:
         """
-        When the mean flow is prescribed, `step` just needs to set `self.wind`
-        to point to the appropriate entry in the loaded time series.
+        When the mean flow is prescribed, `step` just needs to set the mean wind
+        and the thermodynamic variables to the appropriate point in the series.
         """
-
-        if hasattr(self, '_N'):
-            self.N = self._N[n_step]
 
         self.wind = self._wind[n_step]
+
+        self.rho = self._rho[n_step]
+        self.N = self._N[n_step]
+        self.G2 = self._G2[n_step]
+
         return self
 
-    def _init_wind(self) -> np.ndarray:
+    def _get_init_context(self) -> xr.Dataset:
         """
-        Initializes the mean wind by interpolating a dataset loaded from disc to
-        the appropriate time and z values. Stores the dataset for later updates.
-        Also, if the dataset contains a buoyancy frequency time series, uses
-        those data instead of the constant N profile.
+        Open the dataset specified in the configuration file and interpolate it
+        to the appropriate time and `z` values.
         """
 
-        kwargs = {'fill_value' : 'extrapolate'}
+        ds = open_dataset(config.prescribed_mean_file)
         coords = {'time' : get_time(), 'z_centers' : self.z_centers}
+        kwargs = {'fill_value' : 'extrapolate'}
 
-        with open_dataset(config.prescribed_mean_file) as ds:
-            ds = ds.interp(**coords, kwargs=kwargs)
-            self._wind = np.stack((ds['u'], ds['v']), axis=1)
+        return ds.interp(**coords, kwargs=kwargs)
+    
+    def _init_wind(self, context: xr.Dataset) -> np.ndarray:
+        """Save the mean wind time series for future use."""
 
-            if 'N' in ds:
-                self._N = ds['N'].values
-
+        self._wind = np.stack((context['u'], context['v']), axis=1)
         return self._wind[0]
+        
+    def _init_thermo(
+        self,
+        context: xr.Dataset
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Saves the thermodynamic variable time series for future use."""
+        
+        self._rho = context['rho'].values
+        self._N = np.sqrt(context['N2'].values)
+        self._G2 = context['G2'].values
+
+        return self._rho[0], self._N[0], self._G2[0]

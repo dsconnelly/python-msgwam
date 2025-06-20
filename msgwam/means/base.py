@@ -1,34 +1,46 @@
 from __future__ import annotations
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Self
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING, Generic, Self, TypeVar
 
 import numpy as np
 
 from .. import config
-from ..utils import FactoryABC, get_rho, get_vertical_grids, make_colored_noise
+from ..utils import FactoryABC, get_vertical_grids
 
 if TYPE_CHECKING:
     from ..propagators import Propagator
 
-_SEED = 111
+T = TypeVar('T')
 
-class MeanState(FactoryABC):
+class MeanState(FactoryABC, Generic[T]):
     def __init__(self) -> None:
         """
-        Initialize the mean state of the model. Defines the faces and centers of
-        the vertical grid, and then initializes the background density, buoyancy
-        frequency, and kinematic viscosity profiles. Initializes the mean wind
-        by calling a function that should be implemented by subclasses.
+        Initialize the mean state of the model. Calls several abstract methods
+        with context supplied by `_get_init_context`.
         """
 
         self.z_faces, self.z_centers = get_vertical_grids()
         self.dz: float = self.z_faces[1] - self.z_faces[0]
 
-        self.N = self._init_N()
-        self.rho = get_rho(self.z_centers)
-        self.wind = self._init_wind()
-        self.nu = self._init_nu()
+        with self._get_init_context() as context:
+            self.rho, self.N, self.G2 = self._init_thermo(context)
+            self.wind = self._init_wind(context)
 
+    @property
+    def nu(self) -> np.ndarray:
+        """
+        Compute the kinematic viscosity profile from the current mean state.
+
+        Returns
+        -------
+        np.ndarray
+            Kinematic viscosities at cell faces.
+        
+        """
+
+        return np.interp(self.z_faces, self.z_centers, config.mu / self.rho)
+    
     @abstractmethod
     def step(self, prop: Propagator, n_step: int) -> Self:
         """
@@ -48,7 +60,7 @@ class MeanState(FactoryABC):
 
         """
         ...
-
+    
     @property
     def u(self) -> np.ndarray:
         """
@@ -77,51 +89,48 @@ class MeanState(FactoryABC):
 
         return self.wind[1]
 
-    def _init_N(self) -> np.ndarray:
+    @abstractmethod
+    def _get_init_context(self) -> AbstractContextManager[T]:
         """
-        Initialize the background buoyancy frequency profile.
+        Get a context manager to be passed to the initialization functions. Can
+        be `nullcontext`, if the state is initialized from nothing, but can also
+        be used to supply an open file to subclasses that read in state data.
 
         Returns
         -------
-        np.ndarray
-            Buoyancy frequencies at cell centers.
+        AbstractContextManager[T]
+            Context to be used during state initialization.
 
         """
-
-        z_mid = (config.z_min + config.z_max) / 2
-        t = np.tanh((self.z_centers - z_mid) / config.H_N)
-        a = config.N_ref_max - config.N_ref_min
-        N = config.N_ref_min + a * (t + 1) / 2
-
-        rng = np.random.default_rng(_SEED)
-        scales = [config.H_N, 0.25 * config.H_N]
-        noise = make_colored_noise(self.z_centers, *scales, rng=rng)
-
-        return N + config.N_ref_noise * noise
-
-    def _init_nu(self) -> np.ndarray:
-        """
-        Initialize the kinematic viscosity profile.
-
-        Returns
-        -------
-        np.ndarray
-            Kinematic viscosities at cell faces.
-
-        """
-
-        return np.interp(self.z_faces, self.z_centers, config.mu / self.rho)
+        ...
 
     @abstractmethod
-    def _init_wind(self) -> np.ndarray:
+    def _init_thermo(
+        self,
+        context: T
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Initialize the thermodynamic state variables.
+
+        Returns
+        -------
+        tuple[np.ndarray, np.ndarray, np.ndarray]
+            Initial profiles for density, buoyancy frequency, and squared scale
+            height correction at cell centers.
+
+        """
+        ...
+
+    @abstractmethod
+    def _init_wind(self, context: T) -> np.ndarray:
         """
         Initialize the mean wind.
 
         Returns
         -------
         np.ndarray
-            Array whose first and second rows contain the zonal and meridional
-            velocities, respectively, at cell centers.
+            Array whose first and second rows contain the initial zonal and 
+            meridional velocities, respectively, at cell centers.
 
         """
         ...
