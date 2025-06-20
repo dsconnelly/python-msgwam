@@ -587,14 +587,14 @@ class TransientPropagator(Propagator):
             return
         
         if config.prune_by == 'energy':
-            criterion = self.action * self._get_omega_hat(mean)
+            criterion = self.action * self._get_omega_hat(mean) * self.dr
 
         elif config.prune_by == 'random':
             criterion = np.random.rand(self._n_max)
 
         ubound = np.nanmax(criterion)
+        criterion[self._ghosts] = 2 * ubound
         criterion[~self._valid] = 3 * ubound
-        criterion[self.r - 0.5 * self.dr < config.z_min] = 2 * ubound
         self._delete_rays(np.argsort(criterion)[:excess])
 
     def _take_RK3_step(self, mean: MeanState, dt: int) -> None:

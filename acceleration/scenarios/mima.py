@@ -26,6 +26,8 @@ _MONTHS = {
     'weddell-sea' : 7
 }
 
+_N_MIN = 0.005
+
 def get_mima_scenario() -> xr.Dataset:
     """Generate a mean wind from MiMA outputs."""
 
@@ -40,14 +42,12 @@ def get_mima_scenario() -> xr.Dataset:
         time = cftime.num2date(time - time[0], f'minutes since {EPOCH}')
         data = {'time' : time, 'z_centers' : z}
 
-        grav, c_p, N_min = 9.8, 10004, 0.005
-        T = xr.DataArray(ds['T'].values, {'T' : time, 'z' : z})
-        N2 = ((grav / T) * (T.differentiate('z') + grav / c_p))
-        N2 = np.maximum(N2, N_min ** 2)
-
         data['u'] = (('time', 'z_centers'), ds['u'].values)
         data['v'] = (('time', 'z_centers'), ds['v'].values)
-        data['N'] = (('time', 'z_centers'), np.sqrt(N2.values))
+
+        data['rho'] = (('time', 'z_centers'), ds['rho'].values)
+        data['N2'] = (('time', 'z_centers'), ds['N2'].values)
+        data['G2'] = (('time', 'z_centers'), ds['G2'].values)
 
         data['flux_x'] = (('time', 'z_centers'), ds['gw_flux_x'].values)
         data['flux_y'] = (('time', 'z_centers'), ds['gw_flux_y'].values)
@@ -55,6 +55,6 @@ def get_mima_scenario() -> xr.Dataset:
     _, z_centers = get_vertical_grids()
     kwargs = {'fill_value' : 'extrapolate'}
     ds = xr.Dataset(data).interp(z_centers=z_centers, kwargs=kwargs)
-    ds['N'] = np.maximum(ds['N'], N_min)
+    ds['N2'] = np.maximum(ds['N2'], _N_MIN ** 2)
 
     return ds

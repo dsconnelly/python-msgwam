@@ -1,6 +1,7 @@
 *.ipynb*
 *.pyc
 *old*
+*test*
 data
 experiments/debug
 logs/*

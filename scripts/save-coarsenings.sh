@@ -13,7 +13,7 @@ job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
-    --time=2:00:00 \
+    --time=2:30:00 \
     -a 0-$n \
     -J coarsening \
     -o logs/$name/coarsening-%a.out \
