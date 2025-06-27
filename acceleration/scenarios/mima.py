@@ -26,7 +26,7 @@ _MONTHS = {
     'weddell-sea' : 7
 }
 
-_N_MIN = 0.005
+_N_MIN = 2 * np.pi / (2 * 3600)
 
 def get_mima_scenario() -> xr.Dataset:
     """Generate a mean wind from MiMA outputs."""

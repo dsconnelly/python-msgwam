@@ -152,7 +152,7 @@ class TransientPropagator(Propagator):
 
         dt = self._get_dt(mean)
         for _ in range(config.dt // dt):    
-            self._take_RK3_step(mean, dt)
+            self._take_RK4_step(mean, dt)
 
         self._apply_sinks(mean)
         self._check_boundaries(mean)
@@ -222,11 +222,8 @@ class TransientPropagator(Propagator):
         """
 
         omega_hat = self._get_omega_hat(mean)
-        G2 = np.interp(self.r, mean.z_centers, mean.G2)
-
-        wvn_ver_sq = self.m ** 2 + G2        
         wvn_hor_sq = self.k ** 2 + self.l ** 2
-        wvn_sq = wvn_hor_sq + wvn_ver_sq
+        wvn_sq = wvn_hor_sq + self.m ** 2
 
         nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
         damping = nu * wvn_sq * (1 + config.f ** 2 / (omega_hat ** 2))
@@ -243,7 +240,7 @@ class TransientPropagator(Propagator):
             return
 
         threshold = mean.rho / 2
-        S = self.action * wvn_hor_sq * wvn_ver_sq / (omega_hat * wvn_sq)
+        S = self.action * wvn_hor_sq * self.m ** 2 / (omega_hat * wvn_sq)
         
         if config.n_chromatic == -1:
             pdx = np.zeros(self._n_max).astype(int)
@@ -284,7 +281,7 @@ class TransientPropagator(Propagator):
         flux = wvn * self.action * self._get_cg_r(mean)
         drop = drop | (abs(flux) < config.min_flux)
 
-        drop[r_lo < config.z_min] = False
+        drop[self._ghosts] = False
         self._delete_rays(drop)
 
     def _check_source(self, mean: MeanState, n_step: int) -> None:
@@ -439,9 +436,9 @@ class TransientPropagator(Propagator):
         )
 
         idx = self.r < config.z_min
-        dm_dt[idx] = ddr_dt[idx] = ddm_dt[idx] = 0
+        dm_dt[idx] = ddr_dt[idx] = 0
         dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
-
+        
         return np.vstack((
             dr_dt, ddr_dt,
             dk_dt, dl_dt, dm_dt,
@@ -471,7 +468,7 @@ class TransientPropagator(Propagator):
             if remainder != 0:
                 continue
 
-            if cg_max * dt / mean.dz / 3 < 1:
+            if cg_max * dt / mean.dz / 4 < 1:
                 return dt
 
         message = f'could not find sufficiently small time step'
@@ -611,10 +608,10 @@ class TransientPropagator(Propagator):
         criterion[~self._valid] = 3 * ubound
         self._delete_rays(np.argsort(criterion)[:excess])
 
-    def _take_RK3_step(self, mean: MeanState, dt: int) -> None:
+    def _take_RK4_step(self, mean: MeanState, dt: int) -> None:
         """
-        Take a step using the memory-efficient formulation of the RK3 method.
-        Note that this method changes `self._data` in place.
+        Take a step using a reasonably memory-efficient formulation of RK4. Note
+        that this method changes `self._data` in place.
 
         Parameters
         ----------
@@ -626,21 +623,22 @@ class TransientPropagator(Propagator):
 
         """
 
-        As = [0, -5 / 9, -153 / 128]
-        Bs = [1 / 3, 15 / 16, 8 / 15]
-        increment: float | np.ndarray = 0
         area = self.dr * self.dm
+        Cs = [1 / 2, 1 / 2, 1, 1 / 6]
+        incs = np.zeros((5, *self._data[:8].shape))
+        incs[0] = self._data[:8]
 
-        for A, B in zip(As, Bs):
-            increment = self._get_drays_dt(mean) * dt + A * increment
-            self._data[:8] = self._data[:8] + B * increment
+        for stage, C in enumerate(Cs, 1):
+            incs[stage] = dt * self._get_drays_dt(mean)
+            self._data[:8] = incs[0] + C * incs[stage]
 
+        self._data[:8] = self._data[:8] + incs[1] / 6 + (incs[2] + incs[3]) / 3
+        self._data[9] = self._data[9] + dt
+        
         self._data[1] = abs(self.dr)
         self._data[1, self.dr < config.dr_min] = config.dr_min
         self._data[1, self.dr > config.dr_max] = config.dr_max
         self._data[7] = area / self.dr
-
-        self._data[9] = self._data[9] + dt
 
     @property
     def _valid(self) -> np.ndarray:
