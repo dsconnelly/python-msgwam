@@ -103,16 +103,16 @@ class Source(FactoryABC):
         i = (n_step * config.dt) // config.dt_launch
         dk, dl, omega_hat, flux = self._data[i][:, cdx]
         cos, sin = cos_and_sin(self._phi[cdx])
-        cp_hat = self._cp[cdx]
+        cp_hat = self._cp[cdx] * (cos + sin)
 
         if config.extrinsic:
             u, v = mean.wind[:, 0]
-            cp_hat = cp_hat - cos * u - sin * v
+            cp_hat = cp_hat - u * abs(cos) - v * abs(sin)
 
         wvn_hor = omega_hat / cp_hat
-        k, l = wvn_hor * cos, wvn_hor * sin
-        
+        k, l = wvn_hor * abs(cos), wvn_hor * abs(sin)
         m = get_m(k, l, omega_hat, mean.N[0])
+
         cg_r = get_cg_r(k, l, m, mean.N[0], mean.G2[0])
         dm = get_dm(m, self._dc, mean.N[0])
 

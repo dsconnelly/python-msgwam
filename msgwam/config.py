@@ -67,9 +67,10 @@ n_source: int
 # 'transient' propagator
 ################################################################################
 cfl_mode: Literal['warn', 'raise']
-dr_init: float
+dr_ghost: float
 dr_max: float
 dr_min: float
+dr_source: float
 jitter: bool
 max_age: int
 max_dt_multiplier: int

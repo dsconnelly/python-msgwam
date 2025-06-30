@@ -46,11 +46,11 @@ class TransientPropagator(Propagator):
         self._data = np.nan * np.zeros(shape)
         self._next_meta = -1
 
-        self._r_ghost = config.z_min - 3 * config.dt
+        self._r_ghost = config.z_min - config.dr_ghost
         self._ghosts = np.zeros(config.n_source).astype(int)
         self._check_source(mean, 0)
 
-        z_lo = config.z_min - 1.5 * config.dt
+        z_lo = config.z_min - 0.5 * config.dr_ghost
         padding = (z_lo, mean.z_centers[-1] + mean.dz)
         self._z_padded = np.pad(mean.z_centers, 1, constant_values=padding)
 
@@ -202,7 +202,7 @@ class TransientPropagator(Propagator):
         j = np.argmin(self._valid)
 
         self._data[2:-2, j] = data
-        self._data[:2, j] = [r, config.dr_init]
+        self._data[:2, j] = [r, config.dr_source]
         self._data[-2:, j] = [0, self._next_meta]
 
         return cast(int, j)
@@ -225,8 +225,9 @@ class TransientPropagator(Propagator):
         wvn_hor_sq = self.k ** 2 + self.l ** 2
         wvn_sq = wvn_hor_sq + self.m ** 2
 
+        G2 = interp(self.r, mean.z_centers, mean.G2)
         nu = config.dissipation * interp(self.r, mean.z_faces, mean.nu)
-        damping = nu * wvn_sq * (1 + config.f ** 2 / (omega_hat ** 2))
+        damping = nu * (wvn_sq + G2) * (1 + config.f ** 2 / (omega_hat ** 2))
         damping = np.exp(-config.dt * damping)
 
         if config.n_sponge > 0:
@@ -299,7 +300,7 @@ class TransientPropagator(Propagator):
         """
 
         if n_step == 0 and config.source_type == 'constant':
-            r_init = self._r_ghost - 0.5 * config.dr_init
+            r_init = self._r_ghost - 0.5 * config.dr_source
             datas, cdx = self._source.launch(mean, 0)
 
             for k, data in zip(cdx, datas.T):
@@ -307,7 +308,7 @@ class TransientPropagator(Propagator):
 
             if config.jitter:
                 noise = np.random.rand(self._n_max) - 0.5
-                self._data[0] += config.dr_init * noise
+                self._data[0] += config.dr_source * noise
 
             return
 
@@ -326,15 +327,15 @@ class TransientPropagator(Propagator):
         if config.source_type == 'constant':
             for k, data in zip(cdx, datas.T):
                 while r_lo[k] > self._r_ghost:
-                    r = r_lo[k] - 0.5 * config.dr_init
-                    r_lo[k] = r_lo[k] - config.dr_init
+                    r = r_lo[k] - 0.5 * config.dr_source
+                    r_lo[k] = r_lo[k] - config.dr_source
                     to_add.append((k, data, r))
 
         else:
             repeats = {}
             for k, data in zip(cdx, datas.T):
                 n_shift = repeats.setdefault(k, 0)
-                r = config.z_min - (n_shift + 0.5) * config.dr_init
+                r = config.z_min - (n_shift + 0.5) * config.dr_source
                 repeats[k] = repeats[k] + 1
                 to_add.append((k, data, r))
 

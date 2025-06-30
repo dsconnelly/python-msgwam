@@ -18,7 +18,7 @@ class StochasticSource(Source):
         what it would be in the absence of randomness.
         """
 
-        p = config.epsilon * cg_r * config.dt / config.dr_init
+        p = config.epsilon * cg_r * config.dt / config.dr_source
         keep = np.random.rand(data.shape[1]) < p
 
         return data[:, keep], cdx[keep]
