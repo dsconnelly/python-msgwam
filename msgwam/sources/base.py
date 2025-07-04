@@ -106,15 +106,19 @@ class Source(FactoryABC):
         cp_hat = self._cp[cdx] * (cos + sin)
 
         if config.extrinsic:
-            u, v = mean.wind[:, 0]
+            u = np.interp(config.r_source, mean.z_centers, mean.u)
+            v = np.interp(config.r_source, mean.z_centers, mean.v)
             cp_hat = cp_hat - u * abs(cos) - v * abs(sin)
+
+        N = np.interp(config.r_source, mean.z_centers, mean.N)
+        G2 = np.interp(config.r_source, mean.z_centers, mean.G2)
 
         wvn_hor = omega_hat / cp_hat
         k, l = wvn_hor * abs(cos), wvn_hor * abs(sin)
-        m = get_m(k, l, omega_hat, mean.N[0])
+        m = get_m(k, l, omega_hat, N)
 
-        cg_r = get_cg_r(k, l, m, mean.N[0], mean.G2[0])
-        dm = get_dm(m, self._dc, mean.N[0])
+        cg_r = get_cg_r(k, l, m, N, G2)
+        dm = get_dm(m, self._dc, N)
 
         dens = flux / abs(wvn_hor * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))

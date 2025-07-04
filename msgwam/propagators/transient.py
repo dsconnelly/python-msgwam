@@ -46,7 +46,7 @@ class TransientPropagator(Propagator):
         self._data = np.nan * np.zeros(shape)
         self._next_meta = -1
 
-        self._r_ghost = config.z_min - config.dr_ghost
+        self._r_ghost = config.r_source - config.dr_ghost
         self._ghosts = np.zeros(config.n_source).astype(int)
         self._check_source(mean, 0)
 
@@ -323,6 +323,7 @@ class TransientPropagator(Propagator):
 
         datas, cdx = self._source.launch(mean, n_step, cdx)
         to_add: list[tuple[int, np.ndarray, float]] = []
+        r_lo = np.minimum(r_lo, config.r_source)
 
         if config.source_type == 'constant':
             for k, data in zip(cdx, datas.T):
@@ -335,7 +336,7 @@ class TransientPropagator(Propagator):
             repeats = {}
             for k, data in zip(cdx, datas.T):
                 n_shift = repeats.setdefault(k, 0)
-                r = config.z_min - (n_shift + 0.5) * config.dr_source
+                r = config.r_source - (n_shift + 0.5) * config.dr_source
                 repeats[k] = repeats[k] + 1
                 to_add.append((k, data, r))
 
@@ -436,10 +437,10 @@ class TransientPropagator(Propagator):
             ) / (2 * wvn_sq * omega_hat)
         )
 
-        idx = self.r < config.z_min
-        dm_dt[idx] = ddr_dt[idx] = 0
         dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
-        
+        idx = self.r < config.r_source
+        dm_dt[idx] = ddr_dt[idx] = 0
+
         return np.vstack((
             dr_dt, ddr_dt,
             dk_dt, dl_dt, dm_dt,

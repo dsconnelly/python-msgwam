@@ -62,6 +62,7 @@ dt_launch: int
 extrinsic: bool
 flux_bc: float
 n_source: int
+r_source: float
 
 ################################################################################
 # 'transient' propagator

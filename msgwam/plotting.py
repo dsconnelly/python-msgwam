@@ -283,8 +283,8 @@ def plot_time_series(
     axes[0].set_xlim(time.min(), time.max())
     axes[0].set_xticks(np.linspace(time.min(), time.max(), 6))
 
-    yticks = np.linspace(z.min(), z.max(), 6)
-    ylabels = 10 * np.round((yticks - yticks.min()) / 10)
+    yticks = np.linspace(z.min(), z.max(), 12)
+    ylabels = 5 * np.round((yticks - yticks.min()) / 5)
     ylabels = (ylabels + yticks.min()).astype(int)
 
     axes[0].set_ylim(z.min(), z.max())

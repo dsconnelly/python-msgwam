@@ -31,30 +31,36 @@ _N_MIN = 2 * np.pi / (2 * 3600)
 def get_mima_scenario() -> xr.Dataset:
     """Generate a mean wind from MiMA outputs."""
 
+    _, z = get_vertical_grids()
+    kwargs = {'fill_value' : 'extrapolate'}
     data = {}
+
     with xr.open_dataset('data/mima-scenarios.nc') as ds:
         name = '-'.join(config.name.split('-')[1:])
         keep = ds['time.month'] == _MONTHS[name]
         ds = ds.sel(site=name).isel(time=keep)
 
-        z = ds['z'].mean('time').values
         time = cftime.date2num(ds['time'].values, f'minutes since {EPOCH}')
         time = cftime.num2date(time - time[0], f'minutes since {EPOCH}')
         data = {'time' : time, 'z_centers' : z}
 
-        data['u'] = (('time', 'z_centers'), ds['u'].values)
-        data['v'] = (('time', 'z_centers'), ds['v'].values)
+        shape = (len(ds['time']), len(z))
+        for vname in ['u', 'v', 'rho', 'N2', 'G2', 'flux_x', 'flux_y']:
+           data[vname] = (('time', 'z_centers'), np.zeros(shape))
 
-        data['rho'] = (('time', 'z_centers'), ds['rho'].values)
-        data['N2'] = (('time', 'z_centers'), ds['N2'].values)
-        data['G2'] = (('time', 'z_centers'), ds['G2'].values)
+        for i in range(shape[0]):
+            dsi = ds.isel(time=i)
+            dsi = dsi.assign_coords(pfull=dsi['z'].values)
+            dsi = dsi.interp(pfull=z, kwargs=kwargs)
 
-        data['flux_x'] = (('time', 'z_centers'), ds['gw_flux_x'].values)
-        data['flux_y'] = (('time', 'z_centers'), ds['gw_flux_y'].values)
+            for vname in data:
+                if vname in ['time', 'z_centers']:
+                    continue
 
-    _, z_centers = get_vertical_grids()
-    kwargs = {'fill_value' : 'extrapolate'}
-    ds = xr.Dataset(data).interp(z_centers=z_centers, kwargs=kwargs)
+                dname = ('gw_' if vname.startswith('flux') else '') + vname
+                data[vname][1][i] = dsi[dname].values
+
+    ds = xr.Dataset(data)
     ds['N2'] = np.maximum(ds['N2'], _N_MIN ** 2)
 
     return ds
