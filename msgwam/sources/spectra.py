@@ -28,6 +28,28 @@ def get_spectrum() -> xr.Dataset:
     func_name = '_' + config.spectrum_type
     return _postprocess(globals()[func_name]())
 
+def get_mima_source_info() -> tuple[float, float]:
+    """
+    Calculate the MiMA spectrum flux boundary condition by latitude. Made
+    available so that the coarsening search can access this calculation.
+
+    Returns
+    -------
+    float
+        Total source flux for a single component.
+    float
+        Spectrum width in m / s.
+
+    """
+
+    arg = abs(config.latitude) - (config.lat_tropics - config.source_dlat)
+    arg = min(1, max(0, arg / (2 * config.source_dlat)))
+
+    flux_bc = config.flux_bc_tr * (1 - arg) + config.flux_bc_ex * arg
+    cp_width = config.cp_width_tr * (1 - arg) + config.cp_width_ex * arg
+
+    return flux_bc, cp_width
+
 def _postprocess(ds: xr.Dataset) -> xr.Dataset:
     """
     Prepare a source dataset for use at the specific temporal and spectral
@@ -183,11 +205,8 @@ def _mima() -> xr.Dataset:
     """
 
     cp = _get_phase_velocities(config.n_source // 4)
-    arg = abs(config.latitude) - (config.lat_tropics - config.source_dlat)
-    arg = min(1, max(0, arg / (2 * config.source_dlat)))
+    flux_bc, cp_width = get_mima_source_info()
 
-    flux_bc = config.flux_bc_tr * (1 - arg) + config.flux_bc_ex * arg
-    cp_width = config.cp_width_tr * (1 - arg) + config.cp_width_ex * arg
     flux = np.exp(-0.5 * (cp / cp_width) ** 2)
     flux = flux_bc * flux / flux.sum() / 2
 

@@ -17,10 +17,10 @@ _MONTHS = {
     'brisbane' : 10,
 
     'singapore' : 10,
-    'jakarta' : 4,
+    'maldives' : 4,
 
-    'santiago' : 7,
     'buenos-aires' : 7,
+    'perth' : 7,
 
     'amundsen-sea' : 7,
     'weddell-sea' : 7

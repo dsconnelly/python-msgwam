@@ -7,7 +7,9 @@ experiments/debug
 logs/*
 plots/*
 
+compare/*
 config/mima-*.toml
 !config/mima-base.toml
 hyperparameters/mima-*.toml
 !hyperparameters/mima-base.toml
+.vscode/

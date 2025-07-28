@@ -30,9 +30,9 @@ for i in "${!sites[@]}"; do
     site=${sites[i]}
     lat=${lats[i]}
 
-    if ! is_calibration "$site"; then
-        continue
-    fi
+    # if ! is_calibration "$site"; then
+    #     continue
+    # fi
 
     lat_tropics="25"
     abs_lat=$(echo "if ($lat < 0) -1 * $lat else $lat" | bc)
@@ -70,9 +70,9 @@ job_id=$(sbatch \
 for i in "${!sites[@]}"; do
     site=${sites[i]}
 
-    if ! is_calibration "$site"; then
-        continue
-    fi
+    # if ! is_calibration "$site"; then
+    #     continue
+    # fi
 
     ./submit.sh -d $job_id mima-$site save-baselines
 done

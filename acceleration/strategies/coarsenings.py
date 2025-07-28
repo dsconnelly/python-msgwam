@@ -2,6 +2,7 @@ import numpy as np
 import xarray as xr
 
 from msgwam import config
+from msgwam.sources import get_mima_source_info
 from msgwam.utils import get_vertical_grids
 
 from .. import hyperparameters as hp
@@ -79,14 +80,23 @@ def update_config(*rnames: list[str]) -> None:
     if not rnames:
         rnames = [config.name]
 
-    errors = 0
-    for rname in rnames:
-        with config.override(name=rname):
-            dims = ['component', 'z_faces']
-            get_norms = lambda ds: (ds['error'] / ds['rms']).mean(dims)
-            errors = errors + get_norms(get_coarse_errors())
+    orig = config.name
+    rms, errors = 0, []
 
-    i, j = (da.item() for da in errors.argmin(...).values())
+    for rname in rnames:
+        config.load(f'config/{rname}.toml')
+        flux_bc, _ = get_mima_source_info()
+        ds = get_coarse_errors()
+        
+        rms = rms + (ds['rms'] / flux_bc) ** 2
+        errors.append(ds['error'] / flux_bc)
+
+    config.load(f'config/{orig}.toml')
+    rms = np.sqrt(rms / len(rnames))
+    dims = ['component', 'z_faces']
+
+    total = sum([(error / rms).mean(dims) for error in errors])
+    i, j = (da.item() for da in total.argmin(...).values())
 
     for rname in rnames:
         with open(f'config/{rname}.toml') as f:
