@@ -28,19 +28,24 @@ def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     func_name = f'_get_{strategy}_overrides'
     return globals()[func_name](*args)
 
-def _get_coarse_overrides() -> dict[str, Any]:
+def _get_coarse_overrides(prune_by: str='energy') -> dict[str, Any]:
     """
     Once the configuration file has been updated following the grid search over
     coarse resolutions, the settings for the coarse integration are already set,
     except that the integration should be performed with initial jitter.
     """
 
-    return {'jitter' : True}
+    return {'jitter' : True, 'prune_by' : prune_by}
 
 def _get_ICONlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that in Bölöni et al. (2020)."""
 
-    return {'dr_init' : 1000, 'n_source' : 24, 'n_max' : 1250, 'jitter' : True}
+    return {
+        'dr_source' : 1000,
+        'n_source' : 24,
+        'n_max' : 1250,
+        'jitter' : True
+    }
 
 def _get_instantaneous_overrides() -> dict[str, Any]:
     """
@@ -48,26 +53,26 @@ def _get_instantaneous_overrides() -> dict[str, Any]:
     gains allow us to increase the spectral resolution of the source.
     """
 
-    return {'propagator_type' : 'instantaneous', 'n_source' : 120}
+    return {'propagator_type' : 'instantaneous', 'n_source' : 128}
+
+def _get_MiMAlike_overrides() -> dict[str, Any]:
+    """Use a configuration similar to that of online tests in MiMA."""
+
+    return {
+        'dr_source' : 1500,
+        'n_max' : 2500,
+        'n_source' : 40
+    }
 
 def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""
 
-    if hp.debug:
-        return {
-            'dr_init' : 200,
-            'n_source' : 96,
-            'n_max' : 100_000
-        }
-
     return {
-        'dt' : 30,
-        'dr_init' : 100,
-        'n_source' : 60,
+        'dr_source' : 100,
+        'n_source' : 128,
         'n_max' : int(250e3),
         'n_increment' : 1000,
         'prune_by' : 'none',
-        'max_dt_multiplier' : 1
     }
 
 def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:
@@ -88,7 +93,7 @@ def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:
 
     return {
         'epsilon' : 1 / speedup,
-        'dr_init' : config.dr_init / root,
+        'dr_source' : config.dr_source / root,
         'n_source' : int(config.n_source * root),
         'source_type' : 'stochastic'
     }

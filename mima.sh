@@ -7,32 +7,12 @@ sites=($(ncdump -v site -l 1000 data/mima-scenarios.nc | tail \
 lats=($(ncdump -v lat -l 1000 data/mima-scenarios.nc \
     | awk '/lat = / {gsub(/[;,]/, ""); for(i=3; i<=NF; i++) print $i}'))
 
-is_calibration() {
-    case "$1" in
-        "copenhagen"   | \
-        "new-york"     | \
-        "miami"        | \
-        "singapore"    | \
-        "santiago"     | \
-        "amundsen-sea" )
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
 job_ids=()
 rnames=()
 
 for i in "${!sites[@]}"; do
     site=${sites[i]}
     lat=${lats[i]}
-
-    # if ! is_calibration "$site"; then
-    #     continue
-    # fi
 
     lat_tropics="25"
     abs_lat=$(echo "if ($lat < 0) -1 * $lat else $lat" | bc)
@@ -61,18 +41,15 @@ job_id=$(sbatch \
     --mem=32G \
     --time=1:00:00 \
     -J group-update \
-    -o logs/mima-$site/group-update.out \
+    -o logs/$site/group-update.out \
     --dependency=afterok:${dep_list} \
-    submit.slurm config/mima-$site.toml \
-        update-config:${rname_args}
+    submit.slurm config/$site.toml \
+        update-config:${rname_args} \
+        plot-coarse-errors:${rname_args}
 )
 
 for i in "${!sites[@]}"; do
     site=${sites[i]}
-
-    # if ! is_calibration "$site"; then
-    #     continue
-    # fi
 
     ./submit.sh -d $job_id mima-$site save-baselines
 done

@@ -4,8 +4,6 @@ import cftime
 import numpy as np
 import xarray as xr
 
-from scipy.ndimage import gaussian_filter1d as filter
-
 from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.utils import get_rho, get_vertical_grids, open_dataset
@@ -36,8 +34,8 @@ def load_data(
     path: str,
     field: str='flux_x',
     spinup_days: int=5,
-    time_filter: Optional[int]=21600,
-    z_filter: Optional[float]=None,
+    time_filter: Optional[int]=43200,
+    z_filter: Optional[float]=4e3,
     ensemble_mean: bool=True
 ) -> xr.DataArray:
     """
@@ -102,7 +100,7 @@ def load_data(
 
     z_name = list(data.coords)[1]
     zipped = zip(['seconds', z_name], [time_filter, z_filter])
-    kwargs = {k : v for k, v  in zipped if v is not None}
+    kwargs = {k : v for k, v in zipped if v is not None}
     data = gaussian_filter(data, **kwargs)
 
     return data

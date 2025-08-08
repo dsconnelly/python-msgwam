@@ -35,17 +35,24 @@ class InstantaneousPropagator(Propagator):
         appropriate wavenumbers to compute the requested momentum fluxes.
         """
 
-        u = np.interp(mean.z_faces, mean.z_centers, mean.u)
-        v = np.interp(mean.z_faces, mean.z_centers, mean.v)
-        N = np.interp(mean.z_faces, mean.z_centers, mean.N)
-        rho = np.interp(mean.z_faces, mean.z_centers, mean.rho)
+        z = mean.z_faces
+        keep = z >= config.r_source
+        z = z[keep]
+
+        u = np.interp(z, mean.z_centers, mean.u)
+        v = np.interp(z, mean.z_centers, mean.v)
+
+        N = np.interp(z, mean.z_centers, mean.N)
+        G2 = np.interp(z, mean.z_centers, mean.G2)
+        rho = np.interp(z, mean.z_centers, mean.rho)
 
         k, l, m, dk, dl, dm, dens = self._to_launch
-        omega = get_omega_hat(k, l, m, N[0]) + k * u[0] + l * v[0]
-        source_flux = get_cg_r(k, l, m, N[0]) * (dens * dk * dl * dm)
-
+        omega = get_omega_hat(k, l, m, N[0], G2[0]) + k * u[0] + l * v[0]
+        source_flux = get_cg_r(k, l, m, N[0], G2[0]) * (dens * dk * dl * dm)
+        
         args = [k, l, u, v, N, rho, omega, source_flux]
-        action_flux = get_steady_action_fluxes(*args)
+        action_flux = np.zeros((len(mean.z_faces), len(k)))
+        action_flux[keep] = get_steady_action_fluxes(*args)
 
         if net:
             wvns = [k, l]

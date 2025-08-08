@@ -16,7 +16,7 @@ job_id=$(sbatch \
     --ntasks=1 \
     --mem=128G \
     --cpus-per-task=8 \
-    --time=24:00:00 \
+    --time=12:00:00 \
     -J reference \
     -o logs/$name/reference.out \
     $dep_arg \

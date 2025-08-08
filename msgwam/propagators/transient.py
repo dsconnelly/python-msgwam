@@ -50,8 +50,7 @@ class TransientPropagator(Propagator):
         self._ghosts = np.zeros(config.n_source).astype(int)
         self._check_source(mean, 0)
 
-        z_lo = config.z_min - 0.5 * config.dr_ghost
-        padding = (z_lo, mean.z_centers[-1] + mean.dz)
+        padding = (mean.z_centers[0] - mean.dz, mean.z_centers[-1] + mean.dz)
         self._z_padded = np.pad(mean.z_centers, 1, constant_values=padding)
 
     def __getattr__(self, name: str) -> Any:
@@ -236,7 +235,9 @@ class TransientPropagator(Propagator):
             sponge = 1 - (self._get_cg_r(mean) * config.dt / gap)
             damping[idx] = np.minimum(np.maximum(sponge[idx], 0), 1)
 
+        damping[self._notouch] = 1
         self._data[8] = self.dens * damping
+
         if config.n_chromatic == 0:
             return
 
@@ -257,7 +258,10 @@ class TransientPropagator(Propagator):
         kappa[idx] = P[idx] / Q[idx]
 
         maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa, pdx)
-        self._data[8] = self.dens * np.maximum(0, 1 - wvn_sq * maxes)
+        factor = np.maximum(0, 1 - wvn_sq * maxes)
+        factor[self._notouch] = 1
+
+        self._data[8] = self.dens * factor
 
     def _check_boundaries(self, mean: MeanState) -> None:
         """
@@ -277,6 +281,10 @@ class TransientPropagator(Propagator):
         if config.max_age > 0:
             old = self.age > config.max_age
             drop = drop | old
+
+        r_hi = self.r + 0.5 * self.dr
+        low = (r_hi < config.z_min) & (self.m > 0)
+        drop = drop | low
 
         wvn = np.sqrt(self.k ** 2 + self.l ** 2)
         flux = wvn * self.action * self._get_cg_r(mean)
@@ -321,9 +329,10 @@ class TransientPropagator(Propagator):
             if crossed.sum() == 0:
                 return
 
+            r_lo = np.minimum(r_lo, config.r_source)
+
         datas, cdx = self._source.launch(mean, n_step, cdx)
         to_add: list[tuple[int, np.ndarray, float]] = []
-        r_lo = np.minimum(r_lo, config.r_source)
 
         if config.source_type == 'constant':
             for k, data in zip(cdx, datas.T):
@@ -438,8 +447,7 @@ class TransientPropagator(Propagator):
         )
 
         dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
-        idx = self.r < config.r_source
-        dm_dt[idx] = ddr_dt[idx] = 0
+        dm_dt[self._notouch] = ddr_dt[self._notouch] = 0
 
         return np.vstack((
             dr_dt, ddr_dt,
@@ -539,6 +547,21 @@ class TransientPropagator(Propagator):
 
         return self._data.shape[1]
     
+    @property
+    def _notouch(self) -> np.ndarray:
+        """
+        Indicates ray volumes that have yet to enter the domain interior and so
+        should be protected from pruning, refraction, dissipation, and breaking.
+
+        Returns
+        -------
+        np.ndarray
+            Boolean array indicating waves that should not be touched.
+
+        """
+
+        return (self.r < config.r_source) & (self.m < 0)
+
     def _project(
         self,
         data: np.ndarray,
@@ -602,12 +625,19 @@ class TransientPropagator(Propagator):
         if config.prune_by == 'energy':
             criterion = self.action * self._get_omega_hat(mean) * self.dr
 
+        elif config.prune_by == 'cg_r':
+            criterion = abs(self._get_cg_r(mean))
+
+        elif config.prune_by == 'flux':
+            wvn = np.sqrt(self.k ** 2 + self.l ** 2)
+            criterion = abs(wvn * self.action * self._get_cg_r(mean))
+
         elif config.prune_by == 'random':
             criterion = np.random.rand(self._n_max)
 
         ubound = np.nanmax(criterion)
-        criterion[self._ghosts] = 2 * ubound
         criterion[~self._valid] = 3 * ubound
+        criterion[self._notouch] = 2 * ubound
         self._delete_rays(np.argsort(criterion)[:excess])
 
     def _take_RK4_step(self, mean: MeanState, dt: int) -> None:

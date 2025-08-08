@@ -2,27 +2,107 @@ import numpy as np
 import xarray as xr
 
 from msgwam import config
-from msgwam.sources import get_mima_source_info
 from msgwam.utils import get_vertical_grids
 
 from .. import hyperparameters as hp
 from ..shared.distributed import product
+from ..shared.filtering import gaussian_filter
 
 from .integration import get_integration, get_overrides
 from .utils import get_rmse, load_data
 
-def get_coarse_errors() -> xr.Dataset:
+def get_global_scores(*rnames: str) -> xr.DataArray:
+    """
+    Get the normalized errors averaged across multiple runs for each component.
+
+    Parameters
+    ----------
+    rnames
+        Names of runs to average over. If not provided, only the data from the
+        currently-loaded configuration will be used.
+
+    Returns
+    -------
+    xr.DataArray
+        Array with coordinates `('component', 'dr', 'n_source')` giving the
+        run- and height-averaged normalized errors for each resolution.
+
+    """
+
+    if not rnames:
+        rnames = [config.name]
+
+    error = 0
+    for rname in rnames:
+        ds = xr.open_dataset(f'data/{rname}/coarsenings/coarse-errors.nc')
+        add = (ds['error'].fillna(0) / ds['rms']).mean('z_faces')
+        error = error + np.minimum(1, add)
+
+    return error / len(rnames)
+
+def save_coarsenings() -> None:
+    """
+    Integrate each pair in the grid of candidate coarse resolutions and save
+    each output dataset to disk. Also save a dataset containing the RMS errors
+    of each configuration.
+
+    """
+
+    kwargs = get_overrides('coarse')
+    for dr, n_source in product(*_get_grid()):
+        kwargs['dr_source'] = float(dr)
+        kwargs['n_source'] = n_source
+
+        with config.override(**kwargs):
+            ds = get_integration().mean('member')
+            ds.to_netcdf(_get_path(dr, n_source))
+
+def update_config(*rnames: str) -> None:
+    """
+    Update the values of `dr_source` and `n_source` in one or more configuration
+    files to the best values found during the grid search. Can take into account
+    grid searches across multiple runs.
+
+    Parameters
+    ----------
+    rnames
+        Names of runs to include when choosing the best coarse resolution, to be
+        passed to `get_global_scores`.
+
+    """
+
+    scores = get_global_scores(*rnames).mean('component')
+    i, j = (da.item() for da in scores.argmin(...).values())
+    drs, n_sources = _get_grid()
+
+    for rname in rnames:
+        with open(f'config/{rname}.toml') as f:
+            lines = f.readlines()
+
+        with open(f'config/{rname}.toml', 'w') as f:
+            for line in lines:
+                if line.startswith('dr_source'):
+                    f.write(f'dr_source = {drs[i]}\n')
+
+                elif line.startswith('n_source'):
+                    f.write(f'n_source = {n_sources[j]}\n')
+
+                else:
+                    f.write(line)
+
+def save_coarse_errors() -> None:
     """
     Get the root-mean-square errors as a function of height for each coarsening.
-    If both zonal and meridional fluxes are considered, then the returned data
-    will be the average error over both components.
 
     Returns
     -------
     xr.Dataset
-        Dataset with coordinates `'dr'` and `'n_source'` ranging over the grid
-        of coarsenings, along with `'z_faces'` ranging over cell faces in the
-        vertical grid. Also includes the RMS flux itself at each level.
+        Dataset with coordinates 
+        
+            `('rname', 'component', 'dr', 'n_source', 'z_faces')`
+        
+        with a variable `'error'` containing the RMSE in momentum flux. Also
+        includes the RMS flux in the reference integration per vertical level.
 
     """
 
@@ -34,95 +114,42 @@ def get_coarse_errors() -> xr.Dataset:
     error = np.zeros((len(components), len(drs), len(n_sources), len(z)))
 
     for k, c in enumerate(components):
-        ref = load_data('reference', f'flux_{c}')
-        rms[k] = get_rmse(ref).values
+        ref = load_data(
+            'reference',
+            field=f'flux_{c}',
+            time_filter=None,
+            z_filter=None
+        )
+
+        drop = ref['z_faces'].values < config.r_source
+        drop[-config.n_sponge:] = True
+
+        tmp = gaussian_filter(ref, seconds=3600, z_faces=500)
+        ref = gaussian_filter(ref, seconds=43200, z_faces=4e3)
+        rms[k] = get_rmse(tmp).values
 
         for i, dr in enumerate(drs):
             for j, n_source in enumerate(n_sources):
                 flux = load_data(_get_path(dr, n_source), f'flux_{c}')
                 error[k, i, j] = get_rmse(ref, flux).values
+                error[k, i, j, drop] = np.nan
 
-    return xr.Dataset({
+    xr.Dataset({
         'component' : components,
         'dr' : drs, 'n_source' : n_sources, 'z_faces' : z,
         'error' : (('component', 'dr', 'n_source', 'z_faces'), error),
         'rms' : (('component', 'z_faces'), rms)
-    })
-
-def save_coarsenings() -> None:
-    """
-    Integrate over the grid of coarse resolutions and save each output dataset.
-    """
-
-    kwargs = get_overrides('coarse')
-    for dr, n_source in product(*_get_grid()):
-        kwargs['dr_init'] = float(dr)
-        kwargs['n_source'] = n_source
-
-        with config.override(**kwargs):
-            ds = get_integration().mean('member')
-            ds.to_netcdf(_get_path(dr, n_source))
-
-def update_config(*rnames: list[str]) -> None:
-    """
-    Update the values of `dr_init` and `n_source` in the loaded configuration
-    file to the best values found during the grid search.
-
-    Parameters
-    ----------
-    rnames
-        List of run names to use in choosing the best coarse coordinates. Allows
-        the optimization to be performed over multiple integrations and the best
-        coarse values to be set for all integrations.
-
-    """
-
-    if not rnames:
-        rnames = [config.name]
-
-    orig = config.name
-    rms, errors = 0, []
-
-    for rname in rnames:
-        config.load(f'config/{rname}.toml')
-        flux_bc, _ = get_mima_source_info()
-        ds = get_coarse_errors()
-        
-        rms = rms + (ds['rms'] / flux_bc) ** 2
-        errors.append(ds['error'] / flux_bc)
-
-    config.load(f'config/{orig}.toml')
-    rms = np.sqrt(rms / len(rnames))
-    dims = ['component', 'z_faces']
-
-    total = sum([(error / rms).mean(dims) for error in errors])
-    i, j = (da.item() for da in total.argmin(...).values())
-
-    for rname in rnames:
-        with open(f'config/{rname}.toml') as f:
-            lines = f.readlines()
-
-        drs, n_sources = _get_grid()
-        with open(f'config/{rname}.toml', 'w') as f:
-            for line in lines:
-                if line.startswith('dr_init'):
-                    f.write(f'dr_init = {drs[i]}\n')
-
-                elif line.startswith('n_source'):
-                    f.write(f'n_source = {n_sources[j]}\n')
-
-                else:
-                    f.write(line)
+    }).to_netcdf(f'data/{config.name}/coarsenings/coarse-errors.nc')
 
 def _get_grid() -> tuple[list[int], list[int]]:
     """
-    Return lists of values for `config.dr_init` and `config.n_source` defining
-    the grid over which to search for the optimal coarse configuration.
+    Return lists of values for `config.dr_source` and `config.n_source` within
+    which to search for the optimal coarse configuration.
 
     Returns
     -------
     list[int], list[int]
-        Values for `config.dr_init` and `config.n_source`, respectively.
+        Values for `config.dr_source` and `config.n_source`, respectively.
 
     """
 
@@ -136,6 +163,17 @@ def _get_grid() -> tuple[list[int], list[int]]:
 def _get_path(dr: int, n_source: int) -> str:
     """
     Get the path where each coarse-resolution integration should be saved.
+
+    Parameters
+    ----------
+    dr, n_source
+        Integers describing the current coarse integration.
+
+    Returns
+    -------
+    str
+        Path for the netCDF output.
+
     """
 
     data_dir = f'data/{config.name}/coarsenings'

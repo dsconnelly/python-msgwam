@@ -3,6 +3,30 @@
 name=$1
 dep_arg=$2
 
+strats=(
+    "ICONlike"
+    "MiMAlike"
+    "instantaneous"
+    "stochastic:25"
+    "stochastic:64"
+    "stochastic:100"
+    "coarse:energy"
+    "coarse:flux"
+    "coarse:cg_r"
+)
+
+cmds=""
+args=""
+
+for strat in "${strats[@]}"; do
+    dashed="${strat//:/-}"
+    cmds="${cmds}save-strategy:${strat} plot-strategy:${dashed} "
+    args="${args}${dashed}:"
+done
+
+cmds="${cmds%?}"
+args="${args%?}"
+
 job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
@@ -11,16 +35,7 @@ job_id=$(sbatch \
     -J baselines \
     -o logs/$name/baselines.out \
     $dep_arg \
-    submit.slurm config/$name.toml \
-        save-strategy:ICONlike \
-        save-strategy:coarse \
-        save-strategy:stochastic:25 \
-        save-strategy:instantaneous \
-        plot-strategy:ICONlike \
-        plot-strategy:coarse \
-        plot-strategy:stochastic-25 \
-        plot-strategy:instantaneous \
-        plot-error-profiles:ICONlike:instantaneous:coarse:stochastic-25
+    submit.slurm config/$name.toml $cmds plot-error-profiles:abs::${args}
 )
 
 echo $job_id

@@ -16,8 +16,8 @@ spectrum_file = 'DATA_DIR/input/spectrum.nc'
 ################################################################################
 # time stepping
 ################################################################################
-dt = 120
-dt_output = 120
+dt = 240
+dt_output = 240
 n_day = 30
 
 ################################################################################
@@ -28,12 +28,9 @@ H_N = 15e3
 H_rho = 7e3
 latitude = 30
 n_grid = 401
-N_ref_max = 0.02
-N_ref_min = 0.01
-N_ref_noise = 0.0015
 rho_ref = 1.2
 z_max = 60e3
-z_min = 10e3
+z_min = 5e3
 
 ################################################################################
 # viscosity and dissipation
@@ -53,12 +50,13 @@ n_source = 16
 # 'transient' propagator
 ################################################################################
 cfl_mode = 'warn'
-dr_init = 2500
+dr_ghost = 2250
+dr_source = 2500
 dr_max = 10000
 dr_min = 50
 jitter = false
 max_age = -1
-max_dt_multiplier = 10
+max_dt_multiplier = 4
 max_overshoot = 1.2
 min_flux = 1e-8
 n_chromatic = -1
@@ -66,6 +64,7 @@ n_increment = 0
 n_max = 250
 n_sponge = 20
 prune_by = 'energy'
+r_source = 10e3
 shapiro_filter = true
 
 ################################################################################
@@ -82,10 +81,10 @@ dl_init = 1e-4
 ################################################################################
 # 'mima' spectrum
 ################################################################################
-flux_bc_ex = 0.010
+flux_bc_ex = 0.012
 flux_bc_tr = 0.006
 cp_width_ex = 35
-cp_width_tr = 20
+cp_width_tr = 35
 lat_tropics = 25
 source_dlat = 5
 T_hat_source = 36000
