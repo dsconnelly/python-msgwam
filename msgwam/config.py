@@ -72,7 +72,7 @@ dr_ghost: float
 dr_max: float
 dr_min: float
 dr_source: float
-jitter: bool
+jitter: float
 max_age: int
 max_dt_multiplier: int
 max_overshoot: float
@@ -220,6 +220,9 @@ def _add_derived(config: dict[str, Any]) -> None:
 
     latitude = np.deg2rad(config['latitude'])
     config['f'] = 2 * ROT_EARTH * np.sin(latitude)
+
+    if config['source_type'] != 'stochastic':
+        config['epsilon'] = 1
 
 def _is_valid(value: Any, annotation: Any) -> bool:
     """

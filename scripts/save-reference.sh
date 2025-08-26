@@ -17,7 +17,7 @@ job_id=$(sbatch \
     --mem=128G \
     --cpus-per-task=8 \
     --time=12:00:00 \
-    -J reference \
+    -J "${name}-reference" \
     -o logs/$name/reference.out \
     $dep_arg \
     submit.slurm config/$name.toml \

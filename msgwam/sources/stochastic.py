@@ -18,7 +18,7 @@ class StochasticSource(Source):
         what it would be in the absence of randomness.
         """
 
-        p = config.epsilon * cg_r * config.dt / config.dr_source
-        keep = np.random.rand(data.shape[1]) < p
+        rate = config.epsilon * cg_r * config.dt / config.dr_source
+        idx = np.repeat(np.arange(len(cdx)), np.random.poisson(rate))
 
-        return data[:, keep], cdx[keep]
+        return data[:, idx], cdx[idx]

@@ -9,7 +9,7 @@ job_id=$(sbatch \
     --mem=32G \
     --time=1:00:00 \
     -a 0-24 \
-    -J coarsening \
+    -J "${name}-coarsenings" \
     -o logs/$name/coarsening-%a.out \
     $dep_arg \
     submit.slurm config/$name.toml save-coarsenings
@@ -20,7 +20,7 @@ job_id=$(sbatch \
     --ntasks=1 \
     --mem=32G \
     --time=1:30:00 \
-    -J update \
+    -J "${name}-update" \
     -o logs/$name/coarsening-update.out \
     --dependency=afterok:$job_id \
     submit.slurm config/$name.toml \

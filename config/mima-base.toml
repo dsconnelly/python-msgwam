@@ -50,11 +50,11 @@ n_source = 16
 # 'transient' propagator
 ################################################################################
 cfl_mode = 'warn'
-dr_ghost = 2250
+dr_ghost = 2000
 dr_source = 2500
 dr_max = 10000
 dr_min = 50
-jitter = false
+jitter = 0
 max_age = -1
 max_dt_multiplier = 4
 max_overshoot = 1.2

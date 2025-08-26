@@ -1,7 +1,7 @@
 #!/bin/bash -e
 
 #SBATCH --mail-user=dsconnelly@nyu.edu
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 python ()
 {

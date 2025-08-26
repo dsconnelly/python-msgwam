@@ -32,7 +32,7 @@ job_id=$(sbatch \
     --ntasks=1 \
     --mem=64G \
     --time=4:00:00 \
-    -J baselines \
+    -J "${name}-baselines" \
     -o logs/$name/baselines.out \
     $dep_arg \
     submit.slurm config/$name.toml $cmds plot-error-profiles:abs::${args}

@@ -35,8 +35,8 @@ def get_global_scores(*rnames: str) -> xr.DataArray:
     error = 0
     for rname in rnames:
         ds = xr.open_dataset(f'data/{rname}/coarsenings/coarse-errors.nc')
-        add = (ds['error'].fillna(0) / ds['rms']).mean('z_faces')
-        error = error + np.minimum(1, add)
+        add = np.minimum(1, ds['error'].fillna(0) / ds['rms'])
+        error = error + add.mean('z_faces')
 
     return error / len(rnames)
 

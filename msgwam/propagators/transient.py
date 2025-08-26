@@ -46,12 +46,14 @@ class TransientPropagator(Propagator):
         self._data = np.nan * np.zeros(shape)
         self._next_meta = -1
 
-        self._r_ghost = config.r_source - config.dr_ghost
-        self._ghosts = np.zeros(config.n_source).astype(int)
-        self._check_source(mean, 0)
-
         padding = (mean.z_centers[0] - mean.dz, mean.z_centers[-1] + mean.dz)
         self._z_padded = np.pad(mean.z_centers, 1, constant_values=padding)
+        k = np.argmax(self._z_padded > config.r_source) - 1
+
+        self._r_ghost = config.r_source - config.dr_ghost
+        self._r_ghost = np.minimum(self._r_ghost, self._z_padded[k])
+        self._ghosts = np.zeros(config.n_source).astype(int)
+        self._check_source(mean, 0)
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -117,13 +119,10 @@ class TransientPropagator(Propagator):
 
         action_flux = self.action * self._get_cg_r(mean)
         data = np.vstack([wvn * action_flux for wvn in wvns])
-        fluxes = self._project(data, self._z_padded)
+        fluxes = self._project(data, self._z_padded) / config.epsilon
 
         if config.shapiro_filter:
             fluxes[:, 1:-1] = shapiro_filter(fluxes.T).T
-
-        if config.source_type == 'stochastic':
-            fluxes = fluxes / config.epsilon
 
         return fluxes
 
@@ -249,7 +248,7 @@ class TransientPropagator(Propagator):
         else:
             _, pdx = self._get_packet_info()
 
-        data = np.vstack((S, S * wvn_sq))
+        data = np.vstack((S, S * wvn_sq)) / config.epsilon
         P, Q = self._project(data, mean.z_faces, pdx)
         P = P - threshold
 
@@ -258,7 +257,7 @@ class TransientPropagator(Propagator):
         kappa[idx] = P[idx] / Q[idx]
 
         maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa, pdx)
-        factor = np.maximum(0, 1 - wvn_sq * maxes)
+        factor = np.maximum(0, 1 - config.epsilon * wvn_sq * maxes)
         factor[self._notouch] = 1
 
         self._data[8] = self.dens * factor
@@ -290,7 +289,7 @@ class TransientPropagator(Propagator):
         flux = wvn * self.action * self._get_cg_r(mean)
         drop = drop | (abs(flux) < config.min_flux)
 
-        drop[self._ghosts] = False
+        drop[self._notouch] = False
         self._delete_rays(drop)
 
     def _check_source(self, mean: MeanState, n_step: int) -> None:
@@ -314,9 +313,9 @@ class TransientPropagator(Propagator):
             for k, data in zip(cdx, datas.T):
                 self._ghosts[k] = self._add_ray(data, r_init)
 
-            if config.jitter:
+            if config.jitter > 0:
                 noise = np.random.rand(self._n_max) - 0.5
-                self._data[0] += config.dr_source * noise
+                self._data[0] += config.jitter * noise
 
             return
 
@@ -345,7 +344,7 @@ class TransientPropagator(Propagator):
             repeats = {}
             for k, data in zip(cdx, datas.T):
                 n_shift = repeats.setdefault(k, 0)
-                r = config.r_source - (n_shift + 0.5) * config.dr_source
+                r = self._r_ghost - (n_shift + 0.5) * config.dr_source
                 repeats[k] = repeats[k] + 1
                 to_add.append((k, data, r))
 
@@ -396,7 +395,8 @@ class TransientPropagator(Propagator):
         """
 
         if r is None:
-            r = self.r
+            r = self.r.copy()
+            r[self._notouch] = config.r_source
 
         N = interp(r, mean.z_centers, mean.N)
         G2 = interp(r, mean.z_centers, mean.G2)
@@ -446,8 +446,10 @@ class TransientPropagator(Propagator):
             ) / (2 * wvn_sq * omega_hat)
         )
 
+        cg_mid = self._get_cg_r(mean)
         dk_dt, dl_dt, ddk_dt, ddl_dt, ddm_dt = np.zeros((5, self._n_max))
         dm_dt[self._notouch] = ddr_dt[self._notouch] = 0
+        dr_dt[self._notouch] = cg_mid[self._notouch]
 
         return np.vstack((
             dr_dt, ddr_dt,
@@ -630,7 +632,7 @@ class TransientPropagator(Propagator):
 
         elif config.prune_by == 'flux':
             wvn = np.sqrt(self.k ** 2 + self.l ** 2)
-            criterion = abs(wvn * self.action * self._get_cg_r(mean))
+            criterion = abs(wvn * self.action * self._get_cg_r(mean) * self.dr)
 
         elif config.prune_by == 'random':
             criterion = np.random.rand(self._n_max)

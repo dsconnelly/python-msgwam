@@ -98,7 +98,7 @@ def plot_coarse_errors(*rnames: str) -> None:
 
         img = gaxes[k].imshow(
             grid.values.T,
-            vmin=0.25, vmax=1,
+            vmin=0, vmax=1,
             origin='lower',
             aspect='auto',
             cmap=cmap
@@ -112,7 +112,7 @@ def plot_coarse_errors(*rnames: str) -> None:
 
         if (not rnames) or k == 0:
             cbar = plt.colorbar(img, cax=caxes[k], extend='max')
-            cbar.set_ticks(np.linspace(0.25, 1, 4))
+            cbar.set_ticks(np.linspace(0, 1, 5))
             cbar.set_label('normalized error')
 
         funcs = [grid.argmin, grid.argmax]
@@ -289,7 +289,7 @@ def plot_error_profiles(mode: str, prefix: str, *strategies: str) -> None:
                 factor * curve, z,
                 color=color, ls=ls,
                 label=strategy,
-                zorder=j
+                zorder=(j + 2)
             )
 
         if mode == 'abs':
@@ -393,7 +393,7 @@ def _get_plot_specs(
     factors = [1e3, 86400]
 
     units = ['mPa', 'm / s / day']
-    amaxes = [10, 40]
+    amaxes = [20, 40]
 
     wind = {'x' : 'u', 'y' : 'v'}[c]
     if config.mean_state_type == 'interactive':
