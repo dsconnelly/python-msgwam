@@ -64,6 +64,7 @@ def plot_coarse_errors(*rnames: str) -> None:
 
         gaxes = [fig.add_subplot(spec[0, j]) for j in range(2)]
         caxes = [fig.add_subplot(spec[0, 2])]
+        aaxes = gaxes
 
         scores = get_global_scores(*rnames)
 
@@ -78,6 +79,7 @@ def plot_coarse_errors(*rnames: str) -> None:
         zaxes = [fig.add_subplot(spec[i, 0]) for i in range(2)]
         gaxes = [fig.add_subplot(spec[i, 1]) for i in range(2)]
         caxes = [fig.add_subplot(spec[i, 2]) for i in range(2)]
+        aaxes = [zaxes[0], gaxes[0], zaxes[1], gaxes[1]]
 
         path = f'data/{config.name}/coarsenings/coarse-errors.nc'
         with xr.open_dataset(path) as ds:
@@ -164,11 +166,14 @@ def plot_coarse_errors(*rnames: str) -> None:
             zaxes[k].set_ylabel('height (km)')
 
     if not rnames:
-        zaxes[0].legend()
+        zaxes[1].legend()
+
+    for i, ax in enumerate(aaxes):
+        ax.set_title(f'({chr(i + 97)})')
 
     tag = '-global' if rnames else ''
     path = f'plots/{config.name}/coarsenings{tag}.png'
-    plt.savefig(path, dpi=400)
+    plt.savefig(path, dpi=400, bbox_inches='tight')
 
 def plot_ensemble_errors(strategy: str) -> None:
     """Plot errors as a function of ensemble size."""
@@ -216,14 +221,12 @@ def plot_ensemble_errors(strategy: str) -> None:
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/{strategy}-ensemble.png', dpi=400)
 
-def plot_error_profiles(mode: str, prefix: str, *strategies: str) -> None:
+def plot_error_profiles(prefix: str, *strategies: str) -> None:
     """
     Plot RMS errors for various strategies, potentially averaged across runs.
 
     Parameters
     ----------
-    mode
-        What kind of error to plot. Must be either `'rel'` or `'abs'`.
     prefix
         The errors will be averaged over all runs in `data/` that share the
         given prefix. However, if `prefix` is the empty string, only this
@@ -233,22 +236,23 @@ def plot_error_profiles(mode: str, prefix: str, *strategies: str) -> None:
 
     """
 
-    if mode not in ['rel', 'abs']:
-        raise ValueError(f'Unknown error mode: {mode}')
-
     prefix = config.name if prefix == '' else prefix
     keep = lambda s: s.startswith(prefix) and os.path.isdir(f'data/{s}')
     rnames = list(filter(keep, os.listdir('data')))
 
+    tasks = ['abs']
+    if len(rnames) > 1:
+        tasks = tasks + ['rel']
+
     n_cols = len(hp.components)
-    fig, axes = plt.subplots(1, n_cols, squeeze=False)
-    fig.set_size_inches(3 * n_cols, 4.5)
+    fig, axes = plt.subplots(len(tasks), n_cols, squeeze=False)
+    fig.set_size_inches(3 * n_cols, 4.5 * len(tasks))
 
     z = get_vertical_grids()[0] / 1000
     drop = z * 1000 < config.r_source
     drop[-config.n_sponge:] = True
 
-    for c, ax in zip(hp.components, axes[0]):
+    for j, c in enumerate(hp.components):
         profiles = defaultdict(lambda: 0)
 
         for rname in rnames:
@@ -269,56 +273,72 @@ def plot_error_profiles(mode: str, prefix: str, *strategies: str) -> None:
                     rmse = get_rmse(data, ref)
                     rmse[drop] = np.nan
 
-                    if mode == 'rel':
-                        rmse = np.minimum(1, rmse / rms)
+                    for task in tasks:
+                        if task == 'rel':
+                            rmse = np.minimum(1, rmse / rms)
 
-                    profiles[strategy] = profiles[strategy] + rmse / len(rnames)
+                        tag = strategy + '-' + task
+                        profiles[tag] = profiles[tag] + rmse / len(rnames)
 
-                if mode == 'abs':
+                if 'abs' in tasks:
                     profiles['rms'] = profiles['rms'] + rms ** 2 / len(rnames)
 
-        for j, (strategy, curve) in enumerate(profiles.items()):
-            if strategy == 'rms':
-                continue
+        for i, task in enumerate(tasks):
+            factor = {'rel' : 1, 'abs' : 1000}[task]
 
-            factor = {'rel' : 1, 'abs' : 1000}[mode]
-            color = _COLORS[strategy.split('-')[0]]
-            ls = _STYLES.get(strategy, 'solid')
+            for k, strategy in enumerate(strategies):
+                tag = strategy + '-' + task
+                curve = factor * profiles[tag]
 
-            ax.plot(
-                factor * curve, z,
-                color=color, ls=ls,
-                label=strategy,
-                zorder=(j + 2)
-            )
+                color = _COLORS[strategy.split('-')[0]]
+                ls = _STYLES.get(strategy, 'solid')
 
-        if mode == 'abs':
-            ax.plot(
-                1000 * np.sqrt(profiles['rms']), z,
-                color='lightgray',
-                ls='dashed',
-                linewidth=1,
-                label='RMS',
-                zorder=-1
-            )
+                axes[i, j].plot(
+                    curve, z,
+                    color=color, ls=ls,
+                    label=strategy,
+                    zorder=(k + 2)
+                )
 
-        ax.set_xlim(0, 1 if mode == 'rel' else 5)
-        ax.set_ylim(config.r_source / 1e3, config.z_max / 1e3)
 
-        label = 'normalized error' if mode == 'rel' else 'RMSE (mPa)'
-        ax.set_xlabel(f'$F^{c}$ {label}')
-        ax.set_ylabel('height (km)')
+            if task == 'abs':
+                axes[i, j].plot(
+                    1000 * np.sqrt(profiles['rms']), z,
+                    color='lightgray',
+                    ls='dashed',
+                    linewidth=1,
+                    label='RMS',
+                    zorder=-1
+                )
 
-        ax.grid(color='lightgray')
-        ax.tick_params('both', direction='in')
-        ax.set_axisbelow(True)
+            n = 5 if task == 'rel' else 4
+            xmax = 1 if task == 'rel' else 6
+            xticks = np.linspace(0, xmax, n)
+            
+            fmt = lambda v: str(int(v)) if int(v) == v else str(v)
+            labels = list(map(fmt, xticks))
 
-    axes[0, 0].legend()
+            axes[i, j].set_xlim(0, xmax)
+            axes[i, j].set_xticks(xticks, labels=labels)
+            axes[i, j].set_ylim(config.r_source / 1e3, config.z_max / 1e3)
+
+            label = 'normalized error' if task == 'rel' else 'RMSE (mPa)'
+            axes[i, j].set_xlabel(f'$F^{c}$ {label}')
+            axes[i, j].set_ylabel('height (km)')
+
+            axes[i, j].grid(color='lightgray')
+            axes[i, j].tick_params('both', direction='in')
+            axes[i, j].set_axisbelow(True)
+
+    axes[0, 1].legend()
     plt.tight_layout()
 
+    for i, ax in enumerate(axes.flatten()):
+        ax.set_title(f'({chr(i + 97)})')
+
     tag = '-global' if len(rnames) > 1 else ''
-    path = f'plots/{config.name}/errors-{mode}{tag}.png'
-    plt.savefig(path, dpi=400)
+    path = f'plots/{config.name}/errors{tag}.png'
+    plt.savefig(path, dpi=400, bbox_inches='tight')
 
 def plot_strategy(strategy: str) -> None:
     """
