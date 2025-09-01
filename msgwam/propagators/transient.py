@@ -118,6 +118,9 @@ class TransientPropagator(Propagator):
             ]
 
         action_flux = self.action * self._get_cg_r(mean)
+        drop = (self.m < 0) & (self.r - 0.5 * self.dr < self._r_ghost)
+        action_flux[drop] = 0
+
         data = np.vstack([wvn * action_flux for wvn in wvns])
         fluxes = self._project(data, self._z_padded) / config.epsilon
 

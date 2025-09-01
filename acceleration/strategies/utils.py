@@ -1,3 +1,5 @@
+import os
+
 from typing import Literal, Optional
 
 import cftime
@@ -29,6 +31,26 @@ def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
     """
 
     return np.sqrt(((a - b) ** 2).mean('time'))
+
+def get_rnames(prefix: str) -> list[str]:
+    """
+    Get the list of run names matching a given prefix.
+
+    Parameters
+    ----------
+    prefix
+        Prefix to look for data directories in `data/`.
+
+    Returns
+    -------
+    list[str]
+        List of match run names.
+
+    """
+
+    prefix = config.name if prefix == '' else prefix
+    keep = lambda s: s.startswith(prefix) and os.path.isdir(f'data/{s}')
+    return list(filter(keep, os.listdir('data')))
 
 def load_data(
     path: str,
@@ -91,8 +113,12 @@ def load_data(
         else:
             data = ds[field]
 
-    if ensemble_mean and ('member' in data.coords):
-        data = data.mean('member')
+    if 'member' in data.coords:
+        if ensemble_mean:
+            data = data.mean('member')
+
+        else:
+            data = data.isel(member=0)
 
     units = f'days since {EPOCH}'    
     days = cftime.date2num(data['time'], units)

@@ -224,6 +224,16 @@ def _add_derived(config: dict[str, Any]) -> None:
     if config['source_type'] != 'stochastic':
         config['epsilon'] = 1
 
+    if isinstance(config['r_source'], str):
+        def parse_line(line: str) -> np.ndarray:
+            values = map(float, line.strip().split())
+            return np.array(list(values))
+        
+        with open(config['r_source']) as f:
+            lats, levels, *_ = map(parse_line, f)
+
+        config['r_source'] = np.interp(config['latitude'], lats, levels)
+
 def _is_valid(value: Any, annotation: Any) -> bool:
     """
     Check if a config setting is given its type annotation. Usually, this just

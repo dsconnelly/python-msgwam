@@ -9,7 +9,9 @@ from ..shared.distributed import product
 from ..shared.filtering import gaussian_filter
 
 from .integration import get_integration, get_overrides
-from .utils import get_rmse, load_data
+from .utils import get_rmse, get_rnames, load_data
+
+_Z_CUTOFF = 20e3
 
 def get_global_scores(*rnames: str) -> xr.DataArray:
     """
@@ -35,8 +37,8 @@ def get_global_scores(*rnames: str) -> xr.DataArray:
     error = 0
     for rname in rnames:
         ds = xr.open_dataset(f'data/{rname}/coarsenings/coarse-errors.nc')
-        add = np.minimum(1, ds['error'].fillna(0) / ds['rms'])
-        error = error + add.mean('z_faces')
+        add = np.minimum(1, ds['error'] / ds['rms'])
+        error += add.mean('z_faces', skipna=True)
 
     return error / len(rnames)
 
@@ -57,7 +59,7 @@ def save_coarsenings() -> None:
             ds = get_integration().mean('member')
             ds.to_netcdf(_get_path(dr, n_source))
 
-def update_config(*rnames: str) -> None:
+def update_config(prefix: str) -> None:
     """
     Update the values of `dr_source` and `n_source` in one or more configuration
     files to the best values found during the grid search. Can take into account
@@ -71,6 +73,7 @@ def update_config(*rnames: str) -> None:
 
     """
 
+    rnames = get_rnames(prefix)
     scores = get_global_scores(*rnames).mean('component')
     i, j = (da.item() for da in scores.argmin(...).values())
     drs, n_sources = _get_grid()
@@ -121,7 +124,7 @@ def save_coarse_errors() -> None:
             z_filter=None
         )
 
-        drop = ref['z_faces'].values < config.r_source
+        drop = ref['z_faces'].values < _Z_CUTOFF
         drop[-config.n_sponge:] = True
 
         tmp = gaussian_filter(ref, seconds=3600, z_faces=500)

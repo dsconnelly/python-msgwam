@@ -64,7 +64,7 @@ n_increment = 0
 n_max = 250
 n_sponge = 20
 prune_by = 'energy'
-r_source = 10e3
+r_source = 'data/source-levels.in'
 shapiro_filter = true
 
 ################################################################################
@@ -81,8 +81,8 @@ dl_init = 1e-4
 ################################################################################
 # 'mima' spectrum
 ################################################################################
-flux_bc_ex = 0.012
-flux_bc_tr = 0.006
+flux_bc_ex = 0.008
+flux_bc_tr = 0.003
 cp_width_ex = 35
 cp_width_tr = 35
 lat_tropics = 25
