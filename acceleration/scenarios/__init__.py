@@ -5,12 +5,11 @@ from ..hyperparameters import scenarios as hp
 
 from .idealized import get_gated_oscillation
 from .mima import get_mima_scenario
-from .plotting import plot_mean_state, plot_mean_scales, plot_spectrum
+from .plotting import plot_mean_state, plot_mean_scales
 
 __all__ = [
     'plot_mean_state',
     'plot_mean_scales',
-    'plot_spectrum',
     'save_mean_state',
     'save_spectrum'
 ]
@@ -34,10 +33,3 @@ def save_mean_state(scenario: str, *args: str) -> None:
         path = config.prescribed_mean_file
         scenario = scenario.replace('-', '_')
         globals()[f'get_{scenario}'](*args).to_netcdf(path)
-
-def save_spectrum() -> None:
-    """Save a source spectrum."""
-
-    with config.override(n_source=1000):
-        source_func = getattr(spectra, f'_{hp.spectrum_type}')
-        source_func().to_netcdf(config.spectrum_file)

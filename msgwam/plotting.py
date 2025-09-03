@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
+from matplotlib.colors import Normalize, SymLogNorm
+
 from . import config
 from .constants import EPOCH
 from .dispersion import get_cg_r, get_m
@@ -234,7 +236,8 @@ def plot_time_series(
     amax: float,
     axes: Optional[list[Axes]]=None,
     cmap: str='RdBu_r',
-    orientation: str='vertical'
+    orientation: str='vertical',
+    log_scale: bool=False
 ) -> tuple[QuadMesh, Optional[Colorbar]]:
     """
     Plot data with time and height coordinates.
@@ -273,10 +276,15 @@ def plot_time_series(
     name = [s for s in data.coords if str(s).startswith('z_')][0]
     z = data[name].values / 1000
 
+    if log_scale:
+        norm = SymLogNorm(1e-1, vmin=-amax, vmax=amax)
+    else:
+        norm = Normalize(vmin=-amax, vmax=amax)
+
     img = axes[0].pcolormesh(
         time, z, data.T,
-        vmin=-amax, vmax=amax,
         shading='nearest',
+        norm=norm,
         cmap=cmap
     )
 

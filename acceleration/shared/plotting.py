@@ -10,7 +10,7 @@ from msgwam import config
 def plot_summaries(
     datas: dict[str, xr.DataArray],
     amaxes: list[float],
-    units: list[str]
+    units: list[str],
 ) -> None:
     """
     Plot time series and RMS values for one or more variables.
@@ -46,20 +46,31 @@ def plot_summaries(
         i, j = k % n_rows, 2 * (k // n_rows)
         cax = axes[i, -1]
 
-        _, cbar = plot_time_series(data, amax, [axes[i, j + 1], cax])
-        cbar.set_label(unit)
+        log_scale = 'D^' in field
+        _, cbar = plot_time_series(
+            data, amax,
+            axes=[axes[i, j + 1], cax],
+            log_scale=log_scale
+        )
+
 
         rms = np.sqrt((data ** 2).mean('time'))
         z = np.linspace(config.z_min, config.z_max, data.shape[1]) / 1000
         axes[i, j].plot(rms, z, color='k')
 
-        axes[i, j].set_xlim(0, amax)
         axes[i, j].set_ylim(z.min(), z.max())
         axes[i, j].tick_params('both', direction='in')
 
-        ticks = np.linspace(0, amax, 5)
-        axes[i, j].set_xticks(ticks)
+        if log_scale:
+            axes[i, j].set_xscale('log')
+            axes[i, j].set_xlim(1e-1, amax)
+
+        else:
+            ticks = np.linspace(0, amax, 5)
+            axes[i, j].set_xticks(ticks)
+            axes[i, j].set_xlim(0, amax)
 
         axes[i, j].grid(color='lightgray')
         axes[i, j].set_xlabel(f'RMS {field} ({unit})')
         axes[i, j].set_ylabel('height (km)')
+        cbar.set_label(unit)

@@ -1,7 +1,9 @@
 from __future__ import annotations
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Optional, Self, cast
 from warnings import warn
 
+import pandas as pd
 import numpy as np
 
 from .. import config
@@ -55,6 +57,8 @@ class TransientPropagator(Propagator):
         self._ghosts = np.zeros(config.n_source).astype(int)
         self._check_source(mean, 0)
 
+        self._statistics = defaultdict(lambda: [np.inf, -np.inf, 0, 0])
+
     def __getattr__(self, name: str) -> Any:
         """
         Return the row of `self._data` corresponding to the named ray property.
@@ -101,6 +105,19 @@ class TransientPropagator(Propagator):
         """
 
         return self.dens * self.dk * self.dl * self.dm
+    
+    def export_log(self) -> pd.DataFrame:
+        """Export the logged statistics as a `DataFrame`."""
+
+        names = list(self._statistics.keys())
+        data = np.zeros((len(names), 3))
+        names = sorted(names)
+
+        for i, name in enumerate(names):
+            vmin, vmax, vtot, count = self._statistics[name]
+            data[i] = [vmin, vtot / count, vmax]
+
+        return pd.DataFrame(data, index=names, columns=['min', 'mean', 'max'])
 
     def get_fluxes(self, mean: MeanState, net: bool = True) -> np.ndarray:
         """
@@ -536,6 +553,27 @@ class TransientPropagator(Propagator):
 
         return labels[~np.isnan(labels)].astype(int), pdx.astype(int)
 
+    def _log_value(self, name: str, v: float, c: int=1) -> None:
+        """
+        Log a diagnostic value. Keeps track of minima, maxima, and means.
+
+        Parameters
+        ----------
+        name
+            Name of the statistic to update.
+        v
+            Value of the statistic to log.
+        c
+            How many samples this value should count for. Defaults to `1`, but
+            other values can be passed in e.g. in case `v` is itself a mean.
+
+        """
+
+        self._statistics[name][0] = min(self._statistics[name][0], v)
+        self._statistics[name][1] = max(self._statistics[name][1], v)
+        self._statistics[name][2] = self._statistics[name][2] + v
+        self._statistics[name][3] = self._statistics[name][3] + c
+
     @property
     def _n_max(self) -> int:
         """
@@ -643,7 +681,11 @@ class TransientPropagator(Propagator):
         ubound = np.nanmax(criterion)
         criterion[~self._valid] = 3 * ubound
         criterion[self._notouch] = 2 * ubound
-        self._delete_rays(np.argsort(criterion)[:excess])
+        drop = np.argsort(criterion)[:excess]
+
+        self._log_value('pruned age (h)', self.age[drop].mean() / 3600, excess)
+        self._log_value('pruned r (km)', self.r[drop].mean() / 1000, excess)
+        self._delete_rays(drop)
 
     def _take_RK4_step(self, mean: MeanState, dt: int) -> None:
         """

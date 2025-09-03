@@ -4,6 +4,7 @@ from .plotting import (
     plot_coarse_errors,
     plot_components,
     plot_error_profiles,
+    plot_spectrum,
     plot_strategy
 )
 
@@ -12,6 +13,7 @@ __all__ = [
     'plot_coarse_errors',
     'plot_components',
     'plot_error_profiles',
+    'plot_spectrum',
     'plot_strategy',
     'save_coarse_errors',
     'save_coarsenings',

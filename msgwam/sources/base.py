@@ -38,7 +38,6 @@ class Source(FactoryABC):
         self._data = data
         self._cp = ds['cp'].values
         self._phi = ds['phi'].values
-        self._dc = config.c_max / len(np.unique(self._cp))
 
     def launch(
         self,
@@ -101,7 +100,7 @@ class Source(FactoryABC):
             cdx = np.arange(config.n_source)
 
         i = (n_step * config.dt) // config.dt_launch
-        dk, dl, omega_hat, flux = self._data[i][:, cdx]
+        dk, dl, dc, omega_hat, flux = self._data[i][:, cdx]
         cos, sin = cos_and_sin(self._phi[cdx])
         cp_hat = self._cp[cdx] * (cos + sin)
 
@@ -118,7 +117,7 @@ class Source(FactoryABC):
         m = get_m(k, l, omega_hat, N)
 
         cg_r = get_cg_r(k, l, m, N, G2)
-        dm = get_dm(m, self._dc, N)
+        dm = get_dm(m, dc, N)
 
         dens = flux / abs(wvn_hor * dk * dl * dm * cg_r)
         data = np.vstack((k, l, m, dk, dl, dm, dens))

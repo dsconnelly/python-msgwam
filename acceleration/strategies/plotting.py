@@ -10,6 +10,7 @@ from matplotlib.patches import Rectangle
 
 from msgwam import config
 from msgwam.plotting import plot_time_series
+from msgwam.sources import get_spectrum
 from msgwam.utils import get_vertical_grids
 
 from ..hyperparameters import scenarios as hp
@@ -17,6 +18,7 @@ from ..shared.filtering import gaussian_filter
 from ..shared.plotting import plot_summaries
 
 from .coarsenings import get_global_scores
+from .overrides import get_overrides
 from .utils import get_rmse, get_rnames, load_data
 
 _COLORS = {
@@ -398,6 +400,47 @@ def plot_error_profiles(prefix: str, *strategies: str) -> None:
     path = f'plots/{oname}/errors{tag}.png'
     plt.savefig(path, dpi=400, bbox_inches='tight')
 
+def plot_spectrum(strategy: str, *args: str) -> None:
+    """
+    Plot the spectrum used by a particular strategy.
+
+    Parameters
+    ----------
+    strategy, *args
+        Strings to pass to `get_overrides`.
+
+    """
+
+    with config.override(**get_overrides(strategy, *args)):
+        ds = get_spectrum()
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(4.5, 3)
+
+    cp = ds['cp'].values
+    flux = ds['flux'].values
+    flux = len(flux) * flux / flux.sum()
+    dc = ds['dc'].values
+
+    ax.bar(
+        cp, flux,
+        width=dc,
+        fc='lightgray',
+        ec='k'
+    )
+
+    ax.set_xlim(0, config.c_max)
+    ax.set_ylim(0, 1.5)
+
+    ax.set_xlabel('$c_{\\mathrm{p}}$ (m / s)')
+    ax.set_ylabel('normalized source flux')
+    ax.set_yticks([0, 0.5, 1, 1.5])
+
+    plt.tight_layout()
+    name = '-'.join([strategy] + list(args))
+    kwargs = {'dpi' : 400, 'bbox_inches' : 'tight'}
+    plt.savefig(f'plots/{config.name}/spectrum-{name}.png', **kwargs)
+
 def plot_strategy(strategy: str) -> None:
     """
     Plot a summary of the integration outputs, including the momentum flux and
@@ -414,8 +457,8 @@ def plot_strategy(strategy: str) -> None:
     for c in hp.components:
         extras = {l : x * load_data(
             strategy, f, 0,
-            time_filter=(3600 if f.startswith('flux') else (3 * 3600)),
-            z_filter=(500 if f.startswith('flux') else 4e3),
+            time_filter=(3 * 3600),
+            z_filter=1000
         ) for l, f, x, *_ in zip(*_get_plot_specs(c))}
 
         datas.update(extras)
@@ -500,7 +543,7 @@ def _get_plot_specs(
     factors = [1e3, 86400]
 
     units = ['mPa', 'm / s / day']
-    amaxes = [5, 40]
+    amaxes = [5, 100]
 
     wind = {'x' : 'u', 'y' : 'v'}[c]
     if config.mean_state_type == 'interactive':
@@ -509,6 +552,6 @@ def _get_plot_specs(
         factors = [1] + factors
 
         units = ['m / s'] + units
-        amaxes = [50] + amaxes
+        amaxes = [80] + amaxes
 
     return labels, fields, factors, units, amaxes

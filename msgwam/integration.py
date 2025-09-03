@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Callable, Optional
 from warnings import catch_warnings
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 
 from . import config
@@ -53,6 +54,9 @@ def integrate(callback: Optional[_Callback]=None) -> xr.Dataset:
 
     runtime = now() - start
     ds = ds.assign_attrs(runtime=runtime)
+
+    if isinstance(prop, TransientPropagator):
+        print(prop.export_log())
 
     if len(log) > 0:
         print(f'Caught {len(log)} CFL warnings')
