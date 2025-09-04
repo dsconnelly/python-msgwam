@@ -538,20 +538,12 @@ def _get_plot_specs(
 
     """
 
-    labels = [f'$F^{c}$', f'$D^{c}$']
-    fields = [f'flux_{c}', f'acceleration_{c}']
-    factors = [1e3, 86400]
-
-    units = ['mPa', 'm / s / day']
-    amaxes = [5, 100]
-
     wind = {'x' : 'u', 'y' : 'v'}[c]
-    if config.mean_state_type == 'interactive':
-        labels = [f'$\\bar{{{wind}}}$'] + labels
-        fields = [wind] + fields
-        factors = [1] + factors
+    labels = [f'$\\bar{{{wind}}}$', f'$F^{c}$', f'$D^{c}$']
+    fields = [wind, f'flux_{c}', f'acceleration_{c}']
 
-        units = ['m / s'] + units
-        amaxes = [80] + amaxes
+    factors = [1, 1e3, 86400]
+    units = ['m / s', 'mPa', 'm / s / day']
+    amaxes = [80, 5, 100]
 
     return labels, fields, factors, units, amaxes

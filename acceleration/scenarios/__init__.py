@@ -11,7 +11,6 @@ __all__ = [
     'plot_mean_state',
     'plot_mean_scales',
     'save_mean_state',
-    'save_spectrum'
 ]
 
 def save_mean_state(scenario: str, *args: str) -> None:

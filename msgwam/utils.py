@@ -76,6 +76,26 @@ def cos_and_sin(a: np.ndarray) -> tuple[np.ndarray]:
 
     return cos, sin
 
+def get_bump(z: np.ndarray, center: float, width: float) -> np.ndarray:
+    """
+    Calculate a Gaussian bump of unit amplitude on the provided grid.
+
+    Parameters
+    ----------
+    z
+        Grid points to on which to calculate the function.
+    center, width
+        Parameters of the Gaussian to compute.
+
+    Returns
+    -------
+    np.ndarray
+        Array of Gaussian curve values on `z`.
+
+    """
+
+    return np.exp(-0.5 * ((z - center) / width) ** 2)
+
 def get_rho(z: np.ndarray) -> np.ndarray:
     """
     Return the background density profile as constant or decaying with height,
@@ -93,9 +113,6 @@ def get_rho(z: np.ndarray) -> np.ndarray:
 
     """
 
-    if config.boussinesq:
-        return config.rho_ref * np.ones_like(z)
-    
     return config.rho_ref * np.exp(-z / config.H_rho)
 
 def get_iterator() -> Iterator[int]:

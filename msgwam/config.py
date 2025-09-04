@@ -11,11 +11,10 @@ _DEFAULTS = {}
 
 ################################################################################
 # global integration settings
-################################################################################
-mean_state_type: Literal['interactive', 'prescribed']
+################################################################################∂
 propagator_type: Literal['instantaneous', 'network', 'transient']
 source_type: Literal['constant', 'network', 'packet', 'stochastic']
-spectrum_type: Literal['custom', 'from_file', 'desaubies', 'gaussians', 'mima']
+spectrum_type: Literal['mima', 'custom']
 
 ################################################################################
 # input and output
@@ -34,17 +33,12 @@ n_day: int
 ################################################################################
 # mean state
 ################################################################################
-boussinesq: bool
-geostrophic : bool
-H_N: float
 H_rho: float
 latitude : float
 n_grid: int
-N_ref_max: float
-N_ref_min: float
-N_ref_noise: float
+N_ref: float
 rho_ref: float
-w_star: float
+tau_nudge: float
 z_max: float
 z_min: float
 
@@ -102,32 +96,6 @@ n_repeat: int
 # 'stochastic' source
 ################################################################################
 epsilon: float
-
-################################################################################
-# 'desaubies' spectrum
-################################################################################
-n_omega: int
-n_phi: int
-omega_hat_max: float
-omega_hat_min: float
-wvl_star: float
-
-################################################################################
-# 'gaussians' spectrum
-################################################################################
-c_his: list[float]
-c_los: list[float]
-c_width_in: float
-c_width_out: float
-direction: float
-dk_init: float
-dl_init: float
-n_axes: Literal[1, 2]
-T_hat_lo: float
-T_hat_hi: float
-tau_corr_days: float
-tau_cutoff_days: float
-seed: int
 
 ################################################################################
 # 'mima' spectrum

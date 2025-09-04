@@ -70,7 +70,7 @@ def _get_edges_and_flux(n: int) -> np.ndarray:
     idx = np.argmax(grid[:, None] <= edges, axis=1) - 1
     np.add.at(flux, np.maximum(0, idx), flux_fine)
 
-    return edges, flux * 3
+    return edges, flux
 
 def _mima(cp: np.ndarray) -> xr.Dataset:
     """

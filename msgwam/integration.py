@@ -32,7 +32,7 @@ def integrate(callback: Optional[_Callback]=None) -> xr.Dataset:
 
     """
 
-    mean = MeanState.from_name(config.mean_state_type)
+    mean = MeanState()
     prop = Propagator.from_name(config.propagator_type, mean)
     ds = _update_dataset(mean, prop, _init_dataset(mean, prop), 0)
 
