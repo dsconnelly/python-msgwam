@@ -11,10 +11,9 @@ from matplotlib.patches import Rectangle
 from msgwam import config
 from msgwam.plotting import plot_time_series
 from msgwam.sources import get_spectrum
-from msgwam.utils import get_vertical_grids
+from msgwam.utils import gaussian_filter, get_vertical_grids
 
 from ..hyperparameters import scenarios as hp
-from ..shared.filtering import gaussian_filter
 from ..shared.plotting import plot_summaries
 
 from .coarsenings import get_global_scores
@@ -457,8 +456,8 @@ def plot_strategy(strategy: str) -> None:
     for c in hp.components:
         extras = {l : x * load_data(
             strategy, f, 0,
-            time_filter=(3 * 3600),
-            z_filter=1000
+            time_filter=(24 * 3600 if f.startswith('accel') else 3 * 3600),
+            z_filter=(5e3 if f.startswith('accel') else 1000)
         ) for l, f, x, *_ in zip(*_get_plot_specs(c))}
 
         datas.update(extras)
@@ -544,6 +543,6 @@ def _get_plot_specs(
 
     factors = [1, 1e3, 86400]
     units = ['m / s', 'mPa', 'm / s / day']
-    amaxes = [80, 5, 100]
+    amaxes = [100, 10, 100]
 
     return labels, fields, factors, units, amaxes

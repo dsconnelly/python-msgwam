@@ -176,6 +176,8 @@ class TransientPropagator(Propagator):
         self._check_boundaries(mean)
         self._check_source(mean, n_step)
 
+        self._log_value('active rays', self.n_active)
+
         return self
 
     def _add_ray(
@@ -553,7 +555,7 @@ class TransientPropagator(Propagator):
 
         return labels[~np.isnan(labels)].astype(int), pdx.astype(int)
 
-    def _log_value(self, name: str, v: float, c: int=1) -> None:
+    def _log_value(self, name: str, v: float | np.ndarray) -> None:
         """
         Log a diagnostic value. Keeps track of minima, maxima, and means.
 
@@ -562,17 +564,16 @@ class TransientPropagator(Propagator):
         name
             Name of the statistic to update.
         v
-            Value of the statistic to log.
-        c
-            How many samples this value should count for. Defaults to `1`, but
-            other values can be passed in e.g. in case `v` is itself a mean.
+            Value of the statistic to log. If an array, the elements of the
+            flattened array will be treated as individual observations.
 
         """
 
-        self._statistics[name][0] = min(self._statistics[name][0], v)
-        self._statistics[name][1] = max(self._statistics[name][1], v)
-        self._statistics[name][2] = self._statistics[name][2] + v
-        self._statistics[name][3] = self._statistics[name][3] + c
+        v = np.asarray(v).flatten()
+        self._statistics[name][0] = min(self._statistics[name][0], v.min())
+        self._statistics[name][1] = max(self._statistics[name][1], v.max())
+        self._statistics[name][2] = self._statistics[name][2] + v.sum()
+        self._statistics[name][3] = self._statistics[name][3] + len(v)
 
     @property
     def _n_max(self) -> int:
@@ -683,8 +684,8 @@ class TransientPropagator(Propagator):
         criterion[self._notouch] = 2 * ubound
         drop = np.argsort(criterion)[:excess]
 
-        self._log_value('pruned age (h)', self.age[drop].mean() / 3600, excess)
-        self._log_value('pruned r (km)', self.r[drop].mean() / 1000, excess)
+        self._log_value('pruned age (h)', self.age[drop] / 3600)
+        self._log_value('pruned r (km)', self.r[drop] / 1000)
         self._delete_rays(drop)
 
     def _take_RK4_step(self, mean: MeanState, dt: int) -> None:

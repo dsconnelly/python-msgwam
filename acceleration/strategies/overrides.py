@@ -67,9 +67,9 @@ def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""
 
     return {
+        'n_max' : 5000,
         'dr_source' : 100,
         'n_source' : 200,
-        'n_max' : int(250e3),
         'n_increment' : 1000,
         'prune_by' : 'none',
     }

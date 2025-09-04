@@ -8,9 +8,12 @@ import xarray as xr
 
 from msgwam import config
 from msgwam.constants import EPOCH
-from msgwam.utils import get_rho, get_vertical_grids, open_dataset
-
-from ..shared.filtering import gaussian_filter
+from msgwam.utils import (
+    gaussian_filter,
+    get_rho,
+    get_vertical_grids,
+    open_dataset
+)
 
 def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
     """

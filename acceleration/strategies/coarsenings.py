@@ -2,11 +2,10 @@ import numpy as np
 import xarray as xr
 
 from msgwam import config
-from msgwam.utils import get_vertical_grids
+from msgwam.utils import gaussian_filter, get_vertical_grids
 
 from .. import hyperparameters as hp
 from ..shared.distributed import product
-from ..shared.filtering import gaussian_filter
 
 from .integration import get_integration, get_overrides
 from .utils import get_rmse, get_rnames, load_data

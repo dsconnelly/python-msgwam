@@ -9,6 +9,7 @@ lu_solve = lambda A, b: _lu_solve(A, b.T).T
 
 from .. import config
 from ..utils import (
+    gaussian_filter,
     get_bump,
     get_rho,
     get_time,
@@ -39,8 +40,8 @@ class MeanState:
             coords = {'time' : get_time(), 'z_centers' : self.z_centers}
             ds = ds.interp(**coords, kwargs=dict(fill_value='extrapolate'))
 
-        self.wind = self._init_wind(ds)
-        self.rho, self.N, self.G2 = self._init_thermo(ds)
+        self._stored: dict[str, np.ndarray] = {}
+        self.wind, self.rho, self.N, self.G2 = self._init_state(ds)
 
         if self.is_interactive:
             self._A, self._B = self._init_AB()
@@ -150,7 +151,8 @@ class MeanState:
         dwind_dt = -flux_div / self.rho
 
         if self.is_prescribed:
-            nudge = (self._wind[n_step] - self.wind) / config.tau_nudge
+            target = self._stored['wind'][n_step]
+            nudge = (target - self.wind) / config.tau_nudge
             dwind_dt = dwind_dt + nudge
 
         return dwind_dt
@@ -184,68 +186,55 @@ class MeanState:
 
         return A, B
 
-    def _init_thermo(
-        self,
-        ds: Optional[xr.Dataset]
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _init_state(
+        self, ds: Optional[xr.Dataset]
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Initialize thermodynamic variables.
+        Initialize the wind and thermodynamic variables by reading from disc. If
+        no dataset is provided, reasonable reference profiles are used instead.
 
         Parameters
         ----------
         ds
-            `Dataset` from which to read and store time series for thermodynamic
-            variables. If `None`, reasonable reference profiles will be used.
+            Opened and interpolated dataset from which to read data.
 
         Returns
         -------
-        np.ndarray, np.ndarray, np.ndarray
-            Arrays of density, buoyancy frequency, and squared scale height
-            correction at vertical grid centers for the first time step.
+        np.ndarray, np.ndarray, np.ndarray, np.ndarray
+            Wind, density, buoyancy frequency, and squared scale height
+            correction profiles for the first time step at cell centers.
 
         """
 
         if ds is None:
             rho = get_rho(self.z_centers)
             ones = np.ones_like(self.z_centers)
-            G2 = ((1 / 2 - 2 / 7) / (2 * config.H_rho)) ** 2
+            G2 = ones * ((1 / 2 - 2 / 7) / (2 * config.H_rho)) ** 2
 
-            return rho, config.N_ref * ones, G2 * ones
-
-        self._rho = ds['rho'].values
-        self._N = np.sqrt(ds['N2'].values)
-        self._G2 = ds['G2'].values
-
-        return self._rho[0], self._N[0], self._G2[0]
-
-    def _init_wind(self, ds: Optional[xr.Dataset]) -> np.ndarray:
-        """
-        Initialize mean wind profiles.
-
-        Parameters
-        ----------
-        ds
-            `Dataset` from which to read and store wind time series. If `None`,
-            the run is fully interactive and a small perturbation is used.
-
-        Returns
-        -------
-        np.ndarray
-            Array whose first coordinate ranges over the zonal and meridional
-            components of the mean wind at the first time step.
-
-        """
-
-        if ds is None:
             center = (config.z_min + config.z_max) / 2
             u = 10 * get_bump(self.z_centers, center, 10e3)
             v = 5 * get_bump(self.z_centers, center + 15e3, 10e3)
             v = v - 5 * get_bump(self.z_centers, center - 15e3, 10e3)
 
-            return np.vstack((u, v))
+            return np.vstack((u, v)), rho, config.N_ref * ones, G2 * ones
         
-        self._wind = np.stack((ds['u'], ds['v']), axis=1)
-        return self._wind[0]
+
+        kwargs = {
+            'seconds' : config.tau_nudge,
+            'z_centers' : 2 * self.dz
+        }
+
+        datas = []
+        for name in ['u', 'v', 'rho', 'N2', 'G2']:
+            data = np.sqrt(ds[name]) if name == 'N2' else ds[name]
+            datas.append(gaussian_filter(data, **kwargs).values)
+
+        u, v, *datas = datas
+        self._stored['wind'] = np.stack((u, v), axis=1)
+        for name, data in zip(['rho', 'N', 'G2'], datas):
+            self._stored[name] = data
+
+        return (data[0] for data in self._stored.values())
 
     def _update_prescribed(self, n_step: int) -> Self:
         """
@@ -268,6 +257,6 @@ class MeanState:
         names = names + (['wind'] * (not self.is_interactive))
 
         for name in names:
-            setattr(self, name, getattr(self, f'_{name}')[n_step])
+            setattr(self, name, self._stored[name][n_step])
 
         return self

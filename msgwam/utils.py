@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import xarray as xr
 
+from scipy.ndimage import gaussian_filter1d as _filter
 from tqdm import trange
 
 from . import config
@@ -75,6 +76,40 @@ def cos_and_sin(a: np.ndarray) -> tuple[np.ndarray]:
     sin = np.round(np.sin(a), 10)
 
     return cos, sin
+
+def gaussian_filter(da: xr.DataArray, **kwargs: float) -> xr.DataArray:
+    """
+    Apply a Gaussian filter to a `DataArray`.
+
+    Parameters
+    ----------
+    da
+        Array of data to filter.
+    kwargs
+        Keys should correspond to coordinates of `da`, and values should be the
+        desired widths of the filter in that direction.
+
+    Returns
+    -------
+    xr.DataArray
+        Filtered array.
+
+    """
+
+    for name, width in kwargs.items():
+        if name in ['seconds', 'minutes', 'hours', 'days']:
+            coord = cftime.date2num(da['time'], f'{name} since {EPOCH}')
+            i = list(da.coords).index('time')
+
+        else:
+            coord = da[name]
+            i = list(da.coords).index(name)
+
+        sigma = max(1, int(width / abs(coord[1] - coord[0]) / 4))
+        filtered = _filter(da.values, sigma, axis=i)
+        da = xr.DataArray(filtered, da.coords)
+
+    return da
 
 def get_bump(z: np.ndarray, center: float, width: float) -> np.ndarray:
     """
