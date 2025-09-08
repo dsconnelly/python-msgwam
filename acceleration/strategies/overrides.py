@@ -52,7 +52,8 @@ def _get_instantaneous_overrides() -> dict[str, Any]:
     gains allow us to increase the spectral resolution of the source.
     """
 
-    return {'propagator_type' : 'instantaneous', 'n_source' : 128}
+    n_source = _get_reference_overrides()['n_source']
+    return {'propagator_type' : 'instantaneous', 'n_source' : n_source}
 
 def _get_MiMAlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that of online tests in MiMA."""
@@ -67,7 +68,7 @@ def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""
 
     return {
-        'n_max' : 5000,
+        'n_max' : 25000,
         'dr_source' : 100,
         'n_source' : 200,
         'n_increment' : 1000,

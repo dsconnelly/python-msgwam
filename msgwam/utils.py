@@ -97,6 +97,9 @@ def gaussian_filter(da: xr.DataArray, **kwargs: float) -> xr.DataArray:
     """
 
     for name, width in kwargs.items():
+        if name == 'z':
+            name = [s for s in da.coords if s.startswith('z_')][0]
+
         if name in ['seconds', 'minutes', 'hours', 'days']:
             coord = cftime.date2num(da['time'], f'{name} since {EPOCH}')
             i = list(da.coords).index('time')

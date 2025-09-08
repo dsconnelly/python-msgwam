@@ -15,6 +15,8 @@ from msgwam.utils import (
     open_dataset
 )
 
+from ..shared.constants import STRAT_FILTERS
+
 def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
     """
     Compute the root-mean-square error over time between two arrays. The second
@@ -59,8 +61,8 @@ def load_data(
     path: str,
     field: str='flux_x',
     spinup_days: int=5,
-    time_filter: Optional[int]=43200,
-    z_filter: Optional[float]=4e3,
+    time_filter: Optional[int]=(3600 * STRAT_FILTERS['hours']),
+    z_filter: Optional[float]=STRAT_FILTERS['z'],
     ensemble_mean: bool=True
 ) -> xr.DataArray:
     """
@@ -92,9 +94,6 @@ def load_data(
         Array of requested data values, subselected and filtered as appropriate.
 
     """
-
-    if z_filter is None and field.startswith('acceleration'):
-        z_filter = 4e3
 
     if not path.endswith('.nc'):
         data_dir = f'data/{config.name}/strategies'

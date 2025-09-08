@@ -570,6 +570,9 @@ class TransientPropagator(Propagator):
         """
 
         v = np.asarray(v).flatten()
+        if len(v) == 0:
+            return
+
         self._statistics[name][0] = min(self._statistics[name][0], v.min())
         self._statistics[name][1] = max(self._statistics[name][1], v.max())
         self._statistics[name][2] = self._statistics[name][2] + v.sum()
@@ -663,6 +666,9 @@ class TransientPropagator(Propagator):
 
         """
 
+        wvn = np.sqrt(self.k ** 2 + self.l ** 2)
+        flux = abs(wvn * self.action * self._get_cg_r(mean))
+
         if excess <= 0 or config.prune_by == 'none':
             return
         
@@ -673,8 +679,7 @@ class TransientPropagator(Propagator):
             criterion = abs(self._get_cg_r(mean))
 
         elif config.prune_by == 'flux':
-            wvn = np.sqrt(self.k ** 2 + self.l ** 2)
-            criterion = abs(wvn * self.action * self._get_cg_r(mean) * self.dr)
+            criterion = flux * self.dr
 
         elif config.prune_by == 'random':
             criterion = np.random.rand(self._n_max)
@@ -685,6 +690,7 @@ class TransientPropagator(Propagator):
         drop = np.argsort(criterion)[:excess]
 
         self._log_value('pruned age (h)', self.age[drop] / 3600)
+        self._log_value('pruned flux (mPa)', flux[drop] * 1000)
         self._log_value('pruned r (km)', self.r[drop] / 1000)
         self._delete_rays(drop)
 

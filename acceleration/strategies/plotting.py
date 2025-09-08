@@ -1,4 +1,5 @@
 from collections import defaultdict
+from typing import Callable
 
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
@@ -14,6 +15,7 @@ from msgwam.sources import get_spectrum
 from msgwam.utils import gaussian_filter, get_vertical_grids
 
 from ..hyperparameters import scenarios as hp
+from ..shared.constants import RMS_FILTERS, STRAT_FILTERS
 from ..shared.plotting import plot_summaries
 
 from .coarsenings import get_global_scores
@@ -42,7 +44,22 @@ _STYLES = {
 _get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
 _get_labels = lambda c: [f'$F^{c}$', f'$D^{c}$']
 
-def plot_coarse_errors(prefix: str='') -> None:
+def _by_kind(func: Callable) -> Callable:
+    """
+    Wrap a plotting function that takes a `kind` specifier so that if `'all'` is
+    passed, all three `kind` options are called and plotted.
+    """
+
+    def wrapped(kind: str, *args, **kwargs):
+        """Wrapped function to parse `kind` specifiers."""
+
+        kinds = ['wind', 'flux', 'acceleration'] if kind == 'all' else [kind]
+        for k in kinds: func(k, *args, **kwargs)
+
+    return wrapped
+
+@_by_kind
+def plot_coarse_errors(kind: str, prefix: str='') -> None:
     """
     Plot the normalized error for each coarse resolution. If only plotting data
     from one run, also plot the RMSE as a function of height for each pair. If
@@ -50,6 +67,8 @@ def plot_coarse_errors(prefix: str='') -> None:
 
     Parameters
     ----------
+    kind
+        What field to plot the errors in.
     prefix
         Prefix to use to select runs to include.
 
@@ -69,7 +88,7 @@ def plot_coarse_errors(prefix: str='') -> None:
         caxes = [fig.add_subplot(spec[0, 2])]
         aaxes = gaxes
 
-        scores = get_global_scores(*rnames)
+        scores = get_global_scores(kind, *rnames)
 
     else:
         n_rows = len(hp.components)
@@ -84,12 +103,12 @@ def plot_coarse_errors(prefix: str='') -> None:
         caxes = [fig.add_subplot(spec[i, 2]) for i in range(2)]
         aaxes = [zaxes[0], gaxes[0], zaxes[1], gaxes[1]]
 
-        path = f'data/{config.name}/coarsenings/coarse-errors.nc'
+        path = f'data/{config.name}/coarsenings/coarse-errors-{kind}.nc'
         with xr.open_dataset(path) as ds:
             profiles = ds['error']
             rms = ds['rms']
 
-        scores = (profiles.fillna(0) / rms).mean('z_faces')
+        scores = (profiles / rms).mean('z', skipna=True)
 
     drs = scores['dr'].values
     n_sources = scores['n_source'].values
@@ -140,12 +159,18 @@ def plot_coarse_errors(prefix: str='') -> None:
         if len(rnames) == 1:
             defaults = ('k', None, 0.2, 1)
             curves = profiles.sel(component=c)
-            z = curves['z_faces'] / 1000
+            z = curves['z'] / 1000
+
+            factor, xmax, unit = {
+                'wind' : (1, 50, 'm / s'),
+                'flux' : (1000, 6, 'mPa'),
+                'acceleration' : (86400, 100, 'm / s / day')
+            }[kind]
 
             for i in range(curves.shape[0]):
                 for j in range(curves.shape[1]):
                     color, label, alpha, zorder = extrema.get((i, j), defaults)
-                    curve = 1000 * curves.isel(dr=i, n_source=j).values
+                    curve = factor * curves.isel(dr=i, n_source=j).values
 
                     zaxes[k].plot(
                         curve, z,
@@ -155,17 +180,22 @@ def plot_coarse_errors(prefix: str='') -> None:
                         zorder=zorder
                     )
 
-            curve = 1000 * rms.sel(component=c).values
+            curve = factor * rms.sel(component=c).values
             zaxes[k].plot(curve, z, color='k', ls='dotted', label='RMS')
 
-            zaxes[k].set_xlim(0, 1)
+            xmin = 1e-1 if kind == 'acceleration' else 0
+            zaxes[k].set_xlim(xmin, xmax)
+
+            if kind == 'acceleration':
+                zaxes[k].set_xscale('log')
+
             zaxes[k].set_ylim(10, config.z_max / 1000)
             zaxes[k].tick_params('both', direction='in')
 
             zaxes[k].grid(color='lightgray')
             zaxes[k].set_axisbelow(True)
 
-            zaxes[k].set_xlabel('RMSE (mPa)')
+            zaxes[k].set_xlabel(f'RMSE ({unit})')
             zaxes[k].set_ylabel('height (km)')
 
     if len(rnames) == 1:
@@ -175,7 +205,7 @@ def plot_coarse_errors(prefix: str='') -> None:
         ax.set_title(f'({chr(i + 97)})')
 
     tag = '-global' if len(rnames) > 1 else ''
-    path = f'plots/{config.name}/coarsenings{tag}.png'
+    path = f'plots/{config.name}/coarsenings-{kind}{tag}.png'
     plt.savefig(path, dpi=400, bbox_inches='tight')
 
 def plot_components(strategy: str, mode: str='abs') -> None:
@@ -261,12 +291,17 @@ def plot_ensemble_errors(strategy: str) -> None:
     plt.tight_layout()
     plt.savefig(f'plots/{config.name}/{strategy}-ensemble.png', dpi=400)
 
-def plot_error_profiles(prefix: str, *strategies: str) -> None:
+@_by_kind
+def plot_error_profiles(kind: str, prefix: str, *strategies: str) -> None:
     """
     Plot RMS errors for various strategies, potentially averaged across runs.
 
     Parameters
     ----------
+    kind
+        What data to plot errors for. Must be either `'wind'`, `'flux'`, or
+        `'acceleration'`, where `'wind'` only makes sense if the run is nudged
+        or fully interactive.
     prefix
         The errors will be averaged over all runs in `data/` that share the
         given prefix. However, if `prefix` is the empty string, only this
@@ -301,24 +336,30 @@ def plot_error_profiles(prefix: str, *strategies: str) -> None:
 
         for rname in rnames:
             config.load(f'config/{rname}.toml')
-            z = get_vertical_grids()[0] / 1000
+            z = get_vertical_grids()[kind != 'flux'] / 1000
+
             drop = z * 1000 < config.r_source
             drop[-config.n_sponge:] = True
             ns = ns + (~drop).astype(int)
+
+            if kind == 'wind':
+                field = {'x' : 'u', 'y' : 'v'}[c]
+            else:
+                field = f'{kind}_{c}'
             
             ref = load_data(
                 'reference',
-                field=f'flux_{c}',
+                field=field,
                 time_filter=None,
                 z_filter=None
             )
 
-            tmp = gaussian_filter(ref, seconds=3600, z_faces=500)
-            ref = gaussian_filter(ref, seconds=43200, z_faces=4e3)
+            tmp = gaussian_filter(ref, **RMS_FILTERS)
+            ref = gaussian_filter(ref, **STRAT_FILTERS)
             rms = get_rmse(tmp)
 
             for strategy in strategies:
-                data = load_data(strategy, f'flux_{c}')
+                data = load_data(strategy, field)
                 rmse = get_rmse(data, ref).values
                 rmse[drop] = np.nan
 
@@ -334,9 +375,29 @@ def plot_error_profiles(prefix: str, *strategies: str) -> None:
 
         idx = ns > 0
         for i, task in enumerate(tasks):
-            factor = {'rel' : 1, 'abs' : 1000}[task]
-            handles = []
+            if kind == 'wind':
+                factor, xmax = 1, 50
+                field = {'x' : 'u', 'y' : 'v'}[c]
+                cname = f'$\\bar{{{field}}}$'
+                unit = 'm / s'
 
+            elif kind == 'flux':
+                factor, xmax = 1000, 5
+                cname = f'$F_{{{c}}}$'
+                unit = 'mPa'
+
+            elif kind == 'acceleration':
+                factor, xmax = 86400, 100
+                cname = f'$D_{{{c}}}$'
+                unit = 'm / s / day'
+
+            if task == 'rel':
+                factor = xmax = 1
+                xlabel = f'{cname} normalized error'
+            else:
+                xlabel = f'{cname} RMSE ({unit})'
+
+            handles = []
             for k, strategy in enumerate(strategies):
                 tag = strategy + '-' + task
                 curve = factor * profiles[tag]
@@ -357,7 +418,7 @@ def plot_error_profiles(prefix: str, *strategies: str) -> None:
                 rms = np.sqrt(profiles['rms'] / ns)
 
                 handles.append(axes[i, j].plot(
-                    1000 * rms, z,
+                    factor * rms, z,
                     color='lightgray',
                     ls='dashed',
                     linewidth=1,
@@ -365,19 +426,23 @@ def plot_error_profiles(prefix: str, *strategies: str) -> None:
                     zorder=-1
                 )[0])
 
-            n = 5 if task == 'rel' else 5
-            xmax = 1 if task == 'rel' else 4
-            xticks = np.linspace(0, xmax, n)
-            
+            if (task == 'abs') and (kind == 'acceleration'):
+                xticks = 10. ** np.arange(-1, 3)
+            else:
+                xticks = np.linspace(0, xmax, 5)
+
             fmt = lambda v: str(int(v)) if int(v) == v else str(v)
             labels = list(map(fmt, xticks))
 
-            axes[i, j].set_xlim(0, xmax)
+            axes[i, j].set_xlim(xticks.min(), xmax)
             axes[i, j].set_xticks(xticks, labels=labels)
             axes[i, j].set_ylim(20, config.z_max / 1e3)
 
-            label = 'normalized error' if task == 'rel' else 'RMSE (mPa)'
-            axes[i, j].set_xlabel(f'$F^{c}$ {label}')
+            if kind == 'acceleration':
+                axes[i, j].set_xscale('log')
+                axes[i, j].minorticks_off()
+
+            axes[i, j].set_xlabel(xlabel)
             axes[i, j].set_ylabel('height (km)')
 
             axes[i, j].grid(color='lightgray')
@@ -396,7 +461,7 @@ def plot_error_profiles(prefix: str, *strategies: str) -> None:
 
     plt.tight_layout()
     tag = '-global' if len(rnames) > 1 else ''
-    path = f'plots/{oname}/errors{tag}.png'
+    path = f'plots/{oname}/errors-{kind}{tag}.png'
     plt.savefig(path, dpi=400, bbox_inches='tight')
 
 def plot_spectrum(strategy: str, *args: str) -> None:
@@ -454,12 +519,8 @@ def plot_strategy(strategy: str) -> None:
 
     datas = {}
     for c in hp.components:
-        extras = {l : x * load_data(
-            strategy, f, 0,
-            time_filter=(24 * 3600 if f.startswith('accel') else 3 * 3600),
-            z_filter=(5e3 if f.startswith('accel') else 1000)
-        ) for l, f, x, *_ in zip(*_get_plot_specs(c))}
-
+        _iter = zip(*_get_plot_specs(c))
+        extras = {l : x * load_data(strategy, f, 0) for l, f, x, *_ in _iter}
         datas.update(extras)
 
     *_, units, amaxes = _get_plot_specs(c)
@@ -543,6 +604,6 @@ def _get_plot_specs(
 
     factors = [1, 1e3, 86400]
     units = ['m / s', 'mPa', 'm / s / day']
-    amaxes = [100, 10, 100]
+    amaxes = [100, 5, 100]
 
     return labels, fields, factors, units, amaxes

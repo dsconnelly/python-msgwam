@@ -24,9 +24,13 @@ job_id=$(sbatch \
     -o logs/$name/coarsening-update.out \
     --dependency=afterok:$job_id \
     submit.slurm config/$name.toml \
-        save-coarse-errors \
-        plot-coarse-errors \
-        update-config
+        save-coarse-errors:wind \
+        plot-coarse-errors:wind \
+        save-coarse-errors:flux \
+        plot-coarse-errors:flux \
+        save-coarse-errors:acceleration \
+        plot-coarse-errors:acceleration \
+        update-config:$name
 )
 
 echo $job_id

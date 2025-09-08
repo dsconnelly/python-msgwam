@@ -5,6 +5,7 @@ from msgwam import config
 from msgwam.utils import gaussian_filter, get_vertical_grids
 
 from .. import hyperparameters as hp
+from ..shared.constants import RMS_FILTERS, STRAT_FILTERS
 from ..shared.distributed import product
 
 from .integration import get_integration, get_overrides
@@ -12,12 +13,14 @@ from .utils import get_rmse, get_rnames, load_data
 
 _Z_CUTOFF = 20e3
 
-def get_global_scores(*rnames: str) -> xr.DataArray:
+def get_global_scores(kind: str, *rnames: str) -> xr.DataArray:
     """
     Get the normalized errors averaged across multiple runs for each component.
 
     Parameters
     ----------
+    kind
+        What field to compute the scores for.
     rnames
         Names of runs to average over. If not provided, only the data from the
         currently-loaded configuration will be used.
@@ -35,9 +38,10 @@ def get_global_scores(*rnames: str) -> xr.DataArray:
 
     error = 0
     for rname in rnames:
-        ds = xr.open_dataset(f'data/{rname}/coarsenings/coarse-errors.nc')
+        fname = f'coarse-errors-{kind}.nc'
+        ds = xr.open_dataset(f'data/{rname}/coarsenings/{fname}')
         add = np.minimum(1, ds['error'] / ds['rms'])
-        error += add.mean('z_faces', skipna=True)
+        error += add.mean('z', skipna=True)
 
     return error / len(rnames)
 
@@ -58,7 +62,7 @@ def save_coarsenings() -> None:
             ds = get_integration().mean('member')
             ds.to_netcdf(_get_path(dr, n_source))
 
-def update_config(prefix: str) -> None:
+def update_config(kind: str, prefix: str) -> None:
     """
     Update the values of `dr_source` and `n_source` in one or more configuration
     files to the best values found during the grid search. Can take into account
@@ -66,14 +70,15 @@ def update_config(prefix: str) -> None:
 
     Parameters
     ----------
-    rnames
-        Names of runs to include when choosing the best coarse resolution, to be
-        passed to `get_global_scores`.
+    kind
+        What field to use to select the best coarsening.
+    prefix
+        Prefix to match to find runs to update.
 
     """
 
     rnames = get_rnames(prefix)
-    scores = get_global_scores(*rnames).mean('component')
+    scores = get_global_scores(kind, *rnames).mean('component')
     i, j = (da.item() for da in scores.argmin(...).values())
     drs, n_sources = _get_grid()
 
@@ -92,56 +97,53 @@ def update_config(prefix: str) -> None:
                 else:
                     f.write(line)
 
-def save_coarse_errors() -> None:
+def save_coarse_errors(kind: str) -> None:
     """
     Get the root-mean-square errors as a function of height for each coarsening.
 
-    Returns
-    -------
-    xr.Dataset
-        Dataset with coordinates 
-        
-            `('rname', 'component', 'dr', 'n_source', 'z_faces')`
-        
-        with a variable `'error'` containing the RMSE in momentum flux. Also
-        includes the RMS flux in the reference integration per vertical level.
+    Parameters
+    ----------
+    kind
+        What field to compute the errors in.
 
     """
 
-    z, _ = get_vertical_grids()
     drs, n_sources = _get_grid()
     components = list(hp.scenarios.components)
+    z = get_vertical_grids()[kind != 'flux']
 
     rms = np.zeros((len(components), len(z)))
     error = np.zeros((len(components), len(drs), len(n_sources), len(z)))
 
     for k, c in enumerate(components):
+        field = 'uv'[k] if kind == 'wind' else f'{kind}_{c}'
+
         ref = load_data(
             'reference',
-            field=f'flux_{c}',
+            field=field,
             time_filter=None,
             z_filter=None
         )
 
-        drop = ref['z_faces'].values < _Z_CUTOFF
+        drop = z < _Z_CUTOFF
         drop[-config.n_sponge:] = True
 
-        tmp = gaussian_filter(ref, seconds=3600, z_faces=500)
-        ref = gaussian_filter(ref, seconds=43200, z_faces=4e3)
+        tmp = gaussian_filter(ref, **RMS_FILTERS)
+        ref = gaussian_filter(ref, **STRAT_FILTERS)
         rms[k] = get_rmse(tmp).values
 
         for i, dr in enumerate(drs):
             for j, n_source in enumerate(n_sources):
-                flux = load_data(_get_path(dr, n_source), f'flux_{c}')
+                flux = load_data(_get_path(dr, n_source), field)
                 error[k, i, j] = get_rmse(ref, flux).values
                 error[k, i, j, drop] = np.nan
 
     xr.Dataset({
         'component' : components,
-        'dr' : drs, 'n_source' : n_sources, 'z_faces' : z,
-        'error' : (('component', 'dr', 'n_source', 'z_faces'), error),
-        'rms' : (('component', 'z_faces'), rms)
-    }).to_netcdf(f'data/{config.name}/coarsenings/coarse-errors.nc')
+        'dr' : drs, 'n_source' : n_sources, 'z' : z,
+        'error' : (('component', 'dr', 'n_source', 'z'), error),
+        'rms' : (('component', 'z'), rms)
+    }).to_netcdf(f'data/{config.name}/coarsenings/coarse-errors-{kind}.nc')
 
 def _get_grid() -> tuple[list[int], list[int]]:
     """
