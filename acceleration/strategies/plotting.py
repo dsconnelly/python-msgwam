@@ -1,6 +1,7 @@
 from collections import defaultdict
 from typing import Callable
 
+import matplotlib.cm as cm
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,7 +39,7 @@ _STYLES = {
 
     'coarse-energy' : 'dashed',
     'coarse-cg_r' : 'dotted',
-    'coarse-flux-exper' : 'dashed'
+    'coarse-importance' : 'dashed'
 }
 
 _get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
@@ -218,7 +219,7 @@ def plot_components(strategy: str, mode: str='abs') -> None:
     for i, c in enumerate(hp.components):
         parts = {'x' : 'ew', 'y' : 'ns'}[c]
         fields = [f'flux_{c}'] + [f'pmf_{s}' for s in parts]
-        amax = {'abs' : 8, 'diff' : 1}[mode]
+        amax = {'abs' : 3, 'diff' : 1}[mode]
 
         ref = 0
         kwargs = {
@@ -234,7 +235,7 @@ def plot_components(strategy: str, mode: str='abs') -> None:
 
             img, _ = plot_time_series(data, amax, [axes[i, j]])
             axes[i, j].axhline(config.r_source / 1000, color='k', ls='dashed')
-            axes[i, j].set_ylim(20, 30)
+            axes[i, j].set_ylim(10, 60)
 
         cbar = plt.colorbar(img, axes[i, -1])
         cbar.set_ticks(np.linspace(-amax, amax, 5))
@@ -530,6 +531,52 @@ def plot_strategy(strategy: str) -> None:
     plot_summaries(datas, amaxes=amaxes, units=units)
     plt.savefig(f'plots/{config.name}/{strategy}.png', dpi=400)
 
+def plot_trajectories(strategy: str) -> None:
+    """
+    Plot trajectories saved by `save-trajectories`.
+    """
+
+    n_rows, n_cols = 2, 3
+    fig, axes = plt.subplots(n_rows, n_cols)
+    fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
+    axes = axes.flatten()
+
+    cmap = cm.get_cmap('RdBu_r')
+    norm = Normalize(-config.c_max, config.c_max)
+
+    factors = [1 / 86400, 1 / 1000, 1, 1, 1, 1000]
+    names = ['age', 'dr', 'cp_hat', 'cg', 'action', 'flux']
+    bounds = [(0, 5), (0, 3), (-75, 75), (0, 3), (0, 1.1), (0, 5)]
+
+    fname = f'{strategy}-trajectories.nc'
+    with xr.open_dataset(f'data/{config.name}/strategies/{fname}') as ds:
+        ds = ds.isel(meta=(ds['k'] != 0))
+        y = ds['r'].values / 1000
+
+        for i in range(len(ds['meta'])):
+            y = ds['r'].isel(meta=i).values / 1000
+            color = cmap(norm(ds['cp_hat'].isel(meta=i, age=0)))
+
+            for ax, name, factor in zip(axes, names, factors):            
+                curve = factor * ds[name]
+                if name != 'age': curve = curve.isel(meta=i)
+                if name == 'action': curve = curve / curve[0]
+                if name == 'flux': curve = curve / ds['dr'].isel(age=0, meta=i)
+
+                ax.plot(curve.values, y, color=color, alpha=0.03, lw=1)
+
+    for ax, name, (xmin, xmax) in zip(axes, names, bounds):
+        ax.set_xlim(xmin, xmax)
+        ax.set_xlabel(name)
+        ax.set_ylim(10, 60)
+
+        ax.tick_params('both', direction='in')
+        ax.grid(color='lightgray')
+
+    plt.tight_layout()
+    kwargs = dict(dpi=400, bbox_inches='tight')
+    plt.savefig(f'plots/{config.name}/{strategy}-trajectories.png', **kwargs)
+
 def _format_strategy(strategy: str) -> str:
     """
     Format a strategy for display in a legend.
@@ -604,6 +651,6 @@ def _get_plot_specs(
 
     factors = [1, 1e3, 86400]
     units = ['m / s', 'mPa', 'm / s / day']
-    amaxes = [100, 5, 100]
+    amaxes = [100, 3, 100]
 
     return labels, fields, factors, units, amaxes

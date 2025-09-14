@@ -53,7 +53,6 @@ def plot_summaries(
             log_scale=log_scale
         )
 
-
         rms = np.sqrt((data ** 2).mean('time'))
         z = np.linspace(config.z_min, config.z_max, data.shape[1]) / 1000
         axes[i, j].plot(rms, z, color='k')

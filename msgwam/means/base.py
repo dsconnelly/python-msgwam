@@ -220,7 +220,7 @@ class MeanState:
 
         kwargs = {
             'seconds' : min(config.tau_nudge / 4, 86400),
-            'z_centers' : 2 * self.dz
+            'z_centers' : 2 * self.dz * (config.tau_nudge > 0)
         }
 
         datas = []

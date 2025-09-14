@@ -68,6 +68,7 @@ dr_max: float
 dr_min: float
 dr_source: float
 jitter: float
+logging: bool
 max_age: int
 max_dt_multiplier: int
 max_overshoot: float
@@ -76,7 +77,15 @@ n_chromatic: int
 n_increment: int
 n_max: int
 n_sponge: int
-prune_by: Literal['energy', 'cg_r', 'flux', 'none', 'random']
+prune_by: Literal[
+    'cg_r',
+    'energy',
+    'flux',
+    'importance',
+    'none',
+    'random'
+]
+prune_hours: int
 shapiro_filter: bool
 
 ################################################################################

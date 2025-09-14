@@ -4,6 +4,49 @@ import numpy as np
 from .. import config
 
 @nb.njit
+def get_importances(
+    r: np.ndarray,
+    edges: np.ndarray,
+    data: np.ndarray
+) -> np.ndarray:
+    """
+    Get the importance of each ray volume, useful as a pruning criterion. The
+    importance is the fraction of the `data` profile at the ray volume's center
+    accounted for by that volume.
+
+    Parameters
+    ----------
+    r
+        Positions of ray volume centers.
+    edges
+        Edges of the vertical grid regions where the profile is stored.
+    data
+        Data to use to calculate importance, likely absolute momentum flux.
+
+    Returns
+    -------
+    np.ndarray
+        Importance for each ray volume in `r` and `data`.
+
+    """
+
+    norms = np.zeros(len(edges) - 1)
+    jdx = np.zeros(len(data)).astype(np.int32)
+
+    for i, (a, v) in enumerate(zip(r, data)):
+        if np.isnan(v):
+            continue
+
+        for j, (z_lo, z_hi) in enumerate(zip(edges[:-1], edges[1:])):
+            if z_lo <= a < z_hi:
+                norms[j] = norms[j] + v
+                jdx[i] = j
+
+                break
+
+    return data / norms[jdx]
+
+@nb.njit
 def get_max_intersects(
     r: np.ndarray,
     dr: np.ndarray,

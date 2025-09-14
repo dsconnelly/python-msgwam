@@ -12,7 +12,7 @@ from ..dispersion import get_cg_r, get_omega_hat
 from ..utils import shapiro_filter
 
 from .base import Propagator
-from .jitted import get_max_intersects, interp, project
+from .jitted import get_importances, get_max_intersects, interp, project
 
 if TYPE_CHECKING:
     from ..means import MeanState
@@ -57,7 +57,8 @@ class TransientPropagator(Propagator):
         self._ghosts = np.zeros(config.n_source).astype(int)
         self._check_source(mean, 0)
 
-        self._statistics = defaultdict(lambda: [np.inf, -np.inf, 0, 0])
+        if config.logging:
+            self._statistics = defaultdict(lambda: [np.inf, -np.inf, 0, 0])
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -176,7 +177,10 @@ class TransientPropagator(Propagator):
         self._check_boundaries(mean)
         self._check_source(mean, n_step)
 
-        self._log_value('active rays', self.n_active)
+        if config.logging:
+            self._log_value('active rays', self.n_active)
+            frac = (self.k != 0)[self._valid].sum() / self.n_active
+            self._log_value('zonal fraction (%)', 100 * frac)
 
         return self
 
@@ -528,8 +532,11 @@ class TransientPropagator(Propagator):
 
         """
 
-        N = interp(self.r, mean.z_centers, mean.N)
-        G2 = interp(self.r, mean.z_centers, mean.G2)
+        r = self.r.copy()
+        r[self._notouch] = config.r_source
+
+        N = interp(r, mean.z_centers, mean.N)
+        G2 = interp(r, mean.z_centers, mean.G2)
         
         return get_omega_hat(self.k, self.l, self.m, N, G2)
 
@@ -666,32 +673,44 @@ class TransientPropagator(Propagator):
 
         """
 
-        wvn = np.sqrt(self.k ** 2 + self.l ** 2)
-        flux = abs(wvn * self.action * self._get_cg_r(mean))
-
         if excess <= 0 or config.prune_by == 'none':
             return
-        
-        if config.prune_by == 'energy':
-            criterion = self.action * self._get_omega_hat(mean) * self.dr
 
-        elif config.prune_by == 'cg_r':
-            criterion = abs(self._get_cg_r(mean))
+        if (config.prune_by not in ['energy', 'random']) or config.logging:
+            mom = (self.k + self.l) * self.action
+            cg = self._get_cg_r(mean)
+            flux = abs(mom * cg)
 
-        elif config.prune_by == 'flux':
-            criterion = flux * self.dr
+        match config.prune_by:
+            case 'cg_r':
+                criterion = abs(cg)
 
-        elif config.prune_by == 'random':
-            criterion = np.random.rand(self._n_max)
+            case 'energy':
+                criterion = self.action * self._get_omega_hat(mean) * self.dr
+
+            case 'flux':
+                criterion = flux * self.dr
+
+            case 'importance':
+                criterion = np.zeros(self._n_max)
+                for idx in [self.k > 0, self.k < 0, self.l > 0, self.l < 0]:
+                    args = (self.r[idx], self._z_padded, flux[idx] * self.dr[idx])
+                    criterion[idx] = get_importances(*args)
+
+            case 'random':
+                criterion = np.random.rand(self._n_max)
 
         ubound = np.nanmax(criterion)
         criterion[~self._valid] = 3 * ubound
         criterion[self._notouch] = 2 * ubound
         drop = np.argsort(criterion)[:excess]
 
-        self._log_value('pruned age (h)', self.age[drop] / 3600)
-        self._log_value('pruned flux (mPa)', flux[drop] * 1000)
-        self._log_value('pruned r (km)', self.r[drop] / 1000)
+        if config.logging:
+            self._log_value('pruned age (h)', self.age[drop] / 3600)
+            self._log_value('pruned flux (mPa)', flux[drop] * 1000)
+            self._log_value('pruned r (km)', self.r[drop] / 1000)
+            self._log_value('pruned cg (m / s)', cg[drop])
+
         self._delete_rays(drop)
 
     def _take_RK4_step(self, mean: MeanState, dt: int) -> None:

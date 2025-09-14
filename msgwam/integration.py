@@ -55,7 +55,7 @@ def integrate(callback: Optional[_Callback]=None) -> xr.Dataset:
     runtime = now() - start
     ds = ds.assign_attrs(runtime=runtime)
 
-    if isinstance(prop, TransientPropagator):
+    if config.logging and isinstance(prop, TransientPropagator):
         print(prop.export_log())
 
     if len(log) > 0:

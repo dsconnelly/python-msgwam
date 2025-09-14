@@ -35,7 +35,7 @@ def _get_coarse_overrides(prune_by: str='energy') -> dict[str, Any]:
     except that the integration should be performed with initial jitter.
     """
 
-    return {'jitter' : 200, 'prune_by' : prune_by}
+    return {'prune_by' : prune_by}
 
 def _get_ICONlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that in Bölöni et al. (2020)."""
