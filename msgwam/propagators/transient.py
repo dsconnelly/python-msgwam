@@ -52,13 +52,13 @@ class TransientPropagator(Propagator):
         self._z_padded = np.pad(mean.z_centers, 1, constant_values=padding)
         k = np.argmax(self._z_padded > config.r_source) - 1
 
+        if config.logging:
+            self._statistics = defaultdict(lambda: [np.inf, -np.inf, 0, 0])
+
         self._r_ghost = config.r_source - config.dr_ghost
         self._r_ghost = np.minimum(self._r_ghost, self._z_padded[k])
         self._ghosts = np.zeros(config.n_source).astype(int)
         self._check_source(mean, 0)
-
-        if config.logging:
-            self._statistics = defaultdict(lambda: [np.inf, -np.inf, 0, 0])
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -676,7 +676,7 @@ class TransientPropagator(Propagator):
         if excess <= 0 or config.prune_by == 'none':
             return
 
-        if (config.prune_by not in ['energy', 'random']) or config.logging:
+        if config.prune_by in ['flux', 'importance'] or config.logging:
             mom = (self.k + self.l) * self.action
             cg = self._get_cg_r(mean)
             flux = abs(mom * cg)
@@ -701,8 +701,8 @@ class TransientPropagator(Propagator):
                 criterion = np.random.rand(self._n_max)
 
         ubound = np.nanmax(criterion)
-        criterion[~self._valid] = 3 * ubound
-        criterion[self._notouch] = 2 * ubound
+        criterion[~self._valid] = ubound + 3
+        criterion[self._notouch] = ubound + 2
         drop = np.argsort(criterion)[:excess]
 
         if config.logging:

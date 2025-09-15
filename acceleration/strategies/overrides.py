@@ -28,14 +28,28 @@ def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     func_name = f'_get_{strategy}_overrides'
     return globals()[func_name](*args)
 
-def _get_coarse_overrides(prune_by: str='energy') -> dict[str, Any]:
+def _get_coarse_overrides(
+    prune_by: str='energy',
+    equal_in: str='flux'
+) -> dict[str, Any]:
     """
     Once the configuration file has been updated following the grid search over
     coarse resolutions, the settings for the coarse integration are already set,
-    except that the integration should be performed with initial jitter.
+    except that we allow some alternate parameters to be varied.
+
+    Parameters
+    ----------
+    prune_by
+        Pruning strategy to use.
+    equal_in
+        How to discretize the source. Must be either `'cp'`, in which case each
+        source ray volume will have equal extent in phase speed spacee, or
+        `'flux'`, in which case they will have equal flux.
+
     """
 
-    return {'prune_by' : prune_by}
+    equal_flux = {'cp' : False, 'flux' : True}[equal_in]
+    return {'prune_by' : prune_by, 'equal_flux' : equal_flux}
 
 def _get_ICONlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that in Bölöni et al. (2020)."""

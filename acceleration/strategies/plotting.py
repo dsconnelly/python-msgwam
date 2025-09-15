@@ -33,13 +33,8 @@ _COLORS = {
 
 _STYLES = {
     'ICONlike' : 'dashed',
-
     'stochastic-25' : 'dashed',
     'stochastic-100' : 'dotted',
-
-    'coarse-energy' : 'dashed',
-    'coarse-cg_r' : 'dotted',
-    'coarse-importance' : 'dashed'
 }
 
 _get_fields = lambda c: [f'flux_{c}', f'acceleration_{c}']
@@ -546,7 +541,7 @@ def plot_trajectories(strategy: str) -> None:
 
     factors = [1 / 86400, 1 / 1000, 1, 1, 1, 1000]
     names = ['age', 'dr', 'cp_hat', 'cg', 'action', 'flux']
-    bounds = [(0, 5), (0, 3), (-75, 75), (0, 3), (0, 1.1), (0, 5)]
+    bounds = [(0, 5), (0, 11), (-75, 75), (0, 3), (0, 1.1), (0, 5)]
 
     fname = f'{strategy}-trajectories.nc'
     with xr.open_dataset(f'data/{config.name}/strategies/{fname}') as ds:
@@ -563,7 +558,7 @@ def plot_trajectories(strategy: str) -> None:
                 if name == 'action': curve = curve / curve[0]
                 if name == 'flux': curve = curve / ds['dr'].isel(age=0, meta=i)
 
-                ax.plot(curve.values, y, color=color, alpha=0.03, lw=1)
+                ax.plot(curve.values, y, color=color, alpha=0.05, lw=1)
 
     for ax, name, (xmin, xmax) in zip(axes, names, bounds):
         ax.set_xlim(xmin, xmax)
@@ -594,8 +589,8 @@ def _format_strategy(strategy: str) -> str:
     """
 
     if strategy.startswith('coarse'):
-        _, suffix = strategy.split('-')
-        return f'coarse ({suffix})'
+        _, *suffix = strategy.split('-')
+        return f'coarse ({", ".join(suffix)})'
     
     if strategy.startswith('stochastic'):
         _, n = strategy.split('-')
@@ -651,6 +646,6 @@ def _get_plot_specs(
 
     factors = [1, 1e3, 86400]
     units = ['m / s', 'mPa', 'm / s / day']
-    amaxes = [100, 3, 100]
+    amaxes = [100, 10, 100]
 
     return labels, fields, factors, units, amaxes
