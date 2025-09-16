@@ -7,7 +7,7 @@ from msgwam import config
 from msgwam.utils import gaussian_filter, get_vertical_grids
 
 from ...hyperparameters import scenarios as hp
-from ...shared.constants import RMS_FILTERS, STRAT_FILTERS
+from ...shared.constants import ACCEL_HOURS, RMS_FILTERS, STRAT_FILTERS
 
 from ..utils import get_rmse, get_rnames, load_data
 
@@ -23,6 +23,7 @@ _COLORS = {
 
 _STYLES = {
     'ICONlike' : 'dashed',
+    'coarse-flux-flux' : 'dashed'
 }
 
 @by_kind
@@ -47,7 +48,10 @@ def plot_error_profiles(kind: str, prefix: str, *strategies: str) -> None:
 
     oname = config.name
     rnames = get_rnames(prefix)
-    tasks = ['abs'] + ['rel'] * (len(rnames) > 1)
+
+    tasks = ['abs']
+    if (len(rnames) > 1) or (kind == 'acceleration'):
+        tasks = tasks + ['rel']
 
     n_cols = len(hp.components)
     widths = [3.5] * n_cols + [0.75]
@@ -78,14 +82,15 @@ def plot_error_profiles(kind: str, prefix: str, *strategies: str) -> None:
 
             filters = STRAT_FILTERS
             if kind == 'acceleration':
-                filters['hours'] = 7 * 24
+                filters['hours'] = ACCEL_HOURS
 
             tmp = gaussian_filter(ref, **RMS_FILTERS)
             ref = gaussian_filter(ref, **filters)
             rms = get_rmse(tmp)
 
             for strategy in strategies:
-                data = load_data(strategy, field)
+                seconds = filters['hours'] * 3600
+                data = load_data(strategy, field, time_filter=seconds)
                 rmse = get_rmse(data, ref).values
                 rmse[drop] = np.nan
 

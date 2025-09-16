@@ -84,7 +84,10 @@ def save_trajectories(strategy: str, *args: str) -> None:
 
         wvn = prop.k + prop.l
         cg = prop._get_cg_r(mean)
-        cp_hat = prop._get_omega_hat(mean) / wvn
+        omega_hat = prop._get_omega_hat(mean)
+
+        cp_hat = omega_hat / wvn
+        energy = abs(prop.action * omega_hat)
         flux = abs(wvn * prop.action * cg)
 
         to_log = prop._valid & (prop.age < 5 * 86400)
@@ -96,7 +99,7 @@ def save_trajectories(strategy: str, *args: str) -> None:
                 prop.dr[j],
                 cp_hat[j],
                 cg[j],
-                prop.dens[j],
+                energy[j] * prop.dr[j],
                 flux[j] * prop.dr[j]
             ]
 
@@ -115,7 +118,7 @@ def save_trajectories(strategy: str, *args: str) -> None:
     }
 
     stacked = np.stack(list(data.values()), axis=0)
-    for i, name in enumerate(['r', 'dr', 'cp_hat', 'cg', 'action', 'flux']):
+    for i, name in enumerate(['r', 'dr', 'cp_hat', 'cg', 'energy', 'flux']):
         kwargs[name] = (('meta', 'age'), stacked[:, i])
 
     fname = '-'.join([strategy, *args]) + '-trajectories.nc'

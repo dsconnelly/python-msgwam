@@ -178,9 +178,11 @@ class TransientPropagator(Propagator):
         self._check_source(mean, n_step)
 
         if config.logging:
+            if self.n_active > 0:
+                frac = (self.k != 0)[self._valid].sum() / self.n_active
+                self._log_value('zonal fraction (%)', 100 * frac)
+
             self._log_value('active rays', self.n_active)
-            frac = (self.k != 0)[self._valid].sum() / self.n_active
-            self._log_value('zonal fraction (%)', 100 * frac)
 
         return self
 

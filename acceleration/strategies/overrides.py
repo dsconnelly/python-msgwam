@@ -29,7 +29,7 @@ def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     return globals()[func_name](*args)
 
 def _get_coarse_overrides(
-    prune_by: str='energy',
+    prune_by: str='flux',
     equal_in: str='flux'
 ) -> dict[str, Any]:
     """

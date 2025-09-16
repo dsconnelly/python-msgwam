@@ -1,5 +1,6 @@
 import matplotlib.cm as cm
 import matplotlib.pyplot as plt
+import numpy as np
 import xarray as xr
 
 from matplotlib.colors import Normalize
@@ -8,6 +9,7 @@ from msgwam import config
 from msgwam.sources import get_spectrum
 
 from ...hyperparameters import scenarios as hp
+from ...shared.constants import ACCEL_HOURS
 from ...shared.plotting import plot_summaries
 
 from ..overrides import get_overrides
@@ -102,13 +104,13 @@ def plot_strategy(strategy: str, *args: str) -> None:
         factors = factors + [1e3] * len(fluxes) + [86400]
         labels = labels + [f'$D^{c}$']
 
-        amaxes = amaxes + [fmax] * len(fluxes) + [10]
+        amaxes = amaxes + [fmax] * len(fluxes) + [100]
         units = units + ['mPa'] * len(fluxes) + ['m / s / d']
         
         for label, field, factor in zip(labels, fields, factors):
             kwargs = {}
             if field.startswith('acceleration'):
-                kwargs['time_filter'] = 3 * 86400
+                kwargs['time_filter'] = ACCEL_HOURS * 3600
 
             use_diff = ('diff' in args) and field not in 'uv'
             load = lambda s: load_data(s, field, 0, **kwargs)
@@ -121,7 +123,7 @@ def plot_strategy(strategy: str, *args: str) -> None:
     fname = '-'.join([strategy, *sorted(args)]) + '.png'
     plt.savefig(f'plots/{config.name}/{fname}', **kwargs)
 
-def plot_trajectories(strategy: str) -> None:
+def plot_trajectories(strategy: str, n_str: str='all') -> None:
     """
     Plot trajectories saved by `save-trajectories`.
 
@@ -140,15 +142,20 @@ def plot_trajectories(strategy: str) -> None:
     cmap = cm.get_cmap('RdBu_r')
     norm = Normalize(-config.c_max, config.c_max)
 
-    factors = [1 / 86400, 1 / 1000, 1, 1, 1, 1000]
-    names = ['age', 'dr', 'cp_hat', 'cg', 'action', 'flux']
-    bounds = [(0, 5), (0, 4), (-75, 75), (0, 3), (0, 1.1), (0, 5)]
+    factors = [1 / 86400, 1 / 1000, 1, 1, 1000, 1000]
+    names = ['age', 'dr', 'cp_hat', 'cg', 'energy', 'flux']
+    bounds = [(0, 5), (0, 4), (-75, 75), (0, 3), (0, 50), (0, 5)]
+    units = ['days', 'km', 'm / s', 'm / s', 'mJ / m$^3$', 'mPa']
 
     fname = f'{strategy}-trajectories.nc'
     with xr.open_dataset(f'data/{config.name}/strategies/{fname}') as ds:
         ds = ds.isel(meta=(ds['k'] != 0))
-        y = ds['r'].values / 1000
 
+        if n_str != 'all':
+            idx = np.argsort(np.random.rand(len(ds['meta'])))[:int(n_str)]
+            ds = ds.isel(meta=idx)
+
+        y = ds['r'].values / 1000
         for i in range(len(ds['meta'])):
             y = ds['r'].isel(meta=i).values / 1000
             color = cmap(norm(ds['cp_hat'].isel(meta=i, age=0)))
@@ -156,14 +163,15 @@ def plot_trajectories(strategy: str) -> None:
             for ax, name, factor in zip(axes, names, factors):            
                 curve = factor * ds[name]
                 if name != 'age': curve = curve.isel(meta=i)
-                if name == 'action': curve = curve / curve[0]
-                if name == 'flux': curve = curve / ds['dr'].isel(age=0, meta=i)
+
+                if name in ['energy', 'flux']:
+                    curve = curve / ds['dr'].isel(age=0, meta=i)
 
                 ax.plot(curve.values, y, color=color, alpha=0.05, lw=1)
 
-    for ax, name, (xmin, xmax) in zip(axes, names, bounds):
+    for ax, name, (xmin, xmax), unit in zip(axes, names, bounds, units):
+        ax.set_xlabel(f'{name} ({unit})')
         ax.set_xlim(xmin, xmax)
-        ax.set_xlabel(name)
         ax.set_ylim(10, 60)
 
         ax.tick_params('both', direction='in')
