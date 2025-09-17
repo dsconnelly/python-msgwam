@@ -3,14 +3,6 @@
 name=$1
 dep_arg=$2
 
-if [[ $name == icon* ]]; then
-    arg=""
-elif [[ $name == mima* ]]; then
-    arg="save-mean-state:mima-scenario"
-else
-    arg="save-mean-state:gated-oscillation"
-fi
-
 job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
@@ -21,7 +13,7 @@ job_id=$(sbatch \
     -o logs/$name/reference.out \
     $dep_arg \
     submit.slurm config/$name.toml \
-        $arg \
+        save-mean-state:mima-scenario \
         save-spectrum \
         plot-spectrum \
         plot-mean-state \

@@ -5,11 +5,11 @@ from msgwam import config
 from msgwam.utils import gaussian_filter, get_vertical_grids
 
 from .. import hyperparameters as hp
-from ..shared.constants import RMS_FILTERS, STRAT_FILTERS
+from ..shared.constants import ACCEL_HOURS, RMS_FILTERS, STRAT_FILTERS
 from ..shared.distributed import product
 
 from .integration import get_integration, get_overrides
-from .utils import get_rmse, get_rnames, load_data
+from .utils import by_kind, get_rmse, get_rnames, load_data
 
 _Z_CUTOFF = 20e3
 
@@ -62,7 +62,7 @@ def save_coarsenings() -> None:
             ds = get_integration().mean('member')
             ds.to_netcdf(_get_path(dr, n_source))
 
-def update_config(kind: str, prefix: str) -> None:
+def update_config(kind: str, prefix: str='') -> None:
     """
     Update the values of `dr_source` and `n_source` in one or more configuration
     files to the best values found during the grid search. Can take into account
@@ -97,6 +97,7 @@ def update_config(kind: str, prefix: str) -> None:
                 else:
                     f.write(line)
 
+@by_kind
 def save_coarse_errors(kind: str) -> None:
     """
     Get the root-mean-square errors as a function of height for each coarsening.
@@ -128,13 +129,18 @@ def save_coarse_errors(kind: str) -> None:
         drop = z < _Z_CUTOFF
         drop[-config.n_sponge:] = True
 
+        filters = STRAT_FILTERS.copy()
+        if kind == 'acceleration':
+            filters['hours'] = ACCEL_HOURS
+
         tmp = gaussian_filter(ref, **RMS_FILTERS)
-        ref = gaussian_filter(ref, **STRAT_FILTERS)
+        ref = gaussian_filter(ref, **filters)
         rms[k] = get_rmse(tmp).values
 
         for i, dr in enumerate(drs):
             for j, n_source in enumerate(n_sources):
-                flux = load_data(_get_path(dr, n_source), field)
+                kwargs = dict(time_filter=(filters['hours'] * 3600))
+                flux = load_data(_get_path(dr, n_source), field, **kwargs)
                 error[k, i, j] = get_rmse(ref, flux).values
                 error[k, i, j, drop] = np.nan
 

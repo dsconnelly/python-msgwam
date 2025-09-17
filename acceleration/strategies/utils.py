@@ -1,6 +1,6 @@
 import os
 
-from typing import Literal, Optional
+from typing import Callable, Literal, Optional
 
 import cftime
 import numpy as np
@@ -16,6 +16,23 @@ from msgwam.utils import (
 )
 
 from ..shared.constants import STRAT_FILTERS
+
+def by_kind(func: Callable) -> Callable:
+    """
+    Wrap a plotting function that takes a `kind` specifier so that if `'all'` is
+    passed, all three `kind` options are called and plotted.
+    """
+
+    def wrapped(kind: str, *args, **kwargs):
+        """Wrapped function to parse `kind` specifiers."""
+
+        kinds = ['wind'] * (config.tau_nudge > 0) + ['flux', 'acceleration']
+        kinds = kinds if kind == 'all' else [kind]
+
+        for k in kinds: 
+            func(k, *args, **kwargs)
+
+    return wrapped
 
 def get_rmse(a: xr.DataArray, b: xr.DataArray | Literal[0]=0) -> xr.DataArray:
     """

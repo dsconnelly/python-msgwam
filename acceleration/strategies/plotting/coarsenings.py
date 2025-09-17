@@ -11,9 +11,7 @@ from msgwam import config
 from ...hyperparameters import scenarios as hp
 
 from ..coarsenings import get_global_scores
-from ..utils import get_rnames
-
-from .utils import by_kind
+from ..utils import by_kind, get_rnames
 
 @by_kind
 def plot_coarse_errors(kind: str, prefix: str='') -> None:

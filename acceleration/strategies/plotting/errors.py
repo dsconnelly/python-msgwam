@@ -9,9 +9,7 @@ from msgwam.utils import gaussian_filter, get_vertical_grids
 from ...hyperparameters import scenarios as hp
 from ...shared.constants import ACCEL_HOURS, RMS_FILTERS, STRAT_FILTERS
 
-from ..utils import get_rmse, get_rnames, load_data
-
-from .utils import by_kind
+from ..utils import by_kind, get_rmse, get_rnames, load_data
 
 _COLORS = {
     'MiMAlike' : 'k',
@@ -80,7 +78,7 @@ def plot_error_profiles(kind: str, prefix: str, *strategies: str) -> None:
             field = 'uv'['xy'.index(c)] if kind == 'wind' else f'{kind}_{c}'
             ref = load_data('reference', field, time_filter=None, z_filter=None)
 
-            filters = STRAT_FILTERS
+            filters = STRAT_FILTERS.copy()
             if kind == 'acceleration':
                 filters['hours'] = ACCEL_HOURS
 

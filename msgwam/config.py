@@ -85,7 +85,6 @@ prune_by: Literal[
     'none',
     'random'
 ]
-prune_hours: int
 shapiro_filter: bool
 
 ################################################################################
