@@ -14,9 +14,6 @@ job_id=$(sbatch \
     $dep_arg \
     submit.slurm config/$name.toml \
         save-mean-state:mima-scenario \
-        save-spectrum \
-        plot-spectrum \
-        plot-mean-state \
         save-strategy:reference \
         plot-strategy:reference
 )

@@ -119,8 +119,14 @@ class Source(FactoryABC):
         cg_r = get_cg_r(k, l, m, N, G2)
         dm = get_dm(m, dc, N)
 
+        if config.dr_source > 0:
+            dr = config.dr_source * np.ones_like(cg_r)
+
+        else:
+            dr = abs(config.dr_source) * cg_r
+
         dens = flux / abs(wvn_hor * dk * dl * dm * cg_r)
-        data = np.vstack((k, l, m, dk, dl, dm, dens))
+        data = np.vstack((dr, k, l, m, dk, dl, dm, dens))
 
         return self._postprocess(
             n_step=n_step,

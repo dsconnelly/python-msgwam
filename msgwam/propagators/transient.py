@@ -227,8 +227,8 @@ class TransientPropagator(Propagator):
         self._next_meta = self._next_meta + 1
         j = np.argmin(self._valid)
 
-        self._data[2:-2, j] = data
-        self._data[:2, j] = [r, config.dr_source]
+        self._data[0, j] = r
+        self._data[1:-2, j] = data
         self._data[-2:, j] = [0, self._next_meta]
 
         return cast(int, j)
@@ -335,11 +335,11 @@ class TransientPropagator(Propagator):
         """
 
         if n_step == 0 and config.source_type == 'constant':
-            r_init = self._r_ghost - 0.5 * config.dr_source
             datas, cdx = self._source.launch(mean, 0)
+            r_init = self._r_ghost - 0.5 * datas[0]
 
             for k, data in zip(cdx, datas.T):
-                self._ghosts[k] = self._add_ray(data, r_init)
+                self._ghosts[k] = self._add_ray(data, r_init[k])
 
             if config.jitter > 0:
                 noise = np.random.rand(self._n_max) - 0.5
@@ -364,15 +364,15 @@ class TransientPropagator(Propagator):
         if config.source_type == 'constant':
             for k, data in zip(cdx, datas.T):
                 while r_lo[k] > self._r_ghost:
-                    r = r_lo[k] - 0.5 * config.dr_source
-                    r_lo[k] = r_lo[k] - config.dr_source
+                    r = r_lo[k] - 0.5 * data[0]
+                    r_lo[k] = r_lo[k] - data[0]
                     to_add.append((k, data, r))
 
         else:
             repeats = {}
             for k, data in zip(cdx, datas.T):
                 n_shift = repeats.setdefault(k, 0)
-                r = self._r_ghost - (n_shift + 0.5) * config.dr_source
+                r = self._r_ghost - (n_shift + 0.5) * data[0]
                 repeats[k] = repeats[k] + 1
                 to_add.append((k, data, r))
 
