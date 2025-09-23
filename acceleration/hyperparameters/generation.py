@@ -1,3 +1,3 @@
-filter_hours: float
-filter_meters: float
-n_samples: int
+dt_fine: int
+max_constituents: int
+n_spinup: int

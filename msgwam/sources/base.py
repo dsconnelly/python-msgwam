@@ -94,7 +94,7 @@ class Source(FactoryABC):
         """
 
         if n_step * config.dt % config.dt_launch != 0:
-            return np.empty((7, 0)), np.empty(0, dtype=int)
+            return np.empty((8, 0)), np.empty(0, dtype=int)
 
         if cdx is None:
             cdx = np.arange(config.n_source)
