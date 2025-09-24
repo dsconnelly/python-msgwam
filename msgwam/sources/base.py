@@ -124,6 +124,7 @@ class Source(FactoryABC):
 
         else:
             dr = abs(config.dr_source) * cg_r
+            dr = np.maximum(dr, config.dr_min)
 
         dens = flux / abs(wvn_hor * dk * dl * dm * cg_r)
         data = np.vstack((dr, k, l, m, dk, dl, dm, dens))

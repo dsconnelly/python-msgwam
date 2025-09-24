@@ -57,7 +57,7 @@ def save_training_data() -> None:
     for i, name in enumerate(['u', 'v']):
         data[name] = (('time', 'z_centers'), wind[:, i])
 
-    xr.Dataset(data).to_netcdf(f'data/{config.name}/training/training.nc')
+    xr.Dataset(data).to_netcdf(f'data/ml-accel/training/{config.name}.nc')
 
 def _get_overrides() -> dict[str, Any]:
     """
@@ -72,7 +72,7 @@ def _get_overrides() -> dict[str, Any]:
 
     return {
         'n_max' : 10000,
-        'dr_source' : 300,
+        'dr_source' : -1800,
         'n_source' : 128,
         'dr_ghost' : 0,
 
