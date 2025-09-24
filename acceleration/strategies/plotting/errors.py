@@ -21,7 +21,8 @@ _COLORS = {
 
 _STYLES = {
     'ICONlike' : 'dashed',
-    'coarse-flux-flux' : 'dashed'
+    'stochastic-64' : 'dashed',
+    'stochastic-100' : 'dotted'
 }
 
 @by_kind

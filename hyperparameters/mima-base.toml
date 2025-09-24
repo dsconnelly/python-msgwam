@@ -14,11 +14,9 @@ n_source_min = 4
 n_source_max = 40
 
 [generation]
-max_constituents = 10
-n_max = 50000
-n_spinup = 4
-n_state = 1000
-n_supervolumes = 256
+dt_fine = 30
+max_constituents = 20
+n_spinup = 2
 
 [architectures]
 # batch_norm_pos = 1

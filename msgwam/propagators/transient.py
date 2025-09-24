@@ -678,7 +678,7 @@ class TransientPropagator(Propagator):
         if excess <= 0 or config.prune_by == 'none':
             return
 
-        if config.prune_by in ['flux', 'importance'] or config.logging:
+        if config.prune_by in ['cg_r', 'flux', 'importance'] or config.logging:
             mom = (self.k + self.l) * self.action
             cg = self._get_cg_r(mean)
             flux = abs(mom * cg)

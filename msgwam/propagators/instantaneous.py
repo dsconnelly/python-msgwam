@@ -46,7 +46,7 @@ class InstantaneousPropagator(Propagator):
         G2 = np.interp(z, mean.z_centers, mean.G2)
         rho = np.interp(z, mean.z_centers, mean.rho)
 
-        k, l, m, dk, dl, dm, dens = self._to_launch
+        _, k, l, m, dk, dl, dm, dens = self._to_launch
         omega = get_omega_hat(k, l, m, N[0], G2[0]) + k * u[0] + l * v[0]
         source_flux = get_cg_r(k, l, m, N[0], G2[0]) * (dens * dk * dl * dm)
         

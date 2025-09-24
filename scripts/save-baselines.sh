@@ -35,7 +35,7 @@ job_id=$(sbatch \
     -J "${name}-baselines" \
     -o logs/$name/baselines.out \
     $dep_arg \
-    submit.slurm config/$name.toml $cmds plot-error-profiles:abs::${args}
+    submit.slurm config/$name.toml $cmds plot-error-profiles:all::$args
 )
 
 echo $job_id

@@ -78,7 +78,7 @@ def update_config(kind: str, prefix: str='') -> None:
     """
 
     rnames = get_rnames(prefix)
-    scores = get_global_scores(kind, *rnames).mean('component')
+    scores = get_global_scores(kind, *rnames).sel(component='x')
     i, j = (da.item() for da in scores.argmin(...).values())
     drs, n_sources = _get_grid()
 
