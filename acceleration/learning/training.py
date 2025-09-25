@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 
 from .. import hyperparameters as hp
 
-from .architectures import SupervolumeNet
+from .architectures import BulkNet
 from .losses import BulkLoss
 from .utils import get_loaders
 
@@ -23,10 +23,16 @@ def train_network(eval_type: Literal['va', 'te']) -> None:
 
     """
 
-    model = SupervolumeNet()
+    torch.manual_seed(1234)
+    hp.show_hyperparameters()
+
+    model = BulkNet()
     optimizer = Adam(model.parameters(), lr=hp.training.learning_rate)
     loader_tr, loader_ev = get_loaders(eval_type)
     loss_func = BulkLoss(loader_tr)
+
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f'Loaded model has {n_params} trainable parameters.')
 
     state = {}
     best_loss = torch.inf

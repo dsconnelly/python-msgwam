@@ -1,12 +1,9 @@
 from typing import Literal
 
-import numpy as np
 import torch, torch.nn as nn
 import xarray as xr
 
 from torch.utils.data import DataLoader, TensorDataset
-
-from msgwam.utils import get_vertical_grids
 
 from ..hyperparameters import training as hp
 
@@ -27,6 +24,30 @@ _SITES_TE = [
     'perth',
     'amundsen-sea'
 ]
+
+def apply_blocks(blocks: nn.ModuleList, X: torch.Tensor) -> torch.Tensor:
+    """
+    Apply a set of blocks with skip connections after all but the last.
+
+    Parameters
+    ----------
+    blocks
+        List of modules to apply between skip connections.
+    X
+        Tensor to pass through the blocks.
+
+    Returns
+    -------
+    torch.Tensor
+        Output of final block.
+
+    """
+
+    output = X
+    for block in blocks[:-1]:
+        output = X + block(output)
+
+    return blocks[-1](output)
 
 def get_loaders(
     eval_type: Literal['va', 'te'],

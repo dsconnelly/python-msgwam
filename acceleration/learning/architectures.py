@@ -4,23 +4,24 @@ import torch, torch.nn as nn
 from msgwam import config
 from msgwam.utils import get_vertical_grids
 
-from .utils import xavier_init
+from ..hyperparameters import architectures as hp
 
-class SupervolumeNet(nn.Module):
+from .utils import apply_blocks, xavier_init
+
+class BulkNet(nn.Module):
     def __init__(self) -> None:
         """
-        At initialization, a `SupervolumeNet` sets up normalization layers for
-        the inputs and instantiates the main neural network layers.
+        At initialization, a `BulkNet` sets up normalization layers for the
+        inputs and instantiates the main neural network layers.
         """
 
         super().__init__()
         self._cg_norm = nn.BatchNorm1d(config.n_grid, affine=False)
         self._wind_norm = nn.BatchNorm1d(config.n_grid - 1, affine=False)
-        self._layers = self._init_layers()
+        self._blocks = self._init_blocks()
 
         z, _ = get_vertical_grids()
         dz = np.diff(z)[0] * np.ones_like(z)
-        dz[0] = dz[-1] = 0.5 * z[1]
         self._dz = torch.as_tensor(dz)
 
         self.apply(xavier_init)
@@ -64,42 +65,73 @@ class SupervolumeNet(nn.Module):
         cg = self._cg_norm(cg)
         wind = self._wind_norm(wind)
         X = torch.hstack((wind, X, cg))
+        Y = apply_blocks(self._blocks, X)
 
-        Y = self._layers(X)
         M = Y[:, :config.n_grid + 1]
         cg = Y[:, config.n_grid + 1:]
         M = M / M.sum(dim=1)[:, None]
 
         return M[:, :-1] * budget / self._dz, cg
     
-    def _init_layers(self) -> nn.Sequential:
+    def _get_block(self, final: bool) -> nn.Sequential:
+        """
+        Build a block of fully-connected layers for the neural network, placing
+        batch normalization layers according to hyperparameter settings.
+
+        Parameters
+        ----------
+        final
+            Whether this is the last block in the network. If so, the number of
+            outputs will be set accordingly and the last layer will be a `ReLU`.
+        
+        Returns
+        -------
+        nn.Sequential
+            Module containing the resulting layers.
+
+        """
+
+        sizes = [self._n_inputs] + [hp.n_hidden] * hp.block_depth
+        sizes = sizes + [self._n_outputs if final else self._n_inputs]
+        
+        args = []
+        for a, b in zip(sizes[:-1], sizes[1:]):
+            args = args + [nn.Linear(a, b), nn.ReLU()]
+
+            if hp.batch_norm_pos != 0:
+                k = len(args) - (hp.batch_norm_pos == -1)
+                args.insert(k, nn.BatchNorm1d(b))
+
+        if final:
+            while not isinstance(args[-1], nn.ReLU):
+                args = args[:-1]
+
+        return nn.Sequential(*args)
+
+    def _init_blocks(self) -> nn.ModuleList:
         """
         Initialize the main neural network layers.
 
         Returns
         -------
-        nn.Sequential
-            Sequential instance containing the linear and activation layers.
+        nn.ModuleList
+            List of blocks to apply at prediction time.
 
         """
 
-        sizes = [self._n_inputs] + [256] * 5 + [self._n_outputs]
-        
-        args = []
-        for a, b in zip(sizes[:-1], sizes[1:]):
-            args.extend([
-                nn.Linear(a, b),
-                nn.ReLU()
-            ])
+        blocks = nn.ModuleList()
+        for i in range(hp.n_blocks):
+            final = i == hp.n_blocks - 1
+            blocks.append(self._get_block(final))
 
-        return nn.Sequential(*args)
+        return blocks
 
     @property
     def _n_inputs(self) -> int:
         """
-        At present, the `SupervolumeNet` simply takes in the bulk momentum and
-        group velocity profiles from the previous time step, the appropriate
-        component of the mean wind, and the added source momentum.
+        At present, the `BulkNet` simply takes in the bulk momentum and group
+        velocity profiles from the previous time step, the appropriate component
+        of the mean wind, and the added source momentum.
         """
 
         return 3 * config.n_grid
@@ -107,9 +139,9 @@ class SupervolumeNet(nn.Module):
     @property
     def _n_outputs(self) -> int:
         """
-        For each wavenumber quadrant, a `SupervolumeNet` predicts two profiles,
-        one for bulk momentum and the other for bulk group velocity. Each as a
-        value for each vertical grid face, and the former has one extra output
+        For each wavenumber quadrant, a `BulkNet` predicts two profiles, one for
+        bulk momentum and the other for bulk group velocity. Each as a value for
+        each vertical grid face, and the former has one extra output
         corresponding to unused momentum.
         """
 

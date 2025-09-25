@@ -161,11 +161,7 @@ def _make_callback(
         if n_seconds % config.dt_output:
             return
 
-        z = np.zeros(config.n_grid + 1)
-        z[1:-1] = mean.z_centers
-        z[0] = mean.z_faces[0]
-        z[-1] = mean.z_faces[-1]
-
+        z = prop._z_padded
         cg = prop._get_cg_r(mean)
         stacked = np.vstack((mom, (mom * cg)))
 
