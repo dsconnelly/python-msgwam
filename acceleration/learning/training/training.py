@@ -14,7 +14,10 @@ from .io import get_loaders, get_split, load_tensors
 from .losses import BulkLoss
 from .transforms import get_shift_and_scale, transform
 
-def train_network(eval_type: Literal['va', 'te']) -> None:
+def train_network(
+    eval_type: Literal['va', 'te'],
+    state_path: Optional[str]=None
+) -> None:
     """
     Train a neural network to advance the bulk momentum and velocity profiles.
 
@@ -46,10 +49,18 @@ def train_network(eval_type: Literal['va', 'te']) -> None:
     optimizer = Adam(model.parameters(), lr=hp.training.learning_rate)
     loss_func = BulkLoss(targets[idx_tr])
 
+    if state_path is not None:
+        state = torch.load(state_path, weights_only=True)
+        print(f'Loading previous state from {state_path}')
+
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
+
     n_tr, n_ev = len(idx_tr), len(idx_ev)
     n_params = sum(p.numel() for p in model.parameters())
     
-    print(f'Loaded {n_tr} training samples and {n_ev} evaluation samples.')
+    word = {'va' : 'validation', 'te' : 'test'}[eval_type]
+    print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
     print(f'Loaded model has {n_params} trainable parameters.')
 
     state = {}
@@ -75,8 +86,41 @@ def train_network(eval_type: Literal['va', 'te']) -> None:
         n_epoch = n_epoch + 1
 
     print(f'Best loss was {best_loss:.6f}')
-    path = f'data/ml-accel/models/state-{hp.task_id}.pkl'
-    torch.save(state, path)
+    model.load_state_dict(state['model'])
+
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
+
+    del loader_tr, loader_ev
+    M, cg, wind, _ = load_tensors('va')
+    M, cg, wind = M[idx_tr[:10]], cg[idx_tr[:10]], wind[idx_tr[:10]]
+
+    def trace_func(
+        M: torch.Tensor,
+        cg: torch.Tensor,
+        wind: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Capture pipeline, excluding momentum budgeting (which can be done at
+        integration time) but including input normalization, so that the various
+        statistics arrays don't need to be saved separately.
+        """
+
+        M = transform(M, *M_stats)
+        cg = transform(cg, *cg_stats)
+        wind = transform(wind, *wind_stats)
+
+        return model(M, cg, wind)
+    
+    with torch.no_grad():
+        traced = torch.jit.trace(trace_func, (M, cg, wind))
+
+    torch.save(state, f'data/ml-accel/models/state-{hp.task_id}.pkl')
+    torch.jit.save(traced, f'data/ml-accel/models/model-{hp.task_id}.jit')
+
+    with open(f'data/ml-accel/records/loss-{hp.task_id}') as f:
+        f.write(best_loss)
 
 def _run_epoch(
     model: nn.Module,

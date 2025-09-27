@@ -11,14 +11,14 @@ from msgwam.utils import get_vertical_grids
 from ...hyperparameters import training as hp
 
 _SITES_TR = [
-    # 'anchorage',
-    # 'new-york',
+    'anchorage',
+    'new-york',
     'lisbon',
-    # 'miami',
-    # 'maldives',
-    # 'brisbane',
-    # 'buenos-aires',
-    # 'weddell-sea'
+    'miami',
+    'maldives',
+    'brisbane',
+    'buenos-aires',
+    'weddell-sea'
 ]
 
 _SITES_TE = [

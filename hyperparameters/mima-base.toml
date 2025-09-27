@@ -19,14 +19,15 @@ dt_coarse = 240
 n_spinup = 5
 
 [architectures]
-batch_norm_pos = 1
-block_depth = 3
-n_blocks = 3
-n_hidden = 256
+batch_norm_pos = [-1, 0, 1]
+block_depth = [3, 6]
+n_blocks = [2, 4]
+n_hidden = [256, 1024]
 
 [training]
-batch_size = 256
-cg_transform = 'robust'
+batch_size = [32, 64]
+in_transform = ['minmax', 'robust', 'z']
 learning_rate = 1e-3
-max_epochs = 30
-max_hours = 4
+max_epochs = 50
+max_hours = 5
+n_smoothing = [0, 2]

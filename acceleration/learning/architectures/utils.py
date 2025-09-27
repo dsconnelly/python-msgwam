@@ -48,15 +48,14 @@ def get_block(sizes: list[int], final: bool) -> nn.Sequential:
 
     args = []
     for a, b in zip(sizes[:-1], sizes[1:]):
-        # args = args + [nn.Linear(a, b), nn.ReLU()]
-        args = args + [nn.Linear(a, b), nn.LeakyReLU()]
+        args = args + [nn.Linear(a, b), nn.ReLU()]
 
         if hp.batch_norm_pos != 0:
             k = len(args) - (hp.batch_norm_pos == -1)
             args.insert(k, nn.BatchNorm1d(b))
 
     if final:
-        while not isinstance(args[-1], nn.LeakyReLU):
+        while not isinstance(args[-1], nn.ReLU):
             args = args[:-1]
 
     return nn.Sequential(*args)

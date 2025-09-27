@@ -25,6 +25,7 @@ __all__ = [
 _OPTIONS: list[str] = []
 
 grid_path: str
+grid_size: int
 task_id: int
 
 def load(path: str, i: Optional[int]=None) -> None:
@@ -62,6 +63,7 @@ def load(path: str, i: Optional[int]=None) -> None:
     mesh = meshgrid(*options.values(), indexing='ij')
     params = stack(mesh, axis=0).reshape(len(options), -1)
     globals()['_OPTIONS'] = list(options.keys())
+    globals()['grid_size'] = params.shape[1]
 
     if i >= params.shape[1]:
         warn('more jobs than hyperparameter settings')
