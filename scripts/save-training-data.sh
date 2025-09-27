@@ -13,8 +13,7 @@ job_id=$(sbatch \
     $dep_arg \
     submit.slurm config/$name.toml \
         save-training-data \
-        plot-training-data \
-        plot-conservation
+        plot-training-series
 )
 
 echo $job_id

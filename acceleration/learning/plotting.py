@@ -1,18 +1,97 @@
 import matplotlib.pyplot as plt
 import numpy as np
-import torch
 import xarray as xr
 
 from matplotlib.colors import LinearSegmentedColormap as LSC
 
 from msgwam import config
 
-from .architectures import SupervolumeNet
-
 _SAVE_KWARGS = {
-    'dpi' : 400,
+    'dpi' : 600,
     'bbox_inches' : 'tight'
 }
+
+def plot_distributions() -> None:
+    """Make box-and-whisker for the training data."""
+
+    n_rows, n_cols = 2, 5
+    fig, axes = plt.subplots(n_rows, n_cols)
+    fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
+
+    with xr.open_dataset(f'data/ml-accel/training/{config.name}.nc') as ds:
+        names = ds['quadrant'].values.tolist()
+        z = ds['z_faces'].values / 1000
+        dz = np.diff(z)[0]
+
+        mom = ds['M_bulk'].values
+        flux = ds['F_bulk'].values
+
+        cg = np.divide(
+            flux, mom,
+            where=(mom > 0),
+            out=np.zeros_like(mom)
+        )
+
+        mom = mom / mom.sum(axis=-1)[..., None]
+
+    mode = 'z'
+
+    def make_boxplot(ax, data):
+        if mode == 'z':
+            shift = data.mean(axis=0)
+            # scale = data.std(axis=0)
+
+            a = data.copy()
+            a[a == 0] = np.nan
+            scale = np.nanstd(a, axis=0)
+
+        elif mode == 'robust':
+            shift = np.median(data, axis=0)
+            q25 = np.quantile(data, 0.25, axis=0)
+            q75 = np.quantile(data, 0.75, axis=0)
+            scale = q75 - q25
+
+        keep = scale > 0
+        data = (data - shift)[:, keep] / scale[keep]
+
+        ax.boxplot(
+            data,
+            sym='',
+            vert=False,
+            positions=z[keep],
+            widths=dz,
+            medianprops={
+                'color' : 'tab:red',
+                'zorder' : -1
+            }
+        )
+
+    for j in range(4):
+        for i, data in enumerate([mom[:, j], cg[:, j]]):
+            make_boxplot(axes[i, j], data)
+
+    for i, data in enumerate([mom, cg]):
+        data = data.reshape(-1, config.n_grid)
+        make_boxplot(axes[i, -1], data)
+
+    ticks = np.linspace(5, 60, 12).astype(int)
+    for ax in axes.flatten():
+        ax.set_xlim(-2, 2)
+        ax.set_ylim(5, 60)
+
+        ax.set_xticks(np.arange(-2, 3))
+        ax.set_yticks(ticks, labels=ticks)
+
+        ax.grid(color='lightgray')
+
+    names = names + ['aggregate']
+    for j, name in enumerate(names):
+        axes[0, j].set_title(name)
+        ax.set_axisbelow(True)
+
+    plt.tight_layout()
+    path = f'plots/ml-accel/{config.name}-distributions.png'
+    plt.savefig(path, **_SAVE_KWARGS)
 
 def plot_conservation() -> None:
     """Make plots checking that the conservation bound is satisfied."""
@@ -65,61 +144,61 @@ def plot_conservation() -> None:
     path = f'plots/ml-accel/{config.name}-conservation.png'
     plt.savefig(path, **_SAVE_KWARGS)
 
-def plot_network_fluxes() -> None:
-    """Plot the network's predictions for a given MiMA scenario."""
 
-    model = SupervolumeNet()
-    path = 'data/ml-accel/models/state-0.pkl'
-    state = torch.load(path, weights_only=True)
-    model.eval().load_state_dict(state['model'])
+def plot_training_samples() -> None:
+    """Plot individual profiles in the training data."""
 
-    n_rows, n_cols = 2, 4
-    widths = [4.5] * n_cols + [0.2]
-
-    fig, axes = plt.subplots(n_rows, n_cols + 1, width_ratios=widths)
-    fig.set_size_inches(sum(widths), 3 * n_rows)
-    axes, caxes = axes[:, :-1], axes[:, -1]
+    n_rows, n_cols = 3, 4
+    fig, axes = plt.subplots(n_rows, n_cols)
+    fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
 
     with xr.open_dataset(f'data/ml-accel/training/{config.name}.nc') as ds:
         z = ds['z_faces'].values / 1000
-        days = ds['time'] / 86400
+        days = ds['time'].values / 86400
 
-        for j in range(4):
-            mom = ds['M_bulk'].isel(quadrant=j).values
-            cg = ds['cg_bulk'].isel(quadrant=j).values
-            source = ds['source'].isel(quadrant=j).values[:, None]
+        mom = ds['M_bulk'].values
+        flux = ds['F_bulk'].values
 
-            sign = 1 if j < 2 else -1
-            name = 'u' if j % 2 == 0 else 'v'
-            wind = sign * ds[name].values
+        # for _ in range(2):
+        #     mom = apply_smoothing(mom)
+        #     flux = apply_smoothing(flux)
 
-            flux = mom * cg
-            axes[0, j].pcolormesh(
-                days, z, sign * 1000 * flux.T,
-                shading='nearest',
-                vmin=-10, vmax=10,
-                cmap='RdBu_r'
-            )
+        cg = np.divide(
+            flux, mom,
+            where=(mom > 0),
+            out=np.zeros_like(mom)
+        )
 
-            func = lambda a: torch.as_tensor(a[:-1])
-            inputs = map(func, [mom, cg, source, wind])
+        # for _ in range(2):
+        #     mom = apply_smoothing(mom)
+        #     cg = apply_smoothing(cg)
 
-            with torch.no_grad():
-                mom_hat, cg_hat = model(*inputs)
-                flux[1:] = (mom_hat * cg_hat).numpy()
 
-            axes[1, j].pcolormesh(
-                days, z, sign * 1000 * flux.T,
-                shading='nearest',
-                vmin=-10, vmax=10,
-                cmap='RdBu_r'
-            )
+    # k = np.random.randint(mom.shape[0])
+    k = 1942
+    print(f'Samples at k = {k}, day = {days[k]:.3f}')
+
+    for j in range(4):
+        for i, data in enumerate([mom[k, j], cg[k, j], 1000 * flux[k, j]]):
+            color = ['royalblue', 'forestgreen', 'tab:red'][i]
+            axes[i, j].plot(data, z, color=color)
+
+            xmax = [0.2, 2, 5][i]
+            xmin = 0 if i > 0 else 1e-8
+            axes[i, j].set_xlim(xmin, xmax)
+            axes[i, j].set_ylim(5, 60)
+
+            if i == 0:
+                axes[i, j].set_xscale('log')
+
+            axes[i, j].grid(color='lightgray')
+            axes[i, j].tick_params('both', direction='in')
 
     plt.tight_layout()
-    path = f'plots/ml-accel/{config.name}-network.png'
-    plt.savefig(path, **_SAVE_KWARGS)
+    path = f'plots/ml-accel/{config.name}-samples.png'
+    plt.savefig(path, **_SAVE_KWARGS)    
 
-def plot_training_data() -> None:
+def plot_training_series() -> None:
     """Plot the bulk momentum and group velocity time series."""
 
     n_rows, n_cols = 3, 4
@@ -132,21 +211,24 @@ def plot_training_data() -> None:
     with xr.open_dataset(f'data/ml-accel/training/{config.name}.nc') as ds:
         z = ds['z_faces'].values / 1000
         days = ds['time'] / 86400
-
+        
         mom = ds['M_bulk'].values
-        cg = ds['cg_bulk'].values
-        flux = 1000 * mom * cg
+        flux = ds['F_bulk'].values
 
-    amaxes = [0.25, 2, 5]
+        cg = np.divide(
+            flux, mom,
+            where=(mom > 0),
+            out=np.zeros_like(mom)
+        )
+
+    amaxes = [0.2, 1, 5]
     names = ['momentum density', '$c_\\mathrm{g}$', '$F$']
     units = ['kg / s / m$^2$', 'm / s', 'mPa']
     
-    zipped = zip([mom, cg, flux], amaxes, names, units)
+    zipped = zip([mom, cg, 1000 * flux], amaxes, names, units)
     for i, (data, amax, name, unit) in enumerate(zipped):
         for j in range(4):
-
-            options = ['tab:red', 'royalblue']
-            color = 'purple' if i == 1 else options[j // 2]
+            color = ['royalblue', 'forestgreen', 'tab:red'][i]
             cmap = LSC.from_list('custom', ['w', color], 256)
 
             img = axes[i, j].pcolormesh(
@@ -164,5 +246,5 @@ def plot_training_data() -> None:
         axes[0, j].set_title(name)
 
     plt.tight_layout()
-    path = f'plots/ml-accel/{config.name}-training.png'
+    path = f'plots/ml-accel/{config.name}-series.png'
     plt.savefig(path, **_SAVE_KWARGS)

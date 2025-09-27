@@ -1,3 +1,3 @@
 dt_fine: int
-max_constituents: int
+dt_coarse: int
 n_spinup: int

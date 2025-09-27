@@ -1,0 +1,100 @@
+import torch, torch.nn as nn
+
+from msgwam import config
+
+from ...hyperparameters import architectures as hp
+
+from .utils import apply_blocks, get_block, xavier_init
+
+class BulkNet(nn.Module):
+    def __init__(self) -> None:
+        """
+        At initialization, a `BulkNet` creates a series of blocks that will be
+        used with skip connections at prediction time.
+        """
+
+        super().__init__()
+
+        self._blocks = self._init_blocks()
+        self.apply(xavier_init)
+        self.to(torch.double)
+
+    def forward(self,
+        M: torch.Tensor,
+        cg: torch.Tensor,
+        wind: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Apply the forward model.
+
+        Parameters
+        ----------
+        M
+            Tensor of bulk momentum profiles.
+        cg
+            Tensor of bulk group velocity profiles.
+        wind
+            Tensor of mean wind profiles, negated as necessary.
+
+        Returns
+        -------
+        torch.Tensor, torch.Tensor
+            Updated bulk momentum and group velocity profiles, respectively.
+
+        """
+
+        X = torch.hstack((M, cg, wind))
+        Y = apply_blocks(self._blocks, X)
+
+        M = Y[:, :config.n_grid + 1]
+        cg = Y[:, config.n_grid + 1:]
+
+        totals = M.sum(dim=1)[:, None]
+        totals[totals == 0] = 1
+        M = M[:, :-1] / totals
+
+        if not self.training:
+            cg[M == 0] = 0
+
+        return M, cg
+
+    def _init_blocks(self) -> nn.ModuleList:
+        """
+        Initialize the main neural network layers.
+
+        Returns
+        -------
+        nn.ModuleList
+            List of blocks to apply at prediction time.
+
+        """
+
+        blocks = nn.ModuleList()
+        for i in range(hp.n_blocks):
+            final = i == hp.n_blocks - 1
+            sizes = [self._n_inputs] + [hp.n_hidden] * hp.block_depth
+            sizes = sizes + [self._n_outputs if final else self._n_inputs]
+            blocks.append(get_block(sizes, final))
+
+        return blocks
+    
+    @property
+    def _n_inputs(self) -> int:
+        """
+        At present, the `BulkNet` simply takes in the bulk momentum and group
+        velocity profiles from the previous time step, the appropriate component
+        of the mean wind, and the added source momentum.
+        """
+
+        return 3 * config.n_grid
+
+    @property
+    def _n_outputs(self) -> int:
+        """
+        For each wavenumber quadrant, a `BulkNet` predicts two profiles, one for
+        bulk momentum and the other for bulk group velocity. Each as a value for
+        each vertical grid face, and the former has one extra output
+        corresponding to unused momentum.
+        """
+
+        return 2 * config.n_grid + 1

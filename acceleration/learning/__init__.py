@@ -1,11 +1,17 @@
 from .generation import save_training_data
-from .plotting import plot_conservation, plot_network_fluxes, plot_training_data
+from .plotting import (
+    plot_conservation,
+    plot_distributions,
+    plot_training_samples,
+    plot_training_series
+)
 from .training import train_network
 
 __all__ = [
     'plot_conservation',
-    'plot_network_fluxes',
-    'plot_training_data',
+    'plot_distributions',
+    'plot_training_samples',
+    'plot_training_series',
     'save_training_data',
     'train_network'
 ]

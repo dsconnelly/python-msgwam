@@ -28,31 +28,21 @@ def save_training_data() -> None:
         seconds = np.arange(n_samples) * config.dt_output
 
         B = np.zeros((n_samples, 2, 4, config.n_grid))
-        C = np.zeros((n_samples, 4, 4, config.n_grid, hp.max_constituents))
         wind = np.zeros((n_samples, 2, config.n_grid - 1))
         S = np.zeros((n_samples, 4))
 
-        _ = integrate(_make_callback(B, C, S, wind))
-
-    idx = C[:, 3] == -1
-    C[:, 0][idx] = -1
-    C[:, 1][idx] = -1
-    C[:, 2][idx] = -1
-
+        _ = integrate(_make_callback(B, S, wind))
+        
     data = {
         'time' : seconds.astype(int),
         'quadrant' : np.array(qnames),
-        'constituent' : np.arange(hp.max_constituents),
         'z_centers' : z_centers,
         'z_faces' : z_faces
     }
 
     data['source'] = (('time', 'quadrant'), S)
-    for i, name in enumerate(['M_bulk', 'cg_bulk']):
+    for i, name in enumerate(['M_bulk', 'F_bulk']):
         data[name] = (('time', 'quadrant', 'z_faces'), B[:, i])
-
-    for i, name in enumerate(['r', 'dr', 'cg', 'M']):
-        data[name] = (('time', 'quadrant', 'z_faces', 'constituent'), C[:, i])
 
     for i, name in enumerate(['u', 'v']):
         data[name] = (('time', 'z_centers'), wind[:, i])
@@ -71,7 +61,7 @@ def _get_overrides() -> dict[str, Any]:
     """
 
     return {
-        'n_max' : 10000,
+        'n_max' : 5000,
         'dr_source' : -1800,
         'n_source' : 128,
         'dr_ghost' : 0,
@@ -80,7 +70,7 @@ def _get_overrides() -> dict[str, Any]:
         'n_increment' : 1000,
 
         'dt' : hp.dt_fine,
-        'dt_output' : config.dt,
+        'dt_output' : hp.dt_coarse,
         'max_dt_multiplier' : 10,
     }
 
@@ -106,7 +96,6 @@ def _get_quadrant(k: np.ndarray, l: np.ndarray) -> np.ndarray:
 
 def _make_callback(
     B: np.ndarray,
-    C: np.ndarray,
     S: np.ndarray,
     wind: np.ndarray
 ) -> _Callback:
@@ -118,10 +107,6 @@ def _make_callback(
     B
         Array whose four dimensions range over time step, wavenumber quadrant,
         vertical grid_face, and property (bulk momentum and group velocity).
-    C
-        Array whose five dimensions range over time step, wavenumber quadrant,
-        vertical grid face, representative constituent, and property (position,
-        phase speed, momentum, and group velocity).
     S
         Array whose two dimensions range over time step and wavenumber quadrant,
         holding the momentum added to the system each time step.
@@ -151,22 +136,21 @@ def _make_callback(
         i = n_seconds // config.dt_output
         i_s = i - int(n_seconds % config.dt_output == 0)
         mom = abs((prop.k + prop.l) * prop.action)
-        pdx = _get_quadrant(prop.k, prop.l)
+        pdx = _get_quadrant(prop.k, prop.l) - 1
+        pdx[prop.m > 0] = -1
 
         if i_s > -1:
             new = prop.age == 0
             source = (mom * prop.dr)[new]
-            np.add.at(S[i_s], pdx[new] - 1, source)
+            np.add.at(S[i_s], pdx[new], source)
 
         if n_seconds % config.dt_output:
             return
 
         z = prop._z_padded
         cg = prop._get_cg_r(mean)
-        stacked = np.vstack((mom, (mom * cg)))
-
-        mdx = _project(prop.r, prop.dr, z, stacked, pdx, B[i], C[i, 3])
-        C[i, :3] = np.vstack((prop.r, prop.dr, cg))[:, mdx]
+        stacked = np.vstack((mom, mom * cg))
+        _project(prop.r, prop.dr, z, stacked, pdx, B[i])        
         wind[i] = mean.wind
 
     return callback
@@ -179,7 +163,6 @@ def _project(
     data: np.ndarray,
     pdx: np.ndarray,
     B: np.ndarray,
-    C: np.ndarray
 ) -> None:
     """
     JITted function that projects the momentum and group velocity contributions
@@ -190,10 +173,8 @@ def _project(
 
     r_lo = r - 0.5 * dr
     r_hi = r + 0.5 * dr
-    C[:] = -1
 
-    mdx = np.zeros((4, len(edges) - 1, hp.max_constituents))
-    for i, (a, b, p) in enumerate(zip(r_lo, r_hi, pdx - 1)):
+    for i, (a, b, p) in enumerate(zip(r_lo, r_hi, pdx)):
         if np.isnan(a) or p < 0:
             continue
 
@@ -206,22 +187,3 @@ def _project(
 
             frac = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
             B[:, p, j] += frac * data[:, i]
-            mom = frac * data[0, i]
-
-            k = -1
-            while mom > C[p, j, k + 1] and k < C.shape[2] - 1:
-                k = k + 1
-
-            if k > -1:
-                C[p, j, :k] = C[p, j, 1:k + 1]
-                mdx[p, j, :k] = mdx[p, j, 1:k + 1]
-
-                C[p, j, k] = mom
-                mdx[p, j, k] = i
-
-    for p in range(4):
-        for j in range(B.shape[2]):
-            if B[0, p, j] > 0:
-                B[1, p, j] /= B[0, p, j]
-
-    return mdx.astype(np.int32)

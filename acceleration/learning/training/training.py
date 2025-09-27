@@ -6,11 +6,13 @@ import torch, torch.nn as nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
-from .. import hyperparameters as hp
+from ... import hyperparameters as hp
 
-from .architectures import BulkNet
+from ..architectures import BulkNet
+
+from .io import get_loaders, get_split, load_tensors
 from .losses import BulkLoss
-from .utils import get_loaders
+from .transforms import get_shift_and_scale, transform
 
 def train_network(eval_type: Literal['va', 'te']) -> None:
     """
@@ -26,12 +28,28 @@ def train_network(eval_type: Literal['va', 'te']) -> None:
     torch.manual_seed(1234)
     hp.show_hyperparameters()
 
+    M, cg, wind, targets = load_tensors(eval_type)
+    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
+
+    M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
+    cg_stats = get_shift_and_scale(cg[idx_tr], hp.training.in_transform)
+    wind_stats = get_shift_and_scale(wind[idx_tr], 'z')
+
+    M = transform(M, *M_stats)
+    cg = transform(cg, *cg_stats)
+    wind = transform(wind, *wind_stats)
+
+    args = [M, cg, wind, targets, idx_tr, idx_ev]
+    loader_tr, loader_ev = get_loaders(*args)
+
     model = BulkNet()
     optimizer = Adam(model.parameters(), lr=hp.training.learning_rate)
-    loader_tr, loader_ev = get_loaders(eval_type)
-    loss_func = BulkLoss(loader_tr)
+    loss_func = BulkLoss(targets[idx_tr])
 
+    n_tr, n_ev = len(idx_tr), len(idx_ev)
     n_params = sum(p.numel() for p in model.parameters())
+    
+    print(f'Loaded {n_tr} training samples and {n_ev} evaluation samples.')
     print(f'Loaded model has {n_params} trainable parameters.')
 
     state = {}
@@ -63,7 +81,7 @@ def train_network(eval_type: Literal['va', 'te']) -> None:
 def _run_epoch(
     model: nn.Module,
     loader: DataLoader,
-    loss_func: nn.Module,
+    loss_func: BulkLoss,
     optimizer: Optional[Adam]=None
 ) -> float:
     """
@@ -77,8 +95,8 @@ def _run_epoch(
     loader
         Loader containing training or evaluation samples.
     loss_func
-        Module accepting `(M, cg, M_hat, cg_hat)` and computing the loss to use
-        for gradient descent and model evaluation.
+        Module accepting `(M_hat, cg_hat, targets)` and computing the loss to
+        use for gradient descent and model evaluation.
     optimizer
         Optimizer to use for gradient descent. If `None`, then this is an
         evaluation step and the weights are not changed.
@@ -90,10 +108,15 @@ def _run_epoch(
 
     """
 
+    if optimizer is None:
+        loss_func.eval()
+    else:
+        loss_func.train()
+
     model = model.eval() if optimizer is None else model.train()
     weight_sum, total = 0, 0
 
-    for *inputs, M_next, cg_next in loader:
+    for *inputs, targets in loader:
         if optimizer is None:
             with torch.no_grad():
                 M_hat, cg_hat = model(*inputs)
@@ -102,8 +125,8 @@ def _run_epoch(
             optimizer.zero_grad()
             M_hat, cg_hat = model(*inputs)
 
-        weight = M_next.shape[0]
-        loss = loss_func(M_next, cg_next, M_hat, cg_hat)
+        weight = targets.shape[0]
+        loss = loss_func(M_hat, cg_hat, targets)
         total = total + weight * loss.item()
         weight_sum = weight_sum + weight
 

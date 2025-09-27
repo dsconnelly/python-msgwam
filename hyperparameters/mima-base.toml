@@ -14,21 +14,19 @@ n_source_min = 4
 n_source_max = 40
 
 [generation]
-dt_fine = 30
-max_constituents = 20
+dt_fine = 60
+dt_coarse = 240
 n_spinup = 5
 
 [architectures]
-# batch_norm_pos = 1
-# dropout_rate = 0.1
-
-# n_blocks = 2
-# n_hidden = 512
-# n_latent = 1024
-# n_per_block = 4
+batch_norm_pos = 1
+block_depth = 3
+n_blocks = 3
+n_hidden = 256
 
 [training]
 batch_size = 256
+cg_transform = 'robust'
 learning_rate = 1e-3
-max_epochs = 5
+max_epochs = 30
 max_hours = 4
