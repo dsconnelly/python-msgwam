@@ -10,7 +10,7 @@ from ... import hyperparameters as hp
 
 from ..architectures import BulkNet
 
-from .io import get_loaders, get_split, load_tensors
+from .io import get_best_task_id, get_loaders, get_split, load_tensors
 from .losses import BulkLoss
 from .transforms import get_shift_and_scale, transform
 
@@ -27,6 +27,11 @@ def train_network(
         Whether to use validation or test data as the evaluation set.
 
     """
+
+    if eval_type == 'te':
+        i = get_best_task_id()
+        hp.load(hp.grid_path, i)
+        print(f'Best hyperparameter setting was {i}.')
 
     torch.manual_seed(1234)
     hp.show_hyperparameters()
@@ -116,10 +121,11 @@ def train_network(
     with torch.no_grad():
         traced = torch.jit.trace(trace_func, (M, cg, wind))
 
-    torch.save(state, f'data/ml-accel/models/state-{hp.task_id}.pkl')
-    torch.jit.save(traced, f'data/ml-accel/models/model-{hp.task_id}.jit')
+    tag = 'best' if eval_type == 'te' else hp.task_id
+    torch.save(state, f'data/ml-accel/models/state-{tag}.pkl')
+    torch.jit.save(traced, f'data/ml-accel/models/model-{tag}.jit')
 
-    with open(f'data/ml-accel/records/loss-{hp.task_id}') as f:
+    with open(f'data/ml-accel/records/loss-{tag}.txt', 'w') as f:
         f.write(best_loss)
 
 def _run_epoch(

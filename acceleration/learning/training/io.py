@@ -1,4 +1,5 @@
 from typing import Literal
+from warnings import warn
 
 import numpy as np
 import torch
@@ -8,7 +9,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from msgwam.utils import get_vertical_grids
 
-from ...hyperparameters import training as hp
+from ... import hyperparameters as hp
 
 _SITES_TR = [
     'anchorage',
@@ -28,6 +29,34 @@ _SITES_TE = [
     'amundsen-sea'
 ]
 
+def get_best_task_id() -> int:
+    """
+    Get the index of the best hyperparameter setting found in grid search.
+
+    Returns
+    -------
+    int
+        Index of the best set of hyperparameters.
+
+    """
+
+    best_loss = np.inf
+    best_id = None
+
+    for i in range(hp.grid_size):
+        try:
+            with open(f'data/ml-accel/records/loss-{i}.txt') as f:
+                loss = float(f.read().strip())
+
+            if loss < best_loss:
+                best_loss = loss
+                best_id = i
+
+        except FileNotFoundError:
+            warn(f'Could not find record for hyperparameter setting {i}')
+
+    return best_id
+
 def get_loaders(
     M: torch.Tensor,
     cg: torch.Tensor,
@@ -41,15 +70,21 @@ def get_loaders(
 
     Parameters
     ----------
-    
+    M, cg, wind, targets
+        Tensors of input and output data.
+    idx_tr, idx_ev
+        Tensors that partition the data into training and evaluation sets.
 
     Returns
     -------
+    DataLoader, DataLoader
+        Loaders for the training and evaluation sets.
+    
     """
 
     loaders = []
     for i, idx in enumerate([idx_tr, idx_ev]):
-        batch_size = hp.batch_size if i == 0 else 2048
+        batch_size = hp.training.batch_size if i == 0 else 2048
         dataset = TensorDataset(M[idx], cg[idx], wind[idx], targets[idx])
         loaders.append(DataLoader(dataset, batch_size, shuffle=(i == 0)))
 
@@ -129,7 +164,7 @@ def load_tensors(
             F = torch.as_tensor(ds['F_bulk'].values)
             source = torch.as_tensor(ds['source'].values)
 
-        for _ in range(hp.n_smoothing):
+        for _ in range(hp.training.n_smoothing):
             M = _apply_smoothing(M)
             F = _apply_smoothing(F)
 

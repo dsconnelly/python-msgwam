@@ -20,12 +20,10 @@ def save_training_data() -> None:
     """Integrate and save the relevant quantities for training."""
 
     with config.override(**_get_overrides()):
-        n_seconds = 86400 * (config.n_day - hp.n_spinup)
-        n_samples = 1 + n_seconds // config.dt_output
-
-        z_faces, z_centers = get_vertical_grids()
-        qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
+        n_samples = 1 + (86400 * config.n_day) // config.dt_output
         seconds = np.arange(n_samples) * config.dt_output
+        qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
+        z_faces, z_centers = get_vertical_grids()
 
         B = np.zeros((n_samples, 2, 4, config.n_grid))
         wind = np.zeros((n_samples, 2, config.n_grid - 1))
@@ -62,7 +60,7 @@ def _get_overrides() -> dict[str, Any]:
 
     return {
         'n_max' : 5000,
-        'dr_source' : -1800,
+        'dr_source' : -1200,
         'n_source' : 128,
         'dr_ghost' : 0,
 
@@ -129,12 +127,10 @@ def _make_callback(
     ) -> None:
         """Callback function to return as output."""
 
-        n_seconds = n_step * config.dt - hp.n_spinup * 86400
-        if n_seconds < 0:
-            return
-
+        n_seconds = n_step * config.dt
         i = n_seconds // config.dt_output
         i_s = i - int(n_seconds % config.dt_output == 0)
+
         mom = abs((prop.k + prop.l) * prop.action)
         pdx = _get_quadrant(prop.k, prop.l) - 1
         pdx[prop.m > 0] = -1

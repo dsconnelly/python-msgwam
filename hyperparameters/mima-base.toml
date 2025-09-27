@@ -14,9 +14,8 @@ n_source_min = 4
 n_source_max = 40
 
 [generation]
-dt_fine = 60
+dt_fine = 30
 dt_coarse = 240
-n_spinup = 5
 
 [architectures]
 batch_norm_pos = [-1, 0, 1]
