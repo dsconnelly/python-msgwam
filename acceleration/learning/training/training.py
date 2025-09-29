@@ -126,7 +126,7 @@ def train_network(
     torch.jit.save(traced, f'data/ml-accel/models/model-{tag}.jit')
 
     with open(f'data/ml-accel/records/loss-{tag}.txt', 'w') as f:
-        f.write(best_loss)
+        f.write(str(best_loss))
 
 def _run_epoch(
     model: nn.Module,

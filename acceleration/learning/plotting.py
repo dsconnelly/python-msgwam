@@ -40,9 +40,9 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     cg = targets[:, config.n_grid:]
     datas = [M, cg, 1000 * M * cg]
 
-    idx_tr, _ = get_split(M.shape[0], 'va')
-    rand = np.random.rand(len(idx_tr))
-    ks = idx_tr[np.argsort(rand)[:4]]
+    _, idx = get_split(M.shape[0], 'TR')
+    rand = np.random.rand(len(idx))
+    ks = idx[np.argsort(rand)[:4]]
 
     if model_path is not None:
         model = torch.jit.load(model_path)

@@ -176,7 +176,7 @@ def load_tensors(
         M_in, M_out = _get_Ms(M, source)
         cg_in = cg[:-1].flatten(0, 1)
         cg_out = cg[1:].flatten(0, 1)
-        
+
         args[0].append(M_in)
         args[1].append(cg_in)
         args[2].append(wind)

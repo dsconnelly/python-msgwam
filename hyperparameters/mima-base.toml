@@ -24,7 +24,7 @@ n_blocks = [2, 4]
 n_hidden = [256, 1024]
 
 [training]
-batch_size = [32, 64]
+batch_size = 32
 in_transform = ['minmax', 'robust', 'z']
 learning_rate = 1e-3
 max_epochs = 50
