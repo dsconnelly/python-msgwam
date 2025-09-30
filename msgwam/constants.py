@@ -7,5 +7,6 @@ PROP_NAMES = [
     'r', 'dr',
     'k', 'l', 'm',
     'dk', 'dl', 'dm',
-    'dens', 'age', 'meta'
+    'dens', 'age', 'meta',
+    'attrition'
 ]

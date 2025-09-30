@@ -33,6 +33,7 @@ class TransientPropagator(Propagator):
     k: np.ndarray; l: np.ndarray; m: np.ndarray
     dk: np.ndarray; dl: np.ndarray; dm: np.ndarray
     dens: np.ndarray; age: np.ndarray; meta: np.ndarray
+    attrition: np.ndarray
 
     def __init__(self, mean: MeanState) -> None:
         """
@@ -228,8 +229,8 @@ class TransientPropagator(Propagator):
         j = np.argmin(self._valid)
 
         self._data[0, j] = r
-        self._data[1:-2, j] = data
-        self._data[-2:, j] = [0, self._next_meta]
+        self._data[1:-3, j] = data
+        self._data[-3:, j] = [0, self._next_meta, 0]
 
         return cast(int, j)
 
@@ -247,6 +248,7 @@ class TransientPropagator(Propagator):
 
         """
 
+        wvn = abs(self.k + self.l)
         omega_hat = self._get_omega_hat(mean)
         wvn_hor_sq = self.k ** 2 + self.l ** 2
         wvn_sq = wvn_hor_sq + self.m ** 2
@@ -263,6 +265,7 @@ class TransientPropagator(Propagator):
             damping[idx] = np.minimum(np.maximum(sponge[idx], 0), 1)
 
         damping[self._notouch] = 1
+        self._data[11] = (1 - damping) * wvn * self.action
         self._data[8] = self.dens * damping
 
         if config.n_chromatic == 0:
@@ -288,6 +291,7 @@ class TransientPropagator(Propagator):
         factor = np.maximum(0, 1 - config.epsilon * wvn_sq * maxes)
         factor[self._notouch] = 1
 
+        self._data[11] += (1 - factor) * wvn * self.action
         self._data[8] = self.dens * factor
 
     def _check_boundaries(self, mean: MeanState) -> None:

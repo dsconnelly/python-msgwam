@@ -10,6 +10,8 @@ from matplotlib.colors import LinearSegmentedColormap as LSC
 from msgwam import config
 from msgwam.utils import get_vertical_grids
 
+from ..hyperparameters import generation as hp
+
 from .training import get_split, load_tensors
 
 _SAVE_KWARGS = {
@@ -80,31 +82,44 @@ def plot_training_series() -> None:
     axes, caxes = axes[:, :-1], axes[:, -1]
 
     with xr.open_dataset(f'data/ml-accel/training/{config.name}.nc') as ds:
-        z = ds['z_faces'].values / 1000
+        z_c = ds['z_centers'].values / 1000
+        z_f = ds['z_faces'].values / 1000
         days = ds['time'] / 86400
-        
-        mom = ds['M_bulk'].values
-        flux = ds['F_bulk'].values
 
-        cg = np.divide(
-            flux, mom,
-            where=(mom > 0),
-            out=np.zeros_like(mom)
-        )
+        ds = ds.sum('bin')
+        F = ds['F_bulk'].values
+        M = ds['M_bulk'].values
+        S = ds['source'].values
+        D = ds['sink'].values
 
-    amaxes = [0.2, 1, 5]
-    names = ['momentum density', '$c_\\mathrm{g}$', '$F$']
-    units = ['kg / s / m$^2$', 'm / s', 'mPa']
-    
-    zipped = zip([mom, cg, 1000 * flux], amaxes, names, units)
+    F_est = np.zeros_like(F)
+    dz = np.diff(z_f) * 1000
+    dM_dt = (M[1:] - M[:-1] - S[:-1] + D[:-1]) / hp.dt_coarse
+    F_est[:-1, ..., 1:] = np.cumsum(-dM_dt, axis=-1) * dz
+
+    amaxes = [0.2] + [5] * 2
+    datas = [M, 1000 * F_est, 1000 * (F_est - F)]
+    names = ['momentum density', '$F$ (estimated)', 'error']
+    units = ['kg / s / m$^2$', 'mPa', 'mPa']
+
+    zipped = zip(datas, amaxes, names, units)
     for i, (data, amax, name, unit) in enumerate(zipped):
         for j in range(4):
-            color = ['royalblue', 'forestgreen', 'tab:red'][i]
-            cmap = LSC.from_list('custom', ['w', color], 256)
 
+            if i < 1:
+                color = 'forestgreen'
+                cmap = LSC.from_list('custom', ['w', color], 256)
+                amin = 0
+
+            else:
+                colors = ['royalblue', 'w', 'tab:red']
+                cmap = LSC.from_list('custom', colors, 256)
+                amin = -amax
+
+            z = z_f if i > 0 else z_c
             img = axes[i, j].pcolormesh(
                 days, z, data[:, j].T,
-                vmin=0, vmax=amax,
+                vmin=amin, vmax=amax,
                 shading='nearest',
                 cmap=cmap
             )
@@ -117,5 +132,5 @@ def plot_training_series() -> None:
         axes[0, j].set_title(name)
 
     plt.tight_layout()
-    path = f'plots/ml-accel/{config.name}-series.png'
+    path = f'plots/ml-accel/series/{config.name}.png'
     plt.savefig(path, **_SAVE_KWARGS)

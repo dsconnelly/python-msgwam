@@ -25,23 +25,31 @@ def save_training_data() -> None:
         qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
         z_faces, z_centers = get_vertical_grids()
 
-        B = np.zeros((n_samples, 2, 4, config.n_grid))
         wind = np.zeros((n_samples, 2, config.n_grid - 1))
-        S = np.zeros((n_samples, 4))
+        M, D, S = np.zeros((3, n_samples, 4 * hp.n_bins, config.n_grid - 1))
+        F = np.zeros((n_samples, 4 * hp.n_bins, config.n_grid))
 
-        _ = integrate(_make_callback(B, S, wind))
+        _ = integrate(_make_callback(wind, M, D, S, F))
         
+    args = (n_samples, 4, hp.n_bins)
+    M = M.reshape(*args, config.n_grid - 1)
+    D = D.reshape(*args, config.n_grid - 1)
+    S = S.reshape(*args, config.n_grid - 1)
+    F = F.reshape(*args, config.n_grid)
+
     data = {
         'time' : seconds.astype(int),
         'quadrant' : np.array(qnames),
+        'bin' : np.arange(hp.n_bins),
         'z_centers' : z_centers,
         'z_faces' : z_faces
     }
 
-    data['source'] = (('time', 'quadrant'), S)
-    for i, name in enumerate(['M_bulk', 'F_bulk']):
-        data[name] = (('time', 'quadrant', 'z_faces'), B[:, i])
-
+    data['M_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), M)
+    data['source'] = (('time', 'quadrant', 'bin', 'z_centers'), S)
+    data['sink'] = (('time', 'quadrant', 'bin', 'z_centers'), D)
+    data['F_bulk'] = (('time', 'quadrant', 'bin', 'z_faces'), F)
+    
     for i, name in enumerate(['u', 'v']):
         data[name] = (('time', 'z_centers'), wind[:, i])
 
@@ -60,10 +68,12 @@ def _get_overrides() -> dict[str, Any]:
 
     return {
         'n_max' : 5000,
-        'dr_source' : -1200,
-        'n_source' : 128,
+        'dr_source' : 1200,
+        'n_source' : 64,
         'dr_ghost' : 0,
 
+        'max_age' : -1,
+        'min_flux' : 0,
         'prune_by' : 'none',
         'n_increment' : 1000,
 
@@ -72,30 +82,40 @@ def _get_overrides() -> dict[str, Any]:
         'max_dt_multiplier' : 10,
     }
 
-def _get_quadrant(k: np.ndarray, l: np.ndarray) -> np.ndarray:
+def _get_pdx(k: np.ndarray, l: np.ndarray, cp_hat: np.ndarray) -> np.ndarray:
     """
-    Return an integer array indicating the direction of momentum carried by each
-    ray volume: 1 for westerly, 2 for southerly, 3 for easterly, and 4 for
-    northerly. Inactive slots are indicated with a zero.
+    Return an integer array indicating the bin into which each ray should be
+    projected. The rays are sorted by quadrant, and then perhaps more finely by
+    intrinsic phase speed within each quadrant. 
 
     Parameters
     ----------
     k, l
-        Arrays of zonal and meridional wavenumbers.
+        Arrays of zonal and meridional wavenumbers, respectively.
+    cp_hat
+        Absolute value of the intrinsic phase speed of each ray volume.
 
     Returns
     -------
     np.ndarray
-        Integer array indicating the wavenumber quadrant.
-    
+        Index array giving the projection bin for each ray volume. Each quadrant
+        gets `hp.n_bins` values before the next one. Inactive slots get -1.
+
     """
 
-    return (k > 0) + 2 * (l > 0) + 3 * (k < 0) + 4 * (l < 0)
+    out = np.round(hp.n_bins * cp_hat / 100)
+    quad = (k > 0) + 2 * (l > 0) + 3 * (k < 0) + 4 * (l < 0)
+    out = (quad - 1) * hp.n_bins + np.clip(out, 0, hp.n_bins - 1)
+    out[np.isnan(cp_hat)] = -1
+
+    return out.astype(np.int32)
 
 def _make_callback(
-    B: np.ndarray,
+    wind: np.ndarray,
+    M: np.ndarray,
+    D: np.ndarray,
     S: np.ndarray,
-    wind: np.ndarray
+    F: np.ndarray,
 ) -> _Callback:
     """
     Make a callback function to pass to the integrator.
@@ -131,22 +151,27 @@ def _make_callback(
         i = n_seconds // config.dt_output
         i_s = i - int(n_seconds % config.dt_output == 0)
 
-        mom = abs((prop.k + prop.l) * prop.action)
-        pdx = _get_quadrant(prop.k, prop.l) - 1
+        wvn = abs((prop.k + prop.l))
+        mom = wvn * prop.action
+
+        cp_hat = prop._get_omega_hat(mean) / wvn
+        pdx = _get_pdx(prop.k, prop.l, cp_hat)
         pdx[prop.m > 0] = -1
 
         if i_s > -1:
-            new = prop.age == 0
-            source = (mom * prop.dr)[new]
-            np.add.at(S[i_s], pdx[new], source)
+            ndx = pdx.copy()
+            ndx[prop.age > 0] = -1
+            n_skip = config.dt_output / config.dt
+            flux = mom * prop._get_cg_r(mean) / n_skip
+
+            _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i_s])
+            _project(prop.r, prop.dr, mean.z_faces, prop.attrition, pdx, D[i_s])
+            _project(prop.r, prop.dr, prop._z_padded, flux, pdx, F[i_s])
 
         if n_seconds % config.dt_output:
             return
 
-        z = prop._z_padded
-        cg = prop._get_cg_r(mean)
-        stacked = np.vstack((mom, mom * cg))
-        _project(prop.r, prop.dr, z, stacked, pdx, B[i])        
+        _project(prop.r, prop.dr, mean.z_faces, mom, pdx, M[i])
         wind[i] = mean.wind
 
     return callback
@@ -158,7 +183,7 @@ def _project(
     edges: np.ndarray,
     data: np.ndarray,
     pdx: np.ndarray,
-    B: np.ndarray,
+    out: np.ndarray,
 ) -> None:
     """
     JITted function that projects the momentum and group velocity contributions
@@ -182,4 +207,4 @@ def _project(
                 continue
 
             frac = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
-            B[:, p, j] += frac * data[:, i]
+            out[p, j] += frac * data[i]
