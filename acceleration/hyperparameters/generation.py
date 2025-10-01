@@ -1,3 +1,2 @@
-dt_fine: int
-dt_coarse: int
+dt: int
 n_bins: int

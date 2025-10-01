@@ -1,5 +1,33 @@
 import torch
 
+def apply_smoothing(a: torch.Tensor, dim: int=-1) -> torch.Tensor:
+    """
+    Apply a Shapiro filter along the specified dimension.
+
+    Parameters
+    ----------
+    a
+        Tensor of values to smooth.
+    dim
+        Dimension on which to operate.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor smoothed along `dim`.
+
+    """
+
+    out = torch.clone(a)
+    out = out.transpose(0, dim)
+
+    left = 3 * out[0] + out[1]
+    right = out[-2] + 3 * out[-1]
+    out[1:-1] = out[:-2] + 2 * out[1:-1] + out[2:]
+    out[0], out[-1] = left, right
+
+    return out.transpose(0, dim) / 4
+
 def get_shift_and_scale(
     a: torch.Tensor, mode: str
 ) -> tuple[torch.Tensor, torch.Tensor]:

@@ -36,23 +36,19 @@ def train_network(
     torch.manual_seed(1234)
     hp.show_hyperparameters()
 
-    M, cg, wind, targets = load_tensors(eval_type)
+    wind, M, Y = load_tensors(eval_type)
     idx_tr, idx_ev = get_split(M.shape[0], eval_type)
+    Y = Y * hp.training.output_scale
 
-    M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
-    cg_stats = get_shift_and_scale(cg[idx_tr], hp.training.in_transform)
     wind_stats = get_shift_and_scale(wind[idx_tr], 'z')
-
-    M = transform(M, *M_stats)
-    cg = transform(cg, *cg_stats)
+    M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
     wind = transform(wind, *wind_stats)
-
-    args = [M, cg, wind, targets, idx_tr, idx_ev]
-    loader_tr, loader_ev = get_loaders(*args)
+    M = transform(M, *M_stats)
 
     model = BulkNet()
+    loader_tr, loader_ev = get_loaders(wind, M, Y, idx_tr, idx_ev)
     optimizer = Adam(model.parameters(), lr=hp.training.learning_rate)
-    loss_func = BulkLoss(targets[idx_tr])
+    loss_func = BulkLoss(Y[idx_tr])
 
     if state_path is not None:
         state = torch.load(state_path, weights_only=True)
@@ -98,13 +94,12 @@ def train_network(
         p.requires_grad = False
 
     del loader_tr, loader_ev
-    M, cg, wind, _ = load_tensors('va')
-    M, cg, wind = M[idx_tr[:10]], cg[idx_tr[:10]], wind[idx_tr[:10]]
+    wind, M, _ = load_tensors('va')
+    wind, M = wind[idx_tr[:10]], M[idx_tr[:10]]
 
     def trace_func(
-        M: torch.Tensor,
-        cg: torch.Tensor,
-        wind: torch.Tensor
+        wind: torch.Tensor,
+        M: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Capture pipeline, excluding momentum budgeting (which can be done at
@@ -112,14 +107,13 @@ def train_network(
         statistics arrays don't need to be saved separately.
         """
 
-        M = transform(M, *M_stats)
-        cg = transform(cg, *cg_stats)
         wind = transform(wind, *wind_stats)
+        M = transform(M, *M_stats)
 
-        return model(M, cg, wind)
+        return model(wind, M) / hp.training.output_scale
     
     with torch.no_grad():
-        traced = torch.jit.trace(trace_func, (M, cg, wind))
+        traced = torch.jit.trace(trace_func, (wind, M))
 
     tag = 'best' if eval_type == 'te' else hp.task_id
     torch.save(state, f'data/ml-accel/models/state-{tag}.pkl')
@@ -166,17 +160,17 @@ def _run_epoch(
     model = model.eval() if optimizer is None else model.train()
     weight_sum, total = 0, 0
 
-    for *inputs, targets in loader:
+    for *inputs, Y in loader:
         if optimizer is None:
             with torch.no_grad():
-                M_hat, cg_hat = model(*inputs)
+                Y_hat = model(*inputs)
 
         else:
             optimizer.zero_grad()
-            M_hat, cg_hat = model(*inputs)
+            Y_hat = model(*inputs)
 
-        weight = targets.shape[0]
-        loss = loss_func(M_hat, cg_hat, targets)
+        weight = Y.shape[0]
+        loss = loss_func(Y, Y_hat)
         total = total + weight * loss.item()
         weight_sum = weight_sum + weight
 

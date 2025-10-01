@@ -7,7 +7,7 @@ job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
-    --time=4:00:00 \
+    --time=6:00:00 \
     -J $name-save-training-data \
     -o logs/$name/save-training-data.out \
     $dep_arg \

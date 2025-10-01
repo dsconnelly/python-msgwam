@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 from warnings import warn
 
 import numpy as np
@@ -7,9 +7,9 @@ import xarray as xr
 
 from torch.utils.data import DataLoader, TensorDataset
 
-from msgwam.utils import get_vertical_grids
-
 from ... import hyperparameters as hp
+
+from .transforms import apply_smoothing
 
 _SITES_TR = [
     'anchorage',
@@ -58,10 +58,9 @@ def get_best_task_id() -> int:
     return best_id
 
 def get_loaders(
-    M: torch.Tensor,
-    cg: torch.Tensor,
     wind: torch.Tensor,
-    targets: torch.Tensor,
+    M: torch.Tensor,
+    Y: torch.Tensor,
     idx_tr: torch.Tensor,
     idx_ev: torch.Tensor
 ) -> tuple[DataLoader, DataLoader]:
@@ -70,7 +69,7 @@ def get_loaders(
 
     Parameters
     ----------
-    M, cg, wind, targets
+    wind, M, Y
         Tensors of input and output data.
     idx_tr, idx_ev
         Tensors that partition the data into training and evaluation sets.
@@ -84,8 +83,8 @@ def get_loaders(
 
     loaders = []
     for i, idx in enumerate([idx_tr, idx_ev]):
-        batch_size = hp.training.batch_size if i == 0 else 2048
-        dataset = TensorDataset(M[idx], cg[idx], wind[idx], targets[idx])
+        batch_size = [hp.training.batch_size, 2048][i]
+        dataset = TensorDataset(wind[idx], M[idx], Y[idx])
         loaders.append(DataLoader(dataset, batch_size, shuffle=(i == 0)))
 
     return tuple(loaders)
@@ -118,15 +117,19 @@ def get_split(
         c = int(0.8 * n_samples)
         idx = torch.randperm(n_samples)
 
-    else:
+    elif eval_type == 'te':
         total = len(_SITES_TR + _SITES_TE)
         c = (n_samples * len(_SITES_TR)) // total
         idx = torch.arange(n_samples)
 
+    else:
+        raise ValueError(f'Invalid eval_type: {eval_type}')
+
     return idx[:c], idx[c:]
 
 def load_tensors(
-    eval_type: Literal['va', 'te']
+    eval_type: Literal['va', 'te'],
+    n_bins: Optional[int]=None
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Load input and target data from netCDF files saved to disk.
@@ -136,6 +139,9 @@ def load_tensors(
     eval_type
         String specifying whether evaluation data should be from the validation
         set or the test set, used here to determine which files to read.
+    n_bins
+        How many phase speed bins to preserve. Defaults to the value specified
+        by the loaded hyperparameter grid, but can be overridden.
 
     Returns
     -------
@@ -148,69 +154,47 @@ def load_tensors(
         time step are normalized by the appropriate budget.
 
     """
-    
-    z, _ = get_vertical_grids()
-    dz = np.diff(z)[0] * np.ones_like(z)
-    dz = torch.as_tensor(dz)
 
-    args = [[], [], [], []]
+    if n_bins is None:
+        n_bins = hp.architectures.n_bins
+
+    args = [[], [], []]
     for site in _SITES_TR + _SITES_TE * (eval_type == 'te'):
         with xr.open_dataset(f'data/ml-accel/training/mima-{site}.nc') as ds:
-            u = torch.as_tensor(ds['u'].values)
-            v = torch.as_tensor(ds['v'].values)
-            wind = _get_wind(u, v)
+            sdx = slice(None, None, hp.training.dt // hp.generation.dt)
+            groups = np.ceil(ds['time'] / hp.training.dt).astype(int)
+            
+            u = torch.as_tensor(ds['u'].isel(time=sdx).values)
+            v = torch.as_tensor(ds['v'].isel(time=sdx).values)
 
-            M = torch.as_tensor(ds['M_bulk'].values)
-            F = torch.as_tensor(ds['F_bulk'].values)
-            source = torch.as_tensor(ds['source'].values)
+            if len(ds['bin']) % n_bins:
+                raise ValueError('Nonconforming bin number:', n_bins)
 
-        for _ in range(hp.training.n_smoothing):
-            M = _apply_smoothing(M)
-            F = _apply_smoothing(F)
+            div_by = len(ds['bin']) // n_bins
+            M = ds['M_bulk'].groupby(ds['bin'] // div_by).sum('bin')
+            S = ds['source'].groupby(ds['bin'] // div_by).sum('bin')
 
-        cg = torch.zeros_like(M)
-        cg[M > 0] = F[M > 0] / M[M > 0]
-        M = M * dz
+            M = M.isel(time=sdx)
+            S = S.groupby(groups).sum('time')
+            D = ds['sink'].groupby(groups).sum('time')
+
+            M = torch.as_tensor(M.values).flatten(2, 3)
+            S = torch.as_tensor(S.values).flatten(2, 3)
+            D = torch.as_tensor(D.values)
+
+            for _ in range(hp.training.n_smoothing):
+                M = apply_smoothing(M, dim=-1)
+                S = apply_smoothing(S, dim=-1)
+                D = apply_smoothing(D, dim=-1)
 
         wind = _get_wind(u, v)
-        M_in, M_out = _get_Ms(M, source)
-        cg_in = cg[:-1].flatten(0, 1)
-        cg_out = cg[1:].flatten(0, 1)
+        M, Y = _make_pairs(M, S, D)
 
-        args[0].append(M_in)
-        args[1].append(cg_in)
-        args[2].append(wind)
-
-        targets = torch.hstack((M_out, cg_out))
-        args[3].append(targets)
+        args[0].append(wind)
+        args[1].append(M)
+        args[2].append(Y)
 
     return tuple(torch.vstack(arg) for arg in args)
-
-def _apply_smoothing(a: torch.Tensor) -> torch.Tensor:
-    """
-    Apply a Shapiro (diffusion) filter along the last dimension of a tensor.
-
-    Parameters
-    ----------
-    a
-        Tensor to smooth.
-
-    Returns
-    -------
-    torch.Tensor
-        Smoothed data.
-
-    """
-
-    out = a.clone()
-    out = out.transpose(0, -1)
-    left = 3 * out[0] + out[1]
-    right = out[-2] + 3 * out[-1]
- 
-    out[1:-1] = out[:-2] + 2 * out[1:-1] + out[2:]
-    out[0], out[-1] = left, right
-
-    return out.transpose(0, -1) / 4
 
 def _get_wind(u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     """
@@ -239,35 +223,35 @@ def _get_wind(u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
 
     return wind[:-1].flatten(0, 1)
 
-def _get_Ms(
+def _make_pairs(
     M: torch.Tensor,
-    source: torch.Tensor
+    S: torch.Tensor,
+    D: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    Given the full time series of bulk momentum profiles, partition it into
-    input and output profiles, and scale both by the appropriate budget terms
-    (including new momentum from the source).
+    Given the full time series of bulk momentum profiles, sources, and sinks,
+    partition them into input and output entries, and scale both arrays by the
+    appropriate budget terms.
 
     Parameters
     ----------
     M
-        Bulk momentum profiles for each time step and quadrant.
-    source
-        Added momentum for each time step and quadrant.
+        Bulk momentum profiles for each time step, bin, and quadrant.
+    S
+        Added momentum for each time step, bin, and quadrant.
+    D
+        Dissipiated momentum for each time step and quadrant.
 
     Returns
     -------
     torch.Tensor, torch.Tensor
-        Input and output bulk momentum profiles normalized by the budget. The
-        input profile has the (normalized) source momentum as its last term.
+        Input and output bulk momentum partitions normalized by the budget.
 
     """
 
     M_in = M[:-1].flatten(0, 1)
-    M_out = M[1:].flatten(0, 1)
+    dM = M[1:].flatten(0, 1) - M_in - S[1:].flatten(0, 1)
+    Y = torch.hstack((dM, D[1:].flatten(0, 1)))
+    budget = M_in.sum(dim=1)[:, None]
 
-    source = source[:-1].flatten(0, 1)
-    M_in = torch.hstack((M_in, source[:, None]))
-    budget = M_in.sum(axis=1)[:, None]
-
-    return M_in / budget, M_out / budget
+    return M_in / budget, Y / budget

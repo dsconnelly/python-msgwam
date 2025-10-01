@@ -20,9 +20,8 @@ class BulkNet(nn.Module):
         self.to(torch.double)
 
     def forward(self,
+        wind: torch.Tensor,
         M: torch.Tensor,
-        cg: torch.Tensor,
-        wind: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Apply the forward model.
@@ -43,21 +42,16 @@ class BulkNet(nn.Module):
 
         """
 
-        X = torch.hstack((M, cg, wind))
-        Y = apply_blocks(self._blocks, X)
+        X = torch.hstack((wind, M))
+        out = apply_blocks(self._blocks, X)
+        out = out - out.mean(dim=1)[:, None]
+        
+        # totals = out.sum(dim=1)[:, None]
+        # totals[totals == 0] = 1
+        # out = out / totals
 
-        M = Y[:, :config.n_grid + 1]
-        cg = Y[:, config.n_grid + 1:]
-
-        totals = M.sum(dim=1)[:, None]
-        totals[totals == 0] = 1
-        M = M[:, :-1] / totals
-
-        if not self.training:
-            cg[M == 0] = 0
-
-        return M, cg
-
+        return out
+        
     def _init_blocks(self) -> nn.ModuleList:
         """
         Initialize the main neural network layers.
@@ -81,20 +75,18 @@ class BulkNet(nn.Module):
     @property
     def _n_inputs(self) -> int:
         """
-        At present, the `BulkNet` simply takes in the bulk momentum and group
-        velocity profiles from the previous time step, the appropriate component
-        of the mean wind, and the added source momentum.
+        A `Bulknet` accepts a mean wind profile and one bulk momentum profile
+        for each phase speed bin. Each profile has `config.n_grid - 1` values.
         """
 
-        return 3 * config.n_grid
+        return (config.n_grid - 1) * (1 + hp.n_bins)
 
     @property
     def _n_outputs(self) -> int:
         """
-        For each wavenumber quadrant, a `BulkNet` predicts two profiles, one for
-        bulk momentum and the other for bulk group velocity. Each as a value for
-        each vertical grid face, and the former has one extra output
-        corresponding to unused momentum.
+        For each wavenumber quadrant, a `BulkNet` predicts one momentum profile
+        for each phase speed bin, as well as a prediction of the dissipative
+        momentum loss at each level.
         """
 
-        return 2 * config.n_grid + 1
+        return (config.n_grid - 1) * (1 + hp.n_bins)

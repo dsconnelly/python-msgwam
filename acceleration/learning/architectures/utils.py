@@ -55,7 +55,8 @@ def get_block(sizes: list[int], final: bool) -> nn.Sequential:
             args.insert(k, nn.BatchNorm1d(b))
 
     if final:
-        while not isinstance(args[-1], nn.ReLU):
+        # while not isinstance(args[-1], nn.ReLU):
+        while not isinstance(args[-1], nn.Linear):
             args = args[:-1]
 
     return nn.Sequential(*args)

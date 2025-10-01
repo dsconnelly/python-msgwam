@@ -10,7 +10,7 @@ from matplotlib.colors import LinearSegmentedColormap as LSC
 from msgwam import config
 from msgwam.utils import get_vertical_grids
 
-from ..hyperparameters import generation as hp
+from .. import hyperparameters as hp
 
 from .training import get_split, load_tensors
 
@@ -31,41 +31,42 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     
     """
 
-    n_rows, n_cols = 3, 4
+    n_rows, n_cols = 2, 4
     fig, axes = plt.subplots(n_rows, n_cols)
     fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
+    z = get_vertical_grids()[1] / 1000
 
-    z = get_vertical_grids()[0] / 1000
-    *inputs, targets = load_tensors('va')
-    
-    M = targets[:, :config.n_grid]
-    cg = targets[:, config.n_grid:]
-    datas = [M, cg, 1000 * M * cg]
+    *inputs, Y = load_tensors('va', 1)
+    dM = Y[:, :-(config.n_grid - 1)]
+    D = Y[:, -(config.n_grid - 1):]
 
-    _, idx = get_split(M.shape[0], 'TR')
-    rand = np.random.rand(len(idx))
-    ks = idx[np.argsort(rand)[:4]]
+    datas = [dM, D]
+    idx, _ = get_split(dM.shape[0], 'va')
+    ks = idx[np.argsort(np.random.rand(len(idx)))[:n_cols]]
 
+    data_hats = [None, None]
     if model_path is not None:
-        model = torch.jit.load(model_path)
-        M_hat, cg_hat = model(*inputs)
-    
-        data_hats = [M_hat, cg_hat, 1000 * M_hat * cg_hat]
+        Y_hat = torch.jit.load(model_path)(*inputs)
+        dM_hat = Y_hat[:, :-(config.n_grid - 1)]
+        D_hat = Y_hat[:, -(config.n_grid - 1):]
+        data_hats = [dM_hat, D_hat]
 
     for j, k in enumerate(ks):
-        for i, data in enumerate(datas):
-            color = ['royalblue', 'forestgreen', 'tab:red'][i]
+        for i, (data, data_hat) in enumerate(zip(datas, data_hats)):
+            color = ['royalblue', 'tab:red'][i]
             axes[i, j].plot(data[k], z, color=color)
 
-            if model_path is not None:
-                axes[i, j].plot(data_hats[i][k], z, color=color, ls='dashed')
+            if data_hat is not None:
+                axes[i, j].plot(data_hat[k], z, color=color, ls='dashed')
 
-            xmax = 1.1 * data[k].max()
-            axes[i, j].set_xlim(-0.1 * xmax, xmax)
+            xmax = 2e-4
+            axes[i, j].set_xlim(-xmax, xmax)
             axes[i, j].set_ylim(5, 60)
 
             axes[i, j].grid(color='lightgray')
             axes[i, j].tick_params('both', direction='in')
+
+            axes[i, j].set_title(f'{100 * data[k].sum():.6f}%')
 
     plt.tight_layout()
     path = f'plots/ml-accel/training-samples.png'
@@ -94,7 +95,7 @@ def plot_training_series() -> None:
 
     F_est = np.zeros_like(F)
     dz = np.diff(z_f) * 1000
-    dM_dt = (M[1:] - M[:-1] - S[:-1] + D[:-1]) / hp.dt_coarse
+    dM_dt = (M[1:] - S[1:] + D[1:] - M[:-1]) / hp.generation.dt
     F_est[:-1, ..., 1:] = np.cumsum(-dM_dt, axis=-1) * dz
 
     amaxes = [0.2] + [5] * 2
@@ -105,7 +106,6 @@ def plot_training_series() -> None:
     zipped = zip(datas, amaxes, names, units)
     for i, (data, amax, name, unit) in enumerate(zipped):
         for j in range(4):
-
             if i < 1:
                 color = 'forestgreen'
                 cmap = LSC.from_list('custom', ['w', color], 256)

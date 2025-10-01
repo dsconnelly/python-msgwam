@@ -86,6 +86,7 @@ prune_by: Literal[
     'random'
 ]
 shapiro_filter: bool
+strict_source: bool
 
 ################################################################################
 # 'network' propagator

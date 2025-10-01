@@ -360,7 +360,8 @@ class TransientPropagator(Propagator):
             if crossed.sum() == 0:
                 return
 
-            r_lo = np.minimum(r_lo, config.r_source)
+            if not config.strict_source:
+                r_lo = np.minimum(r_lo, config.r_source)
 
         datas, cdx = self._source.launch(mean, n_step, cdx)
         to_add: list[tuple[int, np.ndarray, float]] = []

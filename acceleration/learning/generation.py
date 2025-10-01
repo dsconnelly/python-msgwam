@@ -26,16 +26,13 @@ def save_training_data() -> None:
         z_faces, z_centers = get_vertical_grids()
 
         wind = np.zeros((n_samples, 2, config.n_grid - 1))
-        M, D, S = np.zeros((3, n_samples, 4 * hp.n_bins, config.n_grid - 1))
-        F = np.zeros((n_samples, 4 * hp.n_bins, config.n_grid))
+        M, S = np.zeros((2, n_samples, 4 * hp.n_bins, config.n_grid - 1))
+        D = np.zeros((n_samples, 4, config.n_grid - 1))
+        F = np.zeros((n_samples, 4, config.n_grid))
 
         _ = integrate(_make_callback(wind, M, D, S, F))
-        
-    args = (n_samples, 4, hp.n_bins)
-    M = M.reshape(*args, config.n_grid - 1)
-    D = D.reshape(*args, config.n_grid - 1)
-    S = S.reshape(*args, config.n_grid - 1)
-    F = F.reshape(*args, config.n_grid)
+        args = (n_samples, 4, hp.n_bins, config.n_grid - 1)
+        M, S = M.reshape(*args), S.reshape(*args)
 
     data = {
         'time' : seconds.astype(int),
@@ -47,8 +44,8 @@ def save_training_data() -> None:
 
     data['M_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), M)
     data['source'] = (('time', 'quadrant', 'bin', 'z_centers'), S)
-    data['sink'] = (('time', 'quadrant', 'bin', 'z_centers'), D)
-    data['F_bulk'] = (('time', 'quadrant', 'bin', 'z_faces'), F)
+    data['sink'] = (('time', 'quadrant', 'z_centers'), D)
+    data['F_bulk'] = (('time', 'quadrant', 'z_faces'), F)
     
     for i, name in enumerate(['u', 'v']):
         data[name] = (('time', 'z_centers'), wind[:, i])
@@ -68,17 +65,22 @@ def _get_overrides() -> dict[str, Any]:
 
     return {
         'n_max' : 5000,
-        'dr_source' : 1200,
+        # 'dr_source' : -1800,
+        # 'n_source' : 96,
+        # 'dr_ghost' : 0,
+
+        'dr_source' : 2000,
         'n_source' : 64,
-        'dr_ghost' : 0,
+        'n_day' : 30,
 
         'max_age' : -1,
         'min_flux' : 0,
         'prune_by' : 'none',
         'n_increment' : 1000,
+        'strict_source' : True,
 
-        'dt' : hp.dt_fine,
-        'dt_output' : hp.dt_coarse,
+        'dt' : hp.dt,
+        'dt_output' : hp.dt,
         'max_dt_multiplier' : 10,
     }
 
@@ -147,32 +149,25 @@ def _make_callback(
     ) -> None:
         """Callback function to return as output."""
 
-        n_seconds = n_step * config.dt
-        i = n_seconds // config.dt_output
-        i_s = i - int(n_seconds % config.dt_output == 0)
-
+        cg = prop._get_cg_r(mean)
         wvn = abs((prop.k + prop.l))
         mom = wvn * prop.action
 
         cp_hat = prop._get_omega_hat(mean) / wvn
-        pdx = _get_pdx(prop.k, prop.l, cp_hat)
-        pdx[prop.m > 0] = -1
+        bdx = _get_pdx(prop.k, prop.l, cp_hat)
+        pdx = bdx // hp.n_bins
+        ndx = bdx.copy()
 
-        if i_s > -1:
-            ndx = pdx.copy()
-            ndx[prop.age > 0] = -1
-            n_skip = config.dt_output / config.dt
-            flux = mom * prop._get_cg_r(mean) / n_skip
+        drop = prop.m > 0
+        bdx[drop] = pdx[drop] = -1
+        ndx[drop | (prop.age > 0)] = -1
 
-            _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i_s])
-            _project(prop.r, prop.dr, mean.z_faces, prop.attrition, pdx, D[i_s])
-            _project(prop.r, prop.dr, prop._z_padded, flux, pdx, F[i_s])
+        _project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[n_step])
+        _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[n_step])
+        _project(prop.r, prop.dr, mean.z_faces, prop.attrition, pdx, D[n_step])
+        _project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[n_step])
 
-        if n_seconds % config.dt_output:
-            return
-
-        _project(prop.r, prop.dr, mean.z_faces, mom, pdx, M[i])
-        wind[i] = mean.wind
+        wind[n_step] = mean.wind
 
     return callback
 
