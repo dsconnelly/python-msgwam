@@ -45,10 +45,6 @@ class BulkNet(nn.Module):
         X = torch.hstack((wind, M))
         out = apply_blocks(self._blocks, X)
         out = out - out.mean(dim=1)[:, None]
-        
-        # totals = out.sum(dim=1)[:, None]
-        # totals[totals == 0] = 1
-        # out = out / totals
 
         return out
         
@@ -75,11 +71,12 @@ class BulkNet(nn.Module):
     @property
     def _n_inputs(self) -> int:
         """
-        A `Bulknet` accepts a mean wind profile and one bulk momentum profile
-        for each phase speed bin. Each profile has `config.n_grid - 1` values.
+        A `Bulknet` accepts a mean wind profile, a buoyancy frequency profile,
+        and one bulk momentum profile for each phase speed bin. Each profile has
+        `config.n_grid - 1` values.
         """
 
-        return (config.n_grid - 1) * (1 + hp.n_bins)
+        return (config.n_grid - 1) * (2 + hp.n_bins)
 
     @property
     def _n_outputs(self) -> int:

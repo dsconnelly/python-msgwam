@@ -15,6 +15,7 @@ n_source_max = 40
 
 [generation]
 dt = 60
+dt_output = 1800
 n_bins = 10
 
 [architectures]
@@ -26,10 +27,9 @@ n_hidden = [256, 1024]
 
 [training]
 batch_size = 32
-dt = 240
 in_transform = ['minmax', 'robust', 'z']
 learning_rate = 1e-3
 max_epochs = 10
 max_hours = 5
-n_smoothing = 2
+n_smoothing = 10
 output_scale = 1e4

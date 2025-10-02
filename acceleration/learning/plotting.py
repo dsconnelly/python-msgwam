@@ -46,10 +46,14 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
 
     data_hats = [None, None]
     if model_path is not None:
+        *inputs, Y = load_tensors('va')
         Y_hat = torch.jit.load(model_path)(*inputs)
+
         dM_hat = Y_hat[:, :-(config.n_grid - 1)]
         D_hat = Y_hat[:, -(config.n_grid - 1):]
-        data_hats = [dM_hat, D_hat]
+
+        dM_hat = dM_hat.reshape(-1, hp.architectures.n_bins, config.n_grid - 1)
+        data_hats = [dM_hat.sum(axis=1), D_hat]
 
     for j, k in enumerate(ks):
         for i, (data, data_hat) in enumerate(zip(datas, data_hats)):
@@ -59,7 +63,7 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
             if data_hat is not None:
                 axes[i, j].plot(data_hat[k], z, color=color, ls='dashed')
 
-            xmax = 2e-4
+            xmax = 5e-3
             axes[i, j].set_xlim(-xmax, xmax)
             axes[i, j].set_ylim(5, 60)
 
@@ -95,7 +99,7 @@ def plot_training_series() -> None:
 
     F_est = np.zeros_like(F)
     dz = np.diff(z_f) * 1000
-    dM_dt = (M[1:] - S[1:] + D[1:] - M[:-1]) / hp.generation.dt
+    dM_dt = (M[1:] - S[1:] + D[1:] - M[:-1]) / hp.generation.dt_output
     F_est[:-1, ..., 1:] = np.cumsum(-dM_dt, axis=-1) * dz
 
     amaxes = [0.2] + [5] * 2

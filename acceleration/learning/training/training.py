@@ -36,17 +36,17 @@ def train_network(
     torch.manual_seed(1234)
     hp.show_hyperparameters()
 
-    wind, M, Y = load_tensors(eval_type)
+    windN, M, Y = load_tensors(eval_type)
     idx_tr, idx_ev = get_split(M.shape[0], eval_type)
     Y = Y * hp.training.output_scale
 
-    wind_stats = get_shift_and_scale(wind[idx_tr], 'z')
+    windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
     M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
-    wind = transform(wind, *wind_stats)
+    windN = transform(windN, *windN_stats)
     M = transform(M, *M_stats)
 
     model = BulkNet()
-    loader_tr, loader_ev = get_loaders(wind, M, Y, idx_tr, idx_ev)
+    loader_tr, loader_ev = get_loaders(windN, M, Y, idx_tr, idx_ev)
     optimizer = Adam(model.parameters(), lr=hp.training.learning_rate)
     loss_func = BulkLoss(Y[idx_tr])
 
@@ -94,11 +94,11 @@ def train_network(
         p.requires_grad = False
 
     del loader_tr, loader_ev
-    wind, M, _ = load_tensors('va')
-    wind, M = wind[idx_tr[:10]], M[idx_tr[:10]]
+    windN, M, _ = load_tensors('va')
+    windN, M = windN[idx_tr[:10]], M[idx_tr[:10]]
 
     def trace_func(
-        wind: torch.Tensor,
+        windN: torch.Tensor,
         M: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -107,13 +107,13 @@ def train_network(
         statistics arrays don't need to be saved separately.
         """
 
-        wind = transform(wind, *wind_stats)
+        windN = transform(windN, *windN_stats)
         M = transform(M, *M_stats)
 
-        return model(wind, M) / hp.training.output_scale
+        return model(windN, M) / hp.training.output_scale
     
     with torch.no_grad():
-        traced = torch.jit.trace(trace_func, (wind, M))
+        traced = torch.jit.trace(trace_func, (windN, M))
 
     tag = 'best' if eval_type == 'te' else hp.task_id
     torch.save(state, f'data/ml-accel/models/state-{tag}.pkl')

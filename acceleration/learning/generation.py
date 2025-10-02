@@ -25,14 +25,14 @@ def save_training_data() -> None:
         qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
         z_faces, z_centers = get_vertical_grids()
 
-        wind = np.zeros((n_samples, 2, config.n_grid - 1))
+        windN = np.zeros((n_samples, 3, config.n_grid - 1))
         M, S = np.zeros((2, n_samples, 4 * hp.n_bins, config.n_grid - 1))
         D = np.zeros((n_samples, 4, config.n_grid - 1))
         F = np.zeros((n_samples, 4, config.n_grid))
 
-        _ = integrate(_make_callback(wind, M, D, S, F))
+        _ = integrate(_make_callback(windN, M, D, S, F))
         args = (n_samples, 4, hp.n_bins, config.n_grid - 1)
-        M, S = M.reshape(*args), S.reshape(*args)
+        M, S = M.reshape(*args), S.reshape(*args)   
 
     data = {
         'time' : seconds.astype(int),
@@ -42,15 +42,36 @@ def save_training_data() -> None:
         'z_faces' : z_faces
     }
 
+    edges = _get_bin_edges()
+    data['bin_center'] = (('bin'), (edges[:-1] + edges[1:]) / 2)
+    data['bin_width'] = (('bin'), edges[1:] - edges[:-1])
+
     data['M_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), M)
     data['source'] = (('time', 'quadrant', 'bin', 'z_centers'), S)
     data['sink'] = (('time', 'quadrant', 'z_centers'), D)
     data['F_bulk'] = (('time', 'quadrant', 'z_faces'), F)
     
-    for i, name in enumerate(['u', 'v']):
-        data[name] = (('time', 'z_centers'), wind[:, i])
+    for i, name in enumerate(['u', 'v', 'N']):
+        data[name] = (('time', 'z_centers'), windN[:, i])
 
     xr.Dataset(data).to_netcdf(f'data/ml-accel/training/{config.name}.nc')
+
+def _get_bin_edges() -> np.ndarray:
+    """
+    Get the bin edges to use when projecting the ray volumes.
+
+    Returns
+    -------
+    np.ndarray
+        Array of `hp.n_bins + 1` bin edges. Note that the bins may be unequally
+        spaced in phase speed space.
+
+    """
+
+    edges = np.linspace(0, 54, hp.n_bins)
+    edges = np.concatenate((edges, [100]))
+
+    return edges
 
 def _get_overrides() -> dict[str, Any]:
     """
@@ -65,13 +86,9 @@ def _get_overrides() -> dict[str, Any]:
 
     return {
         'n_max' : 5000,
-        # 'dr_source' : -1800,
-        # 'n_source' : 96,
-        # 'dr_ghost' : 0,
-
-        'dr_source' : 2000,
-        'n_source' : 64,
-        'n_day' : 30,
+        'dr_source' : -1800,
+        'n_source' : 96,
+        'dr_ghost' : 0,
 
         'max_age' : -1,
         'min_flux' : 0,
@@ -80,7 +97,7 @@ def _get_overrides() -> dict[str, Any]:
         'strict_source' : True,
 
         'dt' : hp.dt,
-        'dt_output' : hp.dt,
+        'dt_output' : hp.dt_output,
         'max_dt_multiplier' : 10,
     }
 
@@ -105,15 +122,18 @@ def _get_pdx(k: np.ndarray, l: np.ndarray, cp_hat: np.ndarray) -> np.ndarray:
 
     """
 
-    out = np.round(hp.n_bins * cp_hat / 100)
+    edges = _get_bin_edges()
+    cp_hat = np.clip(cp_hat, edges[0], edges[-1])
+    out = np.argmax(cp_hat[:, None] <= edges[1:], axis=1)
+
     quad = (k > 0) + 2 * (l > 0) + 3 * (k < 0) + 4 * (l < 0)
-    out = (quad - 1) * hp.n_bins + np.clip(out, 0, hp.n_bins - 1)
+    out = (quad - 1) * hp.n_bins + out
     out[np.isnan(cp_hat)] = -1
 
     return out.astype(np.int32)
 
 def _make_callback(
-    wind: np.ndarray,
+    windN: np.ndarray,
     M: np.ndarray,
     D: np.ndarray,
     S: np.ndarray,
@@ -149,7 +169,10 @@ def _make_callback(
     ) -> None:
         """Callback function to return as output."""
 
-        cg = prop._get_cg_r(mean)
+        n_seconds = n_step * config.dt
+        i = n_seconds // hp.dt_output
+        i = i + bool(n_seconds % hp.dt_output)
+
         wvn = abs((prop.k + prop.l))
         mom = wvn * prop.action
 
@@ -160,14 +183,21 @@ def _make_callback(
 
         drop = prop.m > 0
         bdx[drop] = pdx[drop] = -1
-        ndx[drop | (prop.age > 0)] = -1
+        ndx[drop | (prop.age >= hp.dt_output)] = -1
 
-        _project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[n_step])
-        _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[n_step])
-        _project(prop.r, prop.dr, mean.z_faces, prop.attrition, pdx, D[n_step])
-        _project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[n_step])
+        cg = prop._get_cg_r(mean) / (hp.dt_output // hp.dt)
+        _project(prop.r, prop.dr, mean.z_faces, prop.attrition, pdx, D[i])
+        _project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[i])
 
-        wind[n_step] = mean.wind
+        if n_seconds % hp.dt_output:
+            return
+
+        windN[i, :2] = mean.wind
+        windN[i, 2] = mean.N
+
+        _project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[i])
+        _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i])
+        
 
     return callback
 

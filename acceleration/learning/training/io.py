@@ -161,11 +161,9 @@ def load_tensors(
     args = [[], [], []]
     for site in _SITES_TR + _SITES_TE * (eval_type == 'te'):
         with xr.open_dataset(f'data/ml-accel/training/mima-{site}.nc') as ds:
-            sdx = slice(None, None, hp.training.dt // hp.generation.dt)
-            groups = np.ceil(ds['time'] / hp.training.dt).astype(int)
-            
-            u = torch.as_tensor(ds['u'].isel(time=sdx).values)
-            v = torch.as_tensor(ds['v'].isel(time=sdx).values)
+            u = torch.as_tensor(ds['u'].values)
+            v = torch.as_tensor(ds['v'].values)
+            N = torch.as_tensor(ds['N'].values)
 
             if len(ds['bin']) % n_bins:
                 raise ValueError('Nonconforming bin number:', n_bins)
@@ -174,29 +172,29 @@ def load_tensors(
             M = ds['M_bulk'].groupby(ds['bin'] // div_by).sum('bin')
             S = ds['source'].groupby(ds['bin'] // div_by).sum('bin')
 
-            M = M.isel(time=sdx)
-            S = S.groupby(groups).sum('time')
-            D = ds['sink'].groupby(groups).sum('time')
-
             M = torch.as_tensor(M.values).flatten(2, 3)
             S = torch.as_tensor(S.values).flatten(2, 3)
-            D = torch.as_tensor(D.values)
+            D = torch.as_tensor(ds['sink'].values)
 
             for _ in range(hp.training.n_smoothing):
                 M = apply_smoothing(M, dim=-1)
                 S = apply_smoothing(S, dim=-1)
                 D = apply_smoothing(D, dim=-1)
 
-        wind = _get_wind(u, v)
+        windN = _make_windN(u, v, N)
         M, Y = _make_pairs(M, S, D)
 
-        args[0].append(wind)
+        args[0].append(windN)
         args[1].append(M)
         args[2].append(Y)
 
     return tuple(torch.vstack(arg) for arg in args)
 
-def _get_wind(u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+def _make_windN(
+    u: torch.Tensor,
+    v: torch.Tensor,
+    N: torch.Tensor
+) -> torch.Tensor:
     """
     Get the appropriate component of the mean wind at each sample, and negate
     the wind profile for samples with negative wavenumber
@@ -205,23 +203,28 @@ def _get_wind(u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     ----------
     u, v
         Zonal and meridional components of the mean wind, respectively.
+    N
+        Buoyancy frequency at each time step
 
     Returns
     -------
     torch.Tensor
-        Wind profile to use in predicting each sample.
+        Wind profile to use in predicting each sample concatenated with N.
 
     """
 
-    u, v = u[:, None], v[:, None]
     quad = torch.arange(4)[None, :, None]
-    u, v, quad = torch.broadcast_tensors(u, v, quad)
+    u, v, N = u[:, None], v[:, None], N[:, None]
+    u, v, N, quad = torch.broadcast_tensors(u, v, N, quad)
 
     is_zonal = (torch.remainder(quad, 2) == 0).int()
     wind = is_zonal * u + (1 - is_zonal) * v
     wind[quad > 1] = -wind[quad > 1]
 
-    return wind[:-1].flatten(0, 1)
+    wind = wind[:-1].flatten(0, 1)
+    N = N[:-1].flatten(0, 1)
+
+    return torch.hstack((wind, N))
 
 def _make_pairs(
     M: torch.Tensor,
