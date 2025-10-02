@@ -177,4 +177,4 @@ def _run_epoch(
             loss.backward()
             optimizer.step()
 
-    return total / weight_sum
+    return (total / weight_sum) ** 0.5

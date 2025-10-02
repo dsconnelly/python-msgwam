@@ -17,13 +17,7 @@ class BulkLoss(nn.Module):
 
         super().__init__()
 
-        Y = abs(Y)
-        totals = Y.sum(dim=0)
-        counts = (Y > 0).sum(dim=0)
-
-        valid = counts > 0
-        self._scales = torch.zeros_like(totals)
-        self._scales[valid] = totals[valid] / counts[valid]
+        self._scales = torch.sqrt((Y ** 2).mean(dim=0))
         self._scales = _topdown_cummax(self._scales)
 
     def forward(self, Y: torch.Tensor, Y_hat: torch.Tensor) -> torch.Tensor:

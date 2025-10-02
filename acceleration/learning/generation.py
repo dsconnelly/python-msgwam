@@ -16,6 +16,23 @@ if TYPE_CHECKING:
     from msgwam.means import MeanState
     from msgwam.propagators import TransientPropagator
 
+def get_bin_edges() -> np.ndarray:
+    """
+    Get the bin edges to use when projecting the ray volumes.
+
+    Returns
+    -------
+    np.ndarray
+        Array of `hp.n_bins + 1` bin edges. Note that the bins may be unequally
+        spaced in phase speed space.
+
+    """
+
+    edges = np.linspace(0, 54, hp.n_bins)
+    edges = np.concatenate((edges, [100]))
+
+    return edges
+
 def save_training_data() -> None:
     """Integrate and save the relevant quantities for training."""
 
@@ -42,7 +59,7 @@ def save_training_data() -> None:
         'z_faces' : z_faces
     }
 
-    edges = _get_bin_edges()
+    edges = get_bin_edges()
     data['bin_center'] = (('bin'), (edges[:-1] + edges[1:]) / 2)
     data['bin_width'] = (('bin'), edges[1:] - edges[:-1])
 
@@ -55,23 +72,6 @@ def save_training_data() -> None:
         data[name] = (('time', 'z_centers'), windN[:, i])
 
     xr.Dataset(data).to_netcdf(f'data/ml-accel/training/{config.name}.nc')
-
-def _get_bin_edges() -> np.ndarray:
-    """
-    Get the bin edges to use when projecting the ray volumes.
-
-    Returns
-    -------
-    np.ndarray
-        Array of `hp.n_bins + 1` bin edges. Note that the bins may be unequally
-        spaced in phase speed space.
-
-    """
-
-    edges = np.linspace(0, 54, hp.n_bins)
-    edges = np.concatenate((edges, [100]))
-
-    return edges
 
 def _get_overrides() -> dict[str, Any]:
     """
@@ -122,7 +122,7 @@ def _get_pdx(k: np.ndarray, l: np.ndarray, cp_hat: np.ndarray) -> np.ndarray:
 
     """
 
-    edges = _get_bin_edges()
+    edges = get_bin_edges()
     cp_hat = np.clip(cp_hat, edges[0], edges[-1])
     out = np.argmax(cp_hat[:, None] <= edges[1:], axis=1)
 

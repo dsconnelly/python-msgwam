@@ -12,12 +12,65 @@ from msgwam.utils import get_vertical_grids
 
 from .. import hyperparameters as hp
 
+from .generation import get_bin_edges
 from .training import get_split, load_tensors
 
 _SAVE_KWARGS = {
     'dpi' : 600,
     'bbox_inches' : 'tight'
 }
+
+def plot_training_errors(model_path: str) -> None:
+    """
+    
+    """
+    
+    n_bins = hp.architectures.n_bins
+    fig, axes = plt.subplots(1, n_bins + 1)
+    fig.set_size_inches(3 * (n_bins + 1), 4.5)
+    z = get_vertical_grids()[1] / 1000
+
+    *inputs, Y = load_tensors('va')
+    Y_hat = torch.jit.load(model_path)(*inputs)
+    idx_tr, idx_ev = get_split(Y.shape[0], 'va')
+    
+    Y = 100 * Y.reshape(-1, n_bins + 1, config.n_grid - 1)
+    Y_hat = 100 * Y_hat.reshape(-1, n_bins + 1, config.n_grid - 1)
+    rms = np.sqrt((Y ** 2).mean(dim=0))
+
+    for i, idx in enumerate([idx_tr, idx_ev]):
+        rmse = np.sqrt(((Y_hat - Y) ** 2)[idx].mean(dim=0))
+        label = ['training', 'evaluation'][i]
+        color = ['forestgreen', 'tab:red'][i]
+
+        for j, ax in enumerate(axes):
+            ax.plot(rmse[j], z, color=color, label=label)
+
+    edges = get_bin_edges()
+    left = edges[:-1].reshape(n_bins, -1)[:, 0]
+    right = edges[1:].reshape(n_bins, -1)[:, -1]
+
+    for j, ax in enumerate(axes):
+        ax.plot(rms[j], z, color='k', ls='dotted', label='RMS')
+
+        ax.set_xlim(0, 0.08)
+        ax.set_ylim(5, 60)
+
+        ax.grid(color='lightgray')
+        ax.tick_params('both', direction='in')
+        ax.set_xlabel('RMSE (% of RMS)')
+        ax.set_ylabel('height (km)')
+
+        if j < n_bins:
+            ax.set_title(f'$c_\\mathrm{{p}} \\in ({left[j]}, {right[j]})$ m / s')
+            
+        else:
+            ax.set_title('dissipation')
+
+    axes[0].legend()
+    plt.tight_layout()
+    path = 'plots/ml-accel/training-errors.png'
+    plt.savefig(path, **_SAVE_KWARGS)
 
 def plot_training_samples(model_path: Optional[str]=None) -> None:
     """
