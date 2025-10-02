@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch, torch.nn as nn
 
 from ...hyperparameters import architectures as hp
@@ -26,39 +28,55 @@ def apply_blocks(blocks: nn.ModuleList, X: torch.Tensor) -> torch.Tensor:
 
     return blocks[-1](output)
 
-def get_block(sizes: list[int], final: bool) -> nn.Sequential:
+def get_block(
+    sizes: list[int],
+    kernels: Optional[list[int]]=None,
+    final: bool=False
+) -> nn.Sequential:
     """
-    Build a block of fully-connected layers for the neural network, placing
-    batch normalization layers according to hyperparameter settings.
+    Build a block that will constitute a component of a `BulkNet`.
 
     Parameters
     ----------
     sizes
-        Sizes for each layer of the block.
+        Sizes of each layer. If building a convolutional block, this corresponds
+        to the number of channels at each layer.
+    kernels
+        If `None`, a fully-connected block is built. Otherwise, specifies the
+        kernel size at each layer. Should have one fewer element than `sizes`.
     final
-        Whether this is the last block in the network. If so, the number of
-        outputs will be set accordingly and the last layer will be a `ReLU`.
-    
+        Whether this is the last block in the network, in which case the last
+        output needs to be unconstrained output.
+
     Returns
     -------
     nn.Sequential
-        Module containing the resulting layers.
+        Module containing the layers in the block.
 
     """
 
-    args = []
-    for a, b in zip(sizes[:-1], sizes[1:]):
-        args = args + [nn.Linear(a, b), nn.ReLU()]
+    if kernels is None:
+        zipped = zip(sizes[:-1], sizes[1:])
+        cls = nn.Linear
 
-        if hp.batch_norm_pos != 0:
-            k = len(args) - (hp.batch_norm_pos == -1)
-            args.insert(k, nn.BatchNorm1d(b))
+    else:
+        zipped = zip(sizes[:-1], sizes[1:], kernels)
+        cls = lambda *args: nn.Conv1d(*args, padding='same')
 
-    if final:
-        while not isinstance(args[-1], nn.Linear):
-            args = args[:-1]
+    modules = []
+    for i, args in enumerate(zipped):
+        modules = modules + [cls(*args), nn.ReLU()]
+        pre_residual = i == len(sizes) - 2
 
-    return nn.Sequential(*args)
+        if pre_residual or (hp.batch_norm_pos != 0):
+            k = len(modules) - (hp.batch_norm_pos == -1)
+            modules.insert(k, nn.BatchNorm1d(args[1]))
+
+    accept = type(modules[0]) if final else nn.BatchNorm1d
+    i = [i for i, m in enumerate(modules) if isinstance(m, accept)][-1]
+    modules = modules[:(i + 1)]
+
+    return nn.Sequential(*modules)
 
 def xavier_init(layer: nn.Module) -> None:
     """

@@ -20,7 +20,7 @@ class BulkNet(nn.Module):
         self.to(torch.double)
 
     def forward(self,
-        wind: torch.Tensor,
+        windN: torch.Tensor,
         M: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
@@ -42,7 +42,12 @@ class BulkNet(nn.Module):
 
         """
 
-        X = torch.hstack((wind, M))
+        X = torch.hstack((windN, M))
+        
+        if hp.n_convs > 0:
+            shape = (-1, self._n_channels, config.n_grid - 1)
+            X = self._conv(X.reshape(*shape)).flatten(1, 2) + X
+
         out = apply_blocks(self._blocks, X)
         out = out - out.mean(dim=1)[:, None]
 
@@ -59,15 +64,30 @@ class BulkNet(nn.Module):
 
         """
 
+        if hp.n_convs > 0:
+            sizes = [hp.n_hidden_conv] * (hp.n_convs - 1)
+            sizes = [self._n_channels] + sizes + [self._n_channels]
+            kernels = [max(hp.max_kernel - 2 * i, 3) for i in range(hp.n_convs)]
+            self._conv = get_block(sizes, kernels, final=False)
+
         blocks = nn.ModuleList()
         for i in range(hp.n_blocks):
             final = i == hp.n_blocks - 1
-            sizes = [self._n_inputs] + [hp.n_hidden] * hp.block_depth
+            sizes = [self._n_inputs] + [hp.n_hidden_lin] * hp.block_depth
             sizes = sizes + [self._n_outputs if final else self._n_inputs]
-            blocks.append(get_block(sizes, final))
+            blocks.append(get_block(sizes, final=final))
 
         return blocks
     
+    @property
+    def _n_channels(self) -> int:
+        """
+        There are channels in the input convolutional layer corresponding to the
+        two mean state profiles and a profile for each phase speed bin.
+        """
+
+        return 2 + hp.n_bins
+
     @property
     def _n_inputs(self) -> int:
         """
@@ -76,7 +96,7 @@ class BulkNet(nn.Module):
         `config.n_grid - 1` values.
         """
 
-        return (config.n_grid - 1) * (2 + hp.n_bins)
+        return (config.n_grid - 1) * self._n_channels
 
     @property
     def _n_outputs(self) -> int:

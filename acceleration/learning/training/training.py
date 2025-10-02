@@ -33,7 +33,6 @@ def train_network(
         hp.load(hp.grid_path, i)
         print(f'Best hyperparameter setting was {i}.')
 
-    torch.manual_seed(1234)
     hp.show_hyperparameters()
 
     windN, M, Y = load_tensors(eval_type)

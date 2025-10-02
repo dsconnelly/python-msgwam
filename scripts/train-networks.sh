@@ -3,12 +3,15 @@
 name=$1
 dep_arg=$2
 
+rm data/ml-accel/records/*.txt
+n=$(python get-gridsize.py hyperparameters/$name.toml)
+
 job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
-    --time=6:00:00 \
-    -a 0-143 \
+    --time=4:30:00 \
+    -a 0-$n \
     -J "ml-accel-search" \
     -o logs/ml-accel/train-network-%a.out \
     $dep_arg \

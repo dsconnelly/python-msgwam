@@ -91,7 +91,8 @@ def get_loaders(
 
 def get_split(
     n_samples: int,
-    eval_type: Literal['va', 'te']
+    eval_type: Literal['va', 'te'],
+    seed: int=1234
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     Get index arrays that can be used to split the data into subsets for
@@ -105,6 +106,8 @@ def get_split(
         Whether to use validation or test data as the evaluation set. If test
         data is used, the evaluation set will be pulled from MiMA scenarios that
         are entirely left out of the training data.
+    seed
+        Seed to use for random splitting if `eval_type == 'va'`.
 
     Returns
     -------
@@ -113,9 +116,12 @@ def get_split(
 
     """
 
+    g = torch.Generator()
+    g.manual_seed(seed)
+
     if eval_type == 'va':
         c = int(0.8 * n_samples)
-        idx = torch.randperm(n_samples)
+        idx = torch.randperm(n_samples, generator=g)
 
     elif eval_type == 'te':
         total = len(_SITES_TR + _SITES_TE)
