@@ -11,4 +11,4 @@ def save_training_context() -> None:
     site, _ = get_site_and_lat(hp.task_id)
     with config.override(name=f'mima-{site}'):
         path = f'data/ml-accel/context/{site}.nc'
-        get_mima_scenario(one_month=True).to_netcdf(path)
+        get_mima_scenario(one_month=False).to_netcdf(path)

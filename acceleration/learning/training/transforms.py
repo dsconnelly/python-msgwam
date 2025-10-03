@@ -1,32 +1,37 @@
+import numba as nb
+import numpy as np
 import torch
 
-def apply_smoothing(a: torch.Tensor, dim: int=-1) -> torch.Tensor:
+@nb.njit
+def apply_smoothing(a: np.ndarray) -> np.ndarray:
     """
-    Apply a Shapiro filter along the specified dimension.
+    JITted function to apply a Shapiro filter along the last dimension, while
+    respecting initial zeros and so not polluting levels below the source.
 
     Parameters
     ----------
     a
-        Tensor of values to smooth.
-    dim
-        Dimension on which to operate.
+        Array to smooth.
 
     Returns
     -------
-    torch.Tensor
-        Tensor smoothed along `dim`.
+    np.ndarray
+        Smoothed array. Zeros in `a` before the first nonzero value in each
+        profile will remain zero.
 
     """
 
-    out = torch.clone(a)
-    out = out.transpose(0, dim)
+    out = np.zeros_like(a)
+    for i in range(a.shape[0]):
+        for j in range(a.shape[1]):
+            start = np.argmax(a[i, j] != 0)
+            
+            for k in range(start, a.shape[2]):
+                out[i, j, k] += a[i, j, max(k - 1, start)]
+                out[i, j, k] += a[i, j, min(k + 1, a.shape[2] - 1)]
+                out[i, j, k] += 2 * a[i, j, k]
 
-    left = 3 * out[0] + out[1]
-    right = out[-2] + 3 * out[-1]
-    out[1:-1] = out[:-2] + 2 * out[1:-1] + out[2:]
-    out[0], out[-1] = left, right
-
-    return out.transpose(0, dim) / 4
+    return out / 4
 
 def get_shift_and_scale(
     a: torch.Tensor, mode: str

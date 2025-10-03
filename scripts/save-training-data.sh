@@ -7,13 +7,14 @@ job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
-    --time=6:00:00 \
-    -J $name-save-training-data \
-    -o logs/$name/save-training-data.out \
+    --time=5:00:00 \
+    -a 0-11 \
+    -J ml-accel-training-data \
+    -o logs/$name/save-training-data-%a.out \
     $dep_arg \
     submit.slurm config/$name.toml \
-        save-training-data \
-        plot-training-series
+        save-training-context \
+        save-training-data
 )
 
 echo $job_id

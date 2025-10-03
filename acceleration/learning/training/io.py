@@ -178,18 +178,25 @@ def load_tensors(
             M = ds['M_bulk'].groupby(ds['bin'] // div_by).sum('bin')
             S = ds['source'].groupby(ds['bin'] // div_by).sum('bin')
 
-            M = torch.as_tensor(M.values).flatten(2, 3)
-            S = torch.as_tensor(S.values).flatten(2, 3)
-            D = torch.as_tensor(ds['sink'].values)
+            M = M.values.reshape(M.shape[0], M.shape[1], -1)
+            S = S.values.reshape(S.shape[0], S.shape[1], -1)
+            D = ds['sink'].values
 
             for _ in range(hp.training.n_smoothing):
-                M = apply_smoothing(M, dim=-1)
-                S = apply_smoothing(S, dim=-1)
-                D = apply_smoothing(D, dim=-1)
+                M = apply_smoothing(M)
+                S = apply_smoothing(S)
+                D = apply_smoothing(D)
 
-        windN = _make_windN(u, v, N)
+            M = torch.as_tensor(M)
+            S = torch.as_tensor(S)
+            D = torch.as_tensor(D)
+            lat = ds.attrs['latitude']
+
         M, Y = _make_pairs(M, S, D)
-
+        windN = _make_windN(u, v, N)
+        lats = lat * torch.ones(windN.shape[0])
+        windN = torch.hstack((windN, lats[:, None]))
+    
         args[0].append(windN)
         args[1].append(M)
         args[2].append(Y)
