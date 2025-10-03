@@ -307,22 +307,29 @@ class TransientPropagator(Propagator):
         """
 
         r_lo = self.r - 0.5 * self.dr
+        r_hi = self.r + 0.5 * self.dr
+
+        cg_r = self._get_cg_r(mean)
+        wvn = np.sqrt(self.k ** 2 + self.l ** 2)
+        flux = wvn * self.action * cg_r
+
         drop = r_lo > config.z_max
+        drop = drop | ((r_hi < config.z_min) & (self.m > 0))
+        drop = drop | (abs(flux) < config.min_flux)
+        drop = drop | (cg_r < config.min_cg)
 
         if config.max_age > 0:
-            old = self.age > config.max_age
-            drop = drop | old
-
-        r_hi = self.r + 0.5 * self.dr
-        low = (r_hi < config.z_min) & (self.m > 0)
-        drop = drop | low
-
-        wvn = np.sqrt(self.k ** 2 + self.l ** 2)
-        flux = wvn * self.action * self._get_cg_r(mean)
-        drop = drop | (abs(flux) < config.min_flux)
+            drop = drop | (self.age > config.max_age)
 
         drop[self._notouch] = False
-        self._delete_rays(drop)
+        self._data[11] += drop * wvn * self.action
+        self._data[8, drop] = 0
+        
+        if config.oob_action == 'delete':
+            self._delete_rays(drop)
+
+        else:
+            self._data[9, drop] = -self.age[drop]
 
     def _check_source(self, mean: MeanState, n_step: int) -> None:
         """

@@ -49,7 +49,7 @@ def save_training_data() -> None:
 
         _ = integrate(_make_callback(windN, M, D, S, F))
         args = (n_samples, 4, hp.n_bins, config.n_grid - 1)
-        M, S = M.reshape(*args), S.reshape(*args)   
+        M, S = M.reshape(*args), S.reshape(*args)
 
     data = {
         'time' : seconds.astype(int),
@@ -92,9 +92,12 @@ def _get_overrides() -> dict[str, Any]:
 
         'max_age' : -1,
         'min_flux' : 0,
+        'min_cg' : 0,
+
         'prune_by' : 'none',
         'n_increment' : 1000,
         'strict_source' : True,
+        'oob_action' : 'mark',
 
         'dt' : hp.dt,
         'dt_output' : hp.dt_output,
@@ -173,33 +176,57 @@ def _make_callback(
         i = n_seconds // hp.dt_output
         i = i + bool(n_seconds % hp.dt_output)
 
-        wvn = abs((prop.k + prop.l))
+        wvn = abs(prop.k + prop.l)
         mom = wvn * prop.action
 
         cp_hat = prop._get_omega_hat(mean) / wvn
         bdx = _get_pdx(prop.k, prop.l, cp_hat)
         pdx = bdx // hp.n_bins
-        ndx = bdx.copy()
 
-        drop = prop.m > 0
-        bdx[drop] = pdx[drop] = -1
-        ndx[drop | (prop.age >= hp.dt_output)] = -1
-
+        since_last = n_seconds - (i - 1) * config.dt_output
+        attr = prop.attrition * (abs(prop.age) >= since_last)   
         cg = prop._get_cg_r(mean) / (hp.dt_output // hp.dt)
-        _project(prop.r, prop.dr, mean.z_faces, prop.attrition, pdx, D[i])
-        _project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[i])
 
+        _project(prop.r, prop.dr, mean.z_faces, attr, pdx, D[i])
+        _project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[i])
+        _break_oob_rays(prop, mean, mom + attr, pdx, D[i, :, -config.n_sponge:])
+        
         if n_seconds % hp.dt_output:
             return
 
         windN[i, :2] = mean.wind
         windN[i, 2] = mean.N
 
+        ndx = bdx.copy()
+        ndx[prop.age >= hp.dt_output] = -1
         _project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[i])
         _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i])
-        
 
     return callback
+
+def _break_oob_rays(
+    prop: TransientPropagator,
+    mean: MeanState,
+    mom: np.ndarray,
+    pdx: np.ndarray,
+    D: np.ndarray
+) -> None:
+    """
+    Catch the contributions from ray volumes that have partially or fully exited
+    the upper boundary, and add their momentum into the sponge layer.
+    """
+    
+    r_lo = prop.r - 0.5 * prop.dr
+    r_hi = prop.r + 0.5 * prop.dr
+
+    dr = np.maximum(r_hi - np.maximum(r_lo, config.z_max), 0)
+    dz = mean.z_faces[-1] - mean.z_faces[-(config.n_sponge + 1)]
+    sponged = (dr * mom / dz)[prop._valid, None]
+    np.add.at(D, pdx[prop._valid], sponged)
+
+    prop._data[1] = prop.dr - dr
+    prop._data[0] = r_lo + prop.dr / 2
+    prop._delete_rays(prop.age < 0)
 
 @nb.njit
 def _project(

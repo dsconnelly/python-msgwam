@@ -72,11 +72,13 @@ logging: bool
 max_age: int
 max_dt_multiplier: int
 max_overshoot: float
+min_cg: float
 min_flux: float
 n_chromatic: int
 n_increment: int
 n_max: int
 n_sponge: int
+oob_action: Literal['delete', 'mark']
 prune_by: Literal[
     'cg_r',
     'energy',
