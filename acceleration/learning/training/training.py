@@ -63,6 +63,9 @@ def train_network(
     print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
     print(f'Loaded model has {n_params} trainable parameters.')
 
+    max_res = abs(Y.sum(dim=1)).max()
+    print(f'Maximum residual in targets is {max_res}\n')
+
     state = {}
     best_loss = torch.inf
     n_epoch, start = 1, time()

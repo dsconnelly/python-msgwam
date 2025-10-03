@@ -22,14 +22,13 @@ def apply_smoothing(a: np.ndarray) -> np.ndarray:
     """
 
     out = np.zeros_like(a)
-    for i in range(a.shape[0]):
-        for j in range(a.shape[1]):
-            start = np.argmax(a[i, j] != 0)
-            
-            for k in range(start, a.shape[2]):
-                out[i, j, k] += a[i, j, max(k - 1, start)]
-                out[i, j, k] += a[i, j, min(k + 1, a.shape[2] - 1)]
-                out[i, j, k] += 2 * a[i, j, k]
+    for idx in np.ndindex(a.shape[:-1]):
+        start = np.argmax(a[idx] != 0)
+
+        for k in range(start, a.shape[-1]):
+            out[*idx, k] += a[*idx, max(k - 1, start)]
+            out[*idx, k] += a[*idx, min(k + 1, a.shape[-1] - 1)]
+            out[*idx, k] += 2 * a[*idx, k]
 
     return out / 4
 

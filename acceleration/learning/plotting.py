@@ -84,33 +84,34 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     
     """
 
-    n_rows, n_cols = 2, 4
-    fig, axes = plt.subplots(n_rows, n_cols)
-    fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
+    n_rows, n_cols = hp.architectures.n_bins + 1, 4
     z = get_vertical_grids()[1] / 1000
 
-    *inputs, Y = load_tensors('va', 1)
-    dM = Y[:, :-(config.n_grid - 1)]
-    D = Y[:, -(config.n_grid - 1):]
+    fig, axes = plt.subplots(n_rows, n_cols)
+    fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
 
-    datas = [dM, D]
+    *inputs, Y = load_tensors('va')
+    dM = Y[..., :-(config.n_grid - 1)]
+    D = Y[..., -(config.n_grid - 1):]
+
     idx, _ = get_split(dM.shape[0], 'va')
     ks = idx[np.argsort(np.random.rand(len(idx)))[:n_cols]]
 
-    data_hats = [None, None]
+    dM = dM.reshape(dM.shape[0], -1, config.n_grid - 1)
+    datas = [*dM.transpose(0, 1), D]
+    data_hats = [None] * len(datas)
+    
     if model_path is not None:
-        *inputs, Y = load_tensors('va')
         Y_hat = torch.jit.load(model_path)(*inputs)
-
         dM_hat = Y_hat[:, :-(config.n_grid - 1)]
         D_hat = Y_hat[:, -(config.n_grid - 1):]
 
-        dM_hat = dM_hat.reshape(-1, hp.architectures.n_bins, config.n_grid - 1)
-        data_hats = [dM_hat.sum(axis=1), D_hat]
+        dM_hat = dM_hat.reshape(dM.shape[0], -1, config.n_grid - 1)
+        data_hats = [*dM_hat.transpose(0, 1), D_hat]
 
     for j, k in enumerate(ks):
         for i, (data, data_hat) in enumerate(zip(datas, data_hats)):
-            color = ['royalblue', 'tab:red'][i]
+            color = 'tab:red' if i == len(datas) - 1 else 'royalblue'
             axes[i, j].plot(data[k], z, color=color)
 
             if data_hat is not None:
