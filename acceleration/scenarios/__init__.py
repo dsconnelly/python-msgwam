@@ -1,13 +1,10 @@
 from msgwam import config
-from msgwam.sources import spectra
 
-from ..hyperparameters import scenarios as hp
-
-from .idealized import get_gated_oscillation
 from .mima import get_mima_scenario
 from .plotting import plot_mean_state, plot_mean_scales
 
 __all__ = [
+    'get_mima_scenario',
     'plot_mean_state',
     'plot_mean_scales',
     'save_mean_state',

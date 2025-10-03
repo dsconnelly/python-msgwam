@@ -8,7 +8,4 @@ python ()
         /bin/bash -c "source /ext3/env.sh; $cmd"
 }
 
-name=$1
-shift
-
-python -m acceleration config/mima-$name.toml $@
+python -m acceleration config/ml-accel.toml $@

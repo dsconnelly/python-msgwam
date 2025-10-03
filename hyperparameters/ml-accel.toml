@@ -1,45 +1,40 @@
 [scenarios]
-amp_max = 55
-components = 'x'
-height_scale_cutoff = 3e3
-height_scale_decay = 2e3
-noise_amplitude = 8
-osc_bottom = 14e3
-osc_top = 36e3
-period_max = 8
-period_min = 4
-spectrum_type = 'gaussians'
-time_scale_cutoff = 6
-time_scale_decay = 2
-wvl_max = 30e3
-wvl_min = 500
-wvl_power = 2
+
+components = 'xy'
+spectrum_type = 'mima'
 
 [strategies]
+debug = false
 dr_min = 500
 dr_max = 5000
 n_dr = 10
-n_ensemble = 25
+n_ensemble = 5
 n_n_source = 10
-n_source_min = 8
-n_source_max = 44
+n_source_min = 4
+n_source_max = 40
 
 [generation]
-filter_hours = 1
-filter_meters = 1000
-n_samples = 750000
+dt = 60
+dt_output = 1800
+n_bins = 10
 
 [architectures]
-batch_norm_pos = [0, 1]
-dropout_rate = [0, 0.25]
+batch_norm_pos = [0]
+n_bins = [2]
 
-n_blocks = 2
-n_latent = [128, 512]
-n_per_block = [3, 5]
+n_convs = 3
+n_hidden_conv = [16]
+max_kernel = 5
+
+n_blocks = [1]
+n_hidden_lin = [256]
+block_depth = 3
 
 [training]
-batch_size = [32, 256]
+batch_size = 32
+in_transform = ['z', 'robust', 'minmax']
 learning_rate = 1e-3
-max_epochs = 6
-max_hours = 4
-weight_decay = 0
+max_epochs = 25
+max_hours = 3
+n_smoothing = 8
+output_scale = 1e3

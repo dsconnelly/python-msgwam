@@ -46,7 +46,7 @@ def load(path: str, i: Optional[int]=None) -> None:
     """
 
     if i is None:
-        i = int(os.environ.get('SLURM_ARRAY_TASK_ID', 0))
+        i = int(os.environ.get('SLURM_ARRAY_TASK_ID', 8))
 
     with open(path, 'rb') as f:
         options, constants = _parse_grid(tomllib.load(f))

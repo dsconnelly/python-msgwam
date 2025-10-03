@@ -166,7 +166,7 @@ def load_tensors(
 
     args = [[], [], []]
     for site in _SITES_TR + _SITES_TE * (eval_type == 'te'):
-        with xr.open_dataset(f'data/ml-accel/training/mima-{site}.nc') as ds:
+        with xr.open_dataset(f'data/ml-accel/training/{site}.nc') as ds:
             u = torch.as_tensor(ds['u'].values)
             v = torch.as_tensor(ds['v'].values)
             N = torch.as_tensor(ds['N'].values)

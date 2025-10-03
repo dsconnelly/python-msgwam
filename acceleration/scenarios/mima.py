@@ -28,7 +28,7 @@ _MONTHS = {
 
 _N_MIN = 2 * np.pi / (2 * 3600)
 
-def get_mima_scenario() -> xr.Dataset:
+def get_mima_scenario(one_month: bool=True) -> xr.Dataset:
     """Generate a mean wind from MiMA outputs."""
 
     _, z = get_vertical_grids()
@@ -37,8 +37,11 @@ def get_mima_scenario() -> xr.Dataset:
 
     with xr.open_dataset('data/mima-scenarios.nc') as ds:
         name = '-'.join(config.name.split('-')[1:])
-        keep = ds['time.month'] == _MONTHS[name]
-        ds = ds.sel(site=name).isel(time=keep)
+        ds = ds.sel(site=name)
+
+        if one_month:
+            keep = ds['time.month'] == _MONTHS[name]
+            ds = ds.isel(time=keep)
 
         time = cftime.date2num(ds['time'].values, f'minutes since {EPOCH}')
         time = cftime.num2date(time - time[0], f'minutes since {EPOCH}')

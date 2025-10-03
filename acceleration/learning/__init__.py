@@ -1,4 +1,4 @@
-from .generation import save_training_data
+from .generation import save_training_context, save_training_data
 from .plotting import (
     plot_training_errors,
     plot_training_samples,
@@ -10,6 +10,7 @@ __all__ = [
     'plot_training_errors',
     'plot_training_samples',
     'plot_training_series',
+    'save_training_context',
     'save_training_data',
     'train_network'
 ]

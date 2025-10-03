@@ -129,7 +129,7 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     path = f'plots/ml-accel/training-samples.png'
     plt.savefig(path, **_SAVE_KWARGS)    
 
-def plot_training_series() -> None:
+def plot_training_series(site: str) -> None:
     """Plot the bulk momentum and group velocity time series."""
 
     n_rows, n_cols = 3, 4
@@ -139,7 +139,7 @@ def plot_training_series() -> None:
     fig.set_size_inches(sum(widths), 3 * n_rows)
     axes, caxes = axes[:, :-1], axes[:, -1]
 
-    with xr.open_dataset(f'data/ml-accel/training/{config.name}.nc') as ds:
+    with xr.open_dataset(f'data/ml-accel/training/{site}.nc') as ds:
         z_c = ds['z_centers'].values / 1000
         z_f = ds['z_faces'].values / 1000
         days = ds['time'] / 86400
@@ -189,5 +189,5 @@ def plot_training_series() -> None:
         axes[0, j].set_title(name)
 
     plt.tight_layout()
-    path = f'plots/ml-accel/series/{config.name}.png'
+    path = f'plots/ml-accel/series/{site}.png'
     plt.savefig(path, **_SAVE_KWARGS)

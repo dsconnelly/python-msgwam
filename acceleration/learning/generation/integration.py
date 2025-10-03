@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numba as nb
 import numpy as np
@@ -9,34 +9,20 @@ from msgwam import config
 from msgwam.integration import integrate
 from msgwam.utils import get_vertical_grids
 
-from ..hyperparameters import generation as hp
+from ... import hyperparameters as _hp
+from ...hyperparameters import generation as hp
+
+from .utils import get_bin_edges, get_overrides, get_pdx, get_site_and_lat
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
     from msgwam.means import MeanState
     from msgwam.propagators import TransientPropagator
 
-def get_bin_edges() -> np.ndarray:
-    """
-    Get the bin edges to use when projecting the ray volumes.
-
-    Returns
-    -------
-    np.ndarray
-        Array of `hp.n_bins + 1` bin edges. Note that the bins may be unequally
-        spaced in phase speed space.
-
-    """
-
-    edges = np.linspace(0, 54, hp.n_bins)
-    edges = np.concatenate((edges, [100]))
-
-    return edges
-
 def save_training_data() -> None:
     """Integrate and save the relevant quantities for training."""
 
-    with config.override(**_get_overrides()):
+    with config.override(**get_overrides()):
         n_samples = 1 + (86400 * config.n_day) // config.dt_output
         seconds = np.arange(n_samples) * config.dt_output
         qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
@@ -71,69 +57,9 @@ def save_training_data() -> None:
     for i, name in enumerate(['u', 'v', 'N']):
         data[name] = (('time', 'z_centers'), windN[:, i])
 
-    xr.Dataset(data).to_netcdf(f'data/ml-accel/training/{config.name}.nc')
-
-def _get_overrides() -> dict[str, Any]:
-    """
-    Return configuration overrides to while generating of training data.
-
-    Returns
-    -------
-    dict[str, Any]
-        Keyword arguments for `config.override`.
-
-    """
-
-    return {
-        'n_max' : 5000,
-        'dr_source' : -1800,
-        'n_source' : 96,
-        'dr_ghost' : 0,
-
-        'max_age' : -1,
-        'min_flux' : 0,
-        'min_cg' : 0,
-
-        'prune_by' : 'none',
-        'n_increment' : 1000,
-        'strict_source' : True,
-        'oob_action' : 'mark',
-
-        'dt' : hp.dt,
-        'dt_output' : hp.dt_output,
-        'max_dt_multiplier' : 10,
-    }
-
-def _get_pdx(k: np.ndarray, l: np.ndarray, cp_hat: np.ndarray) -> np.ndarray:
-    """
-    Return an integer array indicating the bin into which each ray should be
-    projected. The rays are sorted by quadrant, and then perhaps more finely by
-    intrinsic phase speed within each quadrant. 
-
-    Parameters
-    ----------
-    k, l
-        Arrays of zonal and meridional wavenumbers, respectively.
-    cp_hat
-        Absolute value of the intrinsic phase speed of each ray volume.
-
-    Returns
-    -------
-    np.ndarray
-        Index array giving the projection bin for each ray volume. Each quadrant
-        gets `hp.n_bins` values before the next one. Inactive slots get -1.
-
-    """
-
-    edges = get_bin_edges()
-    cp_hat = np.clip(cp_hat, edges[0], edges[-1])
-    out = np.argmax(cp_hat[:, None] <= edges[1:], axis=1)
-
-    quad = (k > 0) + 2 * (l > 0) + 3 * (k < 0) + 4 * (l < 0)
-    out = (quad - 1) * hp.n_bins + out
-    out[np.isnan(cp_hat)] = -1
-
-    return out.astype(np.int32)
+    site, lat = get_site_and_lat(_hp.task_id)
+    ds = xr.Dataset(data).assign_attrs(latitude=lat)
+    ds.to_netcdf(f'data/ml-accel/training/{site}.nc')
 
 def _make_callback(
     windN: np.ndarray,
@@ -180,7 +106,7 @@ def _make_callback(
         mom = wvn * prop.action
 
         cp_hat = prop._get_omega_hat(mean) / wvn
-        bdx = _get_pdx(prop.k, prop.l, cp_hat)
+        bdx = get_pdx(prop.k, prop.l, cp_hat)
         pdx = bdx // hp.n_bins
 
         since_last = n_seconds - (i - 1) * config.dt_output
