@@ -22,9 +22,14 @@ def get_bin_edges() -> np.ndarray:
 
     return edges
 
-def get_overrides() -> dict[str, Any]:
+def get_overrides(n: int) -> dict[str, Any]:
     """
     Get the configurations to use while generating training data.
+
+    Parameters
+    ----------
+    n
+        Task ID for which to return configuration overrides.
 
     Returns
     -------
@@ -33,7 +38,7 @@ def get_overrides() -> dict[str, Any]:
 
     """
 
-    site, lat = get_site_and_lat(hp.task_id)
+    site, lat = get_site_and_lat(n)
     path = f'data/ml-accel/context/{site}.nc'
 
     return {
@@ -45,7 +50,9 @@ def get_overrides() -> dict[str, Any]:
         'n_source' : 96,
         'dr_ghost' : 0,
         
-        'max_age' : 25 * 86400,
+        'max_age' : 14 * 86400,
+        'max_age_ghost' : 2 * 86400,
+        'max_age_warning' : 86400,
         'min_flux' : 0,
         'min_cg' : 0,
 

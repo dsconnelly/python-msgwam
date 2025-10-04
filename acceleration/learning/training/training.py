@@ -180,13 +180,14 @@ def _run_epoch(
     """
 
     if optimizer is None:
+        model.eval()
         loss_func.eval()
+
     else:
+        model.train()
         loss_func.train()
 
-    model = model.eval() if optimizer is None else model.train()
     weight_sum, total = 0, 0
-
     for *inputs, Y in loader:
         if optimizer is None:
             with torch.no_grad():

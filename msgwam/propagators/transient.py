@@ -59,7 +59,9 @@ class TransientPropagator(Propagator):
         self._r_ghost = config.r_source - config.dr_ghost
         self._r_ghost = np.minimum(self._r_ghost, self._z_padded[k])
         self._ghosts = np.zeros(config.n_source).astype(int)
+
         self._check_source(mean, 0)
+        self._apply_sinks(mean, damp=False)
 
     def __getattr__(self, name: str) -> Any:
         """
@@ -174,9 +176,9 @@ class TransientPropagator(Propagator):
         for _ in range(config.dt // dt):    
             self._take_RK4_step(mean, dt)
 
+        self._check_source(mean, n_step)
         self._apply_sinks(mean)
         self._check_boundaries(mean)
-        self._check_source(mean, n_step)
 
         if config.logging:
             if self.n_active > 0:
@@ -184,6 +186,7 @@ class TransientPropagator(Propagator):
                 self._log_value('zonal fraction (%)', 100 * frac)
 
             self._log_value('active rays', self.n_active)
+            self._log_value('age', abs(self.age)[self._valid])
 
         return self
 
@@ -234,7 +237,7 @@ class TransientPropagator(Propagator):
 
         return cast(int, j)
 
-    def _apply_sinks(self, mean: MeanState) -> None:
+    def _apply_sinks(self, mean: MeanState, damp: bool=True) -> None:
         """
         First dissipate waves according to viscosity. Next, remove any rays that
         have artificially passed through critical layers. Finally, determine if
@@ -245,6 +248,9 @@ class TransientPropagator(Propagator):
         ----------
         mean
             Current mean state of the system.
+        damp
+            Whether to calculate damping or just wave breaking. Should always be
+            `False` except for at initialization.
 
         """
 
@@ -264,9 +270,16 @@ class TransientPropagator(Propagator):
             sponge = 1 - (self._get_cg_r(mean) * config.dt / gap)
             damping[idx] = np.minimum(np.maximum(sponge[idx], 0), 1)
 
-        damping[self._notouch] = 1
-        self._data[11] = (1 - damping) * wvn * self.action
-        self._data[8] = self.dens * damping
+        if config.max_age_warning > 0:
+            time_left = config.max_age - self.age
+            idx = time_left < config.max_age_warning
+            frac = np.minimum(np.maximum(1 - config.dt / time_left, 0), 1)
+            damping[idx] = np.minimum(damping[idx], frac[idx])
+
+        if damp:
+            damping[self._notouch] = 1
+            self._data[11] = (1 - damping) * wvn * self.action
+            self._data[8] = self.dens * damping
 
         if config.n_chromatic == 0:
             return
@@ -289,7 +302,7 @@ class TransientPropagator(Propagator):
 
         maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa, pdx)
         factor = np.maximum(0, 1 - config.epsilon * wvn_sq * maxes)
-        factor[self._notouch] = 1
+        factor[self._notouch & (self.age > 0)] = 1
 
         self._data[11] += (1 - factor) * wvn * self.action
         self._data[8] = self.dens * factor
@@ -361,9 +374,13 @@ class TransientPropagator(Propagator):
         cdx: Optional[np.ndarray] = None
         if config.source_type == 'constant':
             r_lo = (self.r - 0.5 * self.dr)[self._ghosts]
-            crossed = r_lo > self._r_ghost
-            cdx, *_ = np.where(crossed)
+            crossed = (r_lo > self._r_ghost)
 
+            if config.max_age_ghost > 0:
+                age = self.age[self._ghosts]
+                crossed = crossed | (age > config.max_age_ghost)
+
+            cdx, *_ = np.where(crossed)
             if crossed.sum() == 0:
                 return
 
@@ -375,10 +392,13 @@ class TransientPropagator(Propagator):
 
         if config.source_type == 'constant':
             for k, data in zip(cdx, datas.T):
-                while r_lo[k] > self._r_ghost:
+                while True:
                     r = r_lo[k] - 0.5 * data[0]
                     r_lo[k] = r_lo[k] - data[0]
                     to_add.append((k, data, r))
+
+                    if r_lo[k] <= self._r_ghost:
+                        break
 
         else:
             repeats = {}
@@ -628,7 +648,12 @@ class TransientPropagator(Propagator):
 
         """
 
-        return (self.r < config.r_source) & (self.m < 0)
+        notouch = (self.r < config.r_source) & (self.m < 0)
+
+        if config.max_age_ghost > 0:
+            notouch = notouch & (self.age < config.max_age_ghost)
+
+        return notouch
 
     def _project(
         self,

@@ -125,7 +125,7 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
             if data_hat is not None:
                 axes[i, j].plot(data_hat[k], z, color=color, ls='dashed')
 
-            xmax = 5e-3
+            xmax = 3e-3
             axes[i, j].set_xlim(-xmax, xmax)
             axes[i, j].set_ylim(5, 60)
 

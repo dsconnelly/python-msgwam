@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numba as nb
 import numpy as np
@@ -19,10 +19,24 @@ if TYPE_CHECKING:
     from msgwam.means import MeanState
     from msgwam.propagators import TransientPropagator
 
-def save_training_data() -> None:
-    """Integrate and save the relevant quantities for training."""
+def save_training_data(n_str: Optional[str]=None) -> None:
+    """
+    Integrate and save the relevant quantities for training.
+    
+    Parameters
+    ----------
+    n_str
+        Task ID number for which to save training data. If not provided, uses
+        the current SLURM job array step. Passed as a string since this is a
+        command line argument.
 
-    with config.override(**get_overrides()):
+    """
+
+    n = _hp.task_id
+    if n_str is not None:
+        n = int(n_str)
+
+    with config.override(**get_overrides(n)):
         n_samples = 1 + (86400 * config.n_day) // config.dt_output
         seconds = np.arange(n_samples) * config.dt_output
         qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
@@ -57,7 +71,7 @@ def save_training_data() -> None:
     for i, name in enumerate(['u', 'v', 'N']):
         data[name] = (('time', 'z_centers'), windN[:, i])
 
-    site, lat = get_site_and_lat(_hp.task_id)
+    site, lat = get_site_and_lat(n)
     ds = xr.Dataset(data).assign_attrs(latitude=lat)
     ds.to_netcdf(f'data/ml-accel/training/{site}.nc')
 

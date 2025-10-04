@@ -70,6 +70,8 @@ dr_source: float
 jitter: float
 logging: bool
 max_age: int
+max_age_ghost: int
+max_age_warning: int
 max_dt_multiplier: int
 max_overshoot: float
 min_cg: float
