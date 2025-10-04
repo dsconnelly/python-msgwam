@@ -10,7 +10,7 @@ job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
-    --time=4:30:00 \
+    --time=3:30:00 \
     -a 0-$n \
     -J "ml-accel-search" \
     -o logs/ml-accel/train-network-%a.out \

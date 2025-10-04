@@ -45,7 +45,7 @@ def get_overrides() -> dict[str, Any]:
         'n_source' : 96,
         'dr_ghost' : 0,
         
-        'max_age' : 30 * 86400,
+        'max_age' : 25 * 86400,
         'min_flux' : 0,
         'min_cg' : 0,
 

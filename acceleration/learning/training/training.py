@@ -35,36 +35,9 @@ def train_network(
 
     hp.show_hyperparameters()
 
-    windN, M, Y = load_tensors(eval_type)
-    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
-    Y = Y * hp.training.output_scale
-
-    windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
-    M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
-    windN = transform(windN, *windN_stats)
-    M = transform(M, *M_stats)
-
-    model = BulkNet()
-    loader_tr, loader_ev = get_loaders(windN, M, Y, idx_tr, idx_ev)
-    optimizer = Adam(model.parameters(), lr=hp.training.learning_rate)
-    loss_func = BulkLoss(Y[idx_tr])
-
-    if state_path is not None:
-        state = torch.load(state_path, weights_only=True)
-        print(f'Loading previous state from {state_path}')
-
-        model.load_state_dict(state['model'])
-        optimizer.load_state_dict(state['optimizer'])
-
-    n_tr, n_ev = len(idx_tr), len(idx_ev)
-    n_params = sum(p.numel() for p in model.parameters())
-    
-    word = {'va' : 'validation', 'te' : 'test'}[eval_type]
-    print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
-    print(f'Loaded model has {n_params} trainable parameters.')
-
-    max_res = abs(Y.sum(dim=1)).max()
-    print(f'Maximum residual in targets is {max_res}\n')
+    loader_tr, loader_ev, windN_stats, M_stats = _load_data(eval_type)
+    loss_func = BulkLoss(loader_tr.dataset.tensors[-1])
+    model, optimizer = _load_model(state_path)
 
     state = {}
     best_loss = torch.inf
@@ -91,38 +64,90 @@ def train_network(
     print(f'Best loss was {best_loss:.6f}')
     model.load_state_dict(state['model'])
 
-    model.eval()
-    for p in model.parameters():
-        p.requires_grad = False
-
     del loader_tr, loader_ev
-    windN, M, _ = load_tensors('va')
-    windN, M = windN[idx_tr[:10]], M[idx_tr[:10]]
-
-    def trace_func(
-        windN: torch.Tensor,
-        M: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Capture pipeline, excluding momentum budgeting (which can be done at
-        integration time) but including input normalization, so that the various
-        statistics arrays don't need to be saved separately.
-        """
-
-        windN = transform(windN, *windN_stats)
-        M = transform(M, *M_stats)
-
-        return model(windN, M) / hp.training.output_scale
-    
-    with torch.no_grad():
-        traced = torch.jit.trace(trace_func, (windN, M))
-
+    traced = _trace(model, windN_stats, M_stats)
     tag = 'best' if eval_type == 'te' else hp.task_id
+
     torch.save(state, f'data/ml-accel/models/state-{tag}.pkl')
     torch.jit.save(traced, f'data/ml-accel/models/model-{tag}.jit')
 
     with open(f'data/ml-accel/records/loss-{tag}.txt', 'w') as f:
         f.write(str(best_loss))
+
+def _load_data(eval_type: Literal['va', 'te']) -> tuple[
+    DataLoader,
+    DataLoader,
+    tuple[torch.Tensor, torch.Tensor],
+    tuple[torch.Tensor, torch.Tensor]
+]:
+    """
+    Load the data, partition it into training and evaluation sets, and transform
+    it according to the loaded hyperparameters.
+
+    Parameters
+    ----------
+    eval_type
+        Evaluation type specifier, as passed to `train_network`.
+
+    Returns
+    -------
+    DataLoader, DataLoader
+        Loaders containing training and evaluation inputs and outpus.
+    tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
+        Transforms for the mean state and bulk momentum budgets, respectively.
+        These are returned so that they can be passed to `_trace` later.
+
+    """
+
+    windN, M, Y = load_tensors(eval_type)
+    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
+    Y = Y * hp.training.output_scale
+
+    windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
+    M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
+    windN = transform(windN, *windN_stats)
+    M = transform(M, *M_stats)
+
+    n_tr, n_ev = len(idx_tr), len(idx_ev)
+    word = {'va' : 'validation', 'te' : 'test'}[eval_type]
+    max_res = abs(Y.sum(dim=1)).max()
+
+    print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
+    print(f'Maximum residual in targets is {max_res:.4e}.')
+
+    loader_tr, loader_ev = get_loaders(windN, M, Y, idx_tr, idx_ev)
+    return loader_tr, loader_ev, windN_stats, M_stats
+
+def _load_model(state_path: Optional[str]=None) -> tuple[BulkNet, Adam]:
+    """
+    Load a `BulkNet` and associated optimizer, possibly loading state for both
+    modules from a previous training run.
+
+    Parameters
+    ----------
+    state_path
+        Optional location of previous state for the model and optimizer.
+
+    Returns
+    -------
+    BulkNet, Adam
+        Model and optimizer ready for (further) training.
+
+    """
+
+    model = BulkNet()
+    optimizer = Adam(model.parameters(), hp.training.learning_rate)
+    n_params = sum(param.numel() for param in model.parameters())
+    print(f'Loaded model has {n_params} trainable parameters.')
+
+    if state_path is not None:
+        state = torch.load(state_path, weights_only=True)
+        print(f'Loading previous state from {state_path}.')
+
+        model.load_state_dict(state['model'])
+        optimizer.load_state_dict(state['optimizer'])
+
+    return model, optimizer
 
 def _run_epoch(
     model: nn.Module,
@@ -181,3 +206,52 @@ def _run_epoch(
             optimizer.step()
 
     return (total / weight_sum) ** 0.5
+
+def _trace(
+    model: BulkNet,
+    windN_stats: tuple[torch.Tensor, torch.Tensor],
+    M_stats: tuple[torch.Tensor, torch.Tensor]
+) -> torch.jit.ScriptFunction:
+    """
+    Trace the model pipeline and return a JITted object that can be loaded by
+    MS-GWaM without having to have the `BulkNet` class definition available.
+
+    Parameters
+    ----------
+    model
+        Trained `BulkNet`.
+    windN_stats, M_stats
+        Transform parameters that should be applied to the neural network inputs
+        before passing them through the model.
+
+    Returns
+    -------
+    ScriptFunction
+        Traced model pipeline.
+
+    """
+
+    model.eval()
+    for p in model.parameters():
+        p.requires_grad = False
+
+    windN, M, _ = load_tensors('va')
+    windN, M = windN[:10], M[:10]
+
+    def trace_func(
+        windN: torch.Tensor,
+        M: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Capture pipeline, excluding momentum budgeting (which can be done at
+        integration time) but including input normalization, so that the various
+        statistics arrays don't need to be saved separately.
+        """
+
+        windN = transform(windN, *windN_stats)
+        M = transform(M, *M_stats)
+
+        return model(windN, M) / hp.training.output_scale
+
+    with torch.no_grad():
+        return torch.jit.trace(trace_func, (windN, M))

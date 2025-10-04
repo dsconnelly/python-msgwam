@@ -22,7 +22,13 @@ _SAVE_KWARGS = {
 
 def plot_training_errors(model_path: str) -> None:
     """
+    Plot the RMS training errors for each output profile.
     
+    Parameters
+    ----------
+    model_path
+        Path to a JITted model pipeline to evaluate.
+
     """
     
     n_bins = hp.architectures.n_bins
@@ -62,10 +68,12 @@ def plot_training_errors(model_path: str) -> None:
         ax.set_ylabel('height (km)')
 
         if j < n_bins:
-            ax.set_title(f'$c_\\mathrm{{p}} \\in ({left[j]}, {right[j]})$ m / s')
-            
+            cp_hat = '\\hat{c}_\\mathrm{p}'
+            interval = f'({left[j]}, {right[j]})'
+            ax.set_title(f'${cp_hat} \\in {interval}$ m / s')
+
         else:
-            ax.set_title('dissipation')
+            ax.set_title('sinks')
 
     axes[0].legend()
     plt.tight_layout()
