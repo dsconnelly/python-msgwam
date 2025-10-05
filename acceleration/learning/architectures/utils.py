@@ -28,11 +28,7 @@ def apply_blocks(blocks: nn.ModuleList, X: torch.Tensor) -> torch.Tensor:
 
     return blocks[-1](output)
 
-def get_block(
-    sizes: list[int],
-    kernels: Optional[list[int]]=None,
-    final: bool=False
-) -> nn.Sequential:
+def get_block(sizes: list[int], final: bool=False) -> nn.Sequential:
     """
     Build a block that will constitute a component of a `BulkNet`.
 
@@ -41,9 +37,6 @@ def get_block(
     sizes
         Sizes of each layer. If building a convolutional block, this corresponds
         to the number of channels at each layer.
-    kernels
-        If `None`, a fully-connected block is built. Otherwise, specifies the
-        kernel size at each layer. Should have one fewer element than `sizes`.
     final
         Whether this is the last block in the network, in which case the last
         output needs to be unconstrained output.
@@ -55,28 +48,19 @@ def get_block(
 
     """
 
-    if kernels is None:
-        zipped = zip(sizes[:-1], sizes[1:])
-        cls = nn.Linear
+    args = []
+    for (a, b) in zip(sizes[:-1], sizes[1:]):
+        args = args + [nn.Linear(a, b), nn.ReLU()]
 
-    else:
-        zipped = zip(sizes[:-1], sizes[1:], kernels)
-        cls = lambda *args: nn.Conv1d(*args, padding='same')
+        if hp.batch_norm_pos != 0:
+            k = len(args) - (hp.batch_norm_pos == -1)
+            args.insert(k, nn.BatchNorm1d(b))
 
-    modules = []
-    for i, args in enumerate(zipped):
-        modules = modules + [cls(*args), nn.ReLU()]
-        pre_residual = i == len(sizes) - 2
+    if final:
+        while not isinstance(args[-1], nn.ReLU):
+            args = args[:-1]
 
-        if pre_residual or (hp.batch_norm_pos != 0):
-            k = len(modules) - (hp.batch_norm_pos == -1)
-            modules.insert(k, nn.BatchNorm1d(args[1]))
-
-    accept = type(modules[0]) if final else nn.BatchNorm1d
-    i = [i for i, m in enumerate(modules) if isinstance(m, accept)][-1]
-    modules = modules[:(i + 1)]
-
-    return nn.Sequential(*modules)
+    return nn.Sequential(*args)
 
 def xavier_init(layer: nn.Module) -> None:
     """

@@ -13,7 +13,13 @@ from msgwam.utils import get_vertical_grids
 from .. import hyperparameters as hp
 
 from .generation import get_bin_edges
-from .training import get_shift_and_scale, get_split, load_tensors, transform
+from .training import (
+    get_shift_and_scale,
+    get_split,
+    load_tensors,
+    nonzero_std,
+    transform
+)
 
 _SAVE_KWARGS = {
     'dpi' : 600,
@@ -86,7 +92,6 @@ def plot_training_errors(model_path: str) -> None:
     
     Y = 100 * Y.reshape(-1, n_bins + 1, config.n_grid - 1)
     Y_hat = 100 * Y_hat.reshape(-1, n_bins + 1, config.n_grid - 1)
-    rms = np.sqrt((Y ** 2).mean(dim=0))
 
     for i, idx in enumerate([idx_tr, idx_ev]):
         rmse = np.sqrt(((Y_hat - Y) ** 2)[idx].mean(dim=0))
@@ -101,15 +106,15 @@ def plot_training_errors(model_path: str) -> None:
     right = edges[1:].reshape(n_bins, -1)[:, -1]
 
     for j, ax in enumerate(axes):
-        ax.plot(rms[j], z, color='k', ls='dotted', label='RMS')
+        ref = nonzero_std(Y[:, j])
+        ax.plot(ref, z, color='k', ls='dotted', label='reference')
 
-        ax.set_xlim(0, 0.08)
         ax.set_ylim(5, 60)
+        ax.set_xlabel('RMSE')
+        ax.set_ylabel('height (km)')
 
         ax.grid(color='lightgray')
         ax.tick_params('both', direction='in')
-        ax.set_xlabel('RMSE (% of RMS)')
-        ax.set_ylabel('height (km)')
 
         if j < n_bins:
             cp_hat = '\\hat{c}_\\mathrm{p}'

@@ -236,7 +236,7 @@ def _trace(
     for p in model.parameters():
         p.requires_grad = False
 
-    windN, M, _ = load_tensors('va')
+    windN, M, _ = load_tensors('va', min_samples=10)
     windN, M = windN[:10], M[:10]
 
     def trace_func(

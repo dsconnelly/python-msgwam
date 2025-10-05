@@ -19,41 +19,34 @@ class BulkNet(nn.Module):
         self.apply(xavier_init)
         self.to(torch.double)
 
-    def forward(self,
+    def forward(
+        self,
         windN: torch.Tensor,
         M: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Apply the forward model.
 
         Parameters
         ----------
+        windN
+            Tensor of wind, buoyancy frequency, and latitude data.
         M
             Tensor of bulk momentum profiles.
-        cg
-            Tensor of bulk group velocity profiles.
-        wind
-            Tensor of mean wind profiles, negated as necessary.
 
         Returns
         -------
-        torch.Tensor, torch.Tensor
-            Updated bulk momentum and group velocity profiles, respectively.
+        torch.Tensor
+            Updated bulk momentum profiles in each bin.
 
         """
 
-        windN, lat = windN[:, :-1], windN[:, -1:]
         X = torch.hstack((windN, M))
-        
-        if hp.n_convs > 0:
-            shape = (-1, self._n_channels, config.n_grid - 1)
-            X = self._conv(X.reshape(*shape)).flatten(1, 2) + X
-            X = torch.hstack((X, lat))
-
         out = apply_blocks(self._blocks, X)
-        out = out - out.mean(dim=1)[:, None]
-
-        return out
+        totals = out.sum(dim=1)[:, None]
+        totals[totals == 0] = 1
+    
+        return out / totals
         
     def _init_blocks(self) -> nn.ModuleList:
         """
@@ -66,12 +59,6 @@ class BulkNet(nn.Module):
 
         """
 
-        if hp.n_convs > 0:
-            sizes = [hp.n_hidden_conv] * (hp.n_convs - 1)
-            sizes = [self._n_channels] + sizes + [self._n_channels]
-            kernels = [max(hp.max_kernel - 2 * i, 3) for i in range(hp.n_convs)]
-            self._conv = get_block(sizes, kernels, final=False)
-
         blocks = nn.ModuleList()
         for i in range(hp.n_blocks):
             final = i == hp.n_blocks - 1
@@ -82,15 +69,6 @@ class BulkNet(nn.Module):
         return blocks
     
     @property
-    def _n_channels(self) -> int:
-        """
-        There are channels in the input convolutional layer corresponding to the
-        two mean state profiles and a profile for each phase speed bin.
-        """
-
-        return 2 + hp.n_bins
-
-    @property
     def _n_inputs(self) -> int:
         """
         A `Bulknet` accepts a latitude and profiles for mean wind, buoyancy
@@ -98,7 +76,7 @@ class BulkNet(nn.Module):
         profile has `config.n_grid - 1` values.
         """
 
-        return 1 + (config.n_grid - 1) * self._n_channels
+        return 1 + (config.n_grid - 1) * (2 + hp.n_bins)
 
     @property
     def _n_outputs(self) -> int:

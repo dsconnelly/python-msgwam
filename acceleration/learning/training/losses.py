@@ -1,7 +1,8 @@
-import numba
 import torch, torch.nn as nn
 
 from msgwam import config
+
+from .transforms import nonzero_std
 
 class BulkLoss(nn.Module):
     def __init__(self, Y: torch.Tensor) -> None:
@@ -18,7 +19,7 @@ class BulkLoss(nn.Module):
 
         super().__init__()
 
-        scales = torch.sqrt((Y ** 2).mean(dim=0))
+        scales = nonzero_std(Y)
         scales = scales.reshape(-1, config.n_grid - 1)
         self._scales = _topdown_fill(scales).flatten()
 

@@ -135,7 +135,8 @@ def get_split(
 
 def load_tensors(
     eval_type: Literal['va', 'te'],
-    n_bins: Optional[int]=None
+    min_samples: Optional[int]=None,
+    n_bins: Optional[int]=None    
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Load input and target data from netCDF files saved to disk.
@@ -169,6 +170,7 @@ def load_tensors(
     paths = [f'{base}/{site}-{i}.nc' for site in sites for i in range(1, 13)]
     args = [[], [], []]
     
+    total = 0
     for path in paths:
         with xr.open_dataset(path) as ds:
             u = torch.as_tensor(ds['u'].values)
@@ -201,6 +203,10 @@ def load_tensors(
         args[0].append(windN)
         args[1].append(M)
         args[2].append(Y)
+
+        total = total + Y.shape[0]
+        if min_samples is not None and total >= min_samples:
+            break
 
     return tuple(torch.vstack(arg) for arg in args)
 
@@ -267,8 +273,8 @@ def _make_pairs(
     """
 
     M_in = M[:-1].flatten(0, 1)
-    dM = M[1:].flatten(0, 1) - M_in - S[1:].flatten(0, 1)
-    Y = torch.hstack((dM, D[1:].flatten(0, 1)))
+    M_out = (M - S)[1:].flatten(0, 1)
+    Y = torch.hstack((M_out, D[1:].flatten(0, 1)))
     budget = M_in.sum(dim=1)[:, None]
 
     return M_in / budget, Y / budget

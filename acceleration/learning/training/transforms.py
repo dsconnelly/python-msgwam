@@ -95,6 +95,33 @@ def get_shift_and_scale(
     
     raise ValueError(f'Unknown transform mode: {mode}')
 
+def nonzero_std(a: torch.Tensor) -> torch.Tensor:
+    """
+    Get the standard deviation of each column, counting only nonzero entries.
+    Involves casting to `ndarray` to make use of `np.nanstd`.
+
+    Parameters
+    ----------
+    a
+        Data for which to calculate standard deviations.
+
+    Returns
+    -------
+    torch.Tensor
+        Standard deviations of nonzero entries. Entries corresponding to columns
+        that are entirely zero are themselves zero.
+
+    """
+
+    b = a.clone().numpy()
+    b[b == 0] = np.nan
+
+    out = np.zeros(b.shape[1])
+    valid = (~np.isnan(b)).sum(axis=0) > 0
+    out[valid] = np.nanstd(b[:, valid], axis=0)
+
+    return torch.as_tensor(out)
+
 def transform(
     a: torch.Tensor,
     shift: torch.Tensor,
