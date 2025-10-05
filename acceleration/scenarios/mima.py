@@ -2,6 +2,8 @@ import cftime
 import numpy as np
 import xarray as xr
 
+from typing import Optional
+
 from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.utils import get_vertical_grids
@@ -28,7 +30,7 @@ _MONTHS = {
 
 _N_MIN = 2 * np.pi / (2 * 3600)
 
-def get_mima_scenario(one_month: bool=True) -> xr.Dataset:
+def get_mima_scenario(month: Optional[int]=None) -> xr.Dataset:
     """Generate a mean wind from MiMA outputs."""
 
     _, z = get_vertical_grids()
@@ -39,9 +41,11 @@ def get_mima_scenario(one_month: bool=True) -> xr.Dataset:
         name = '-'.join(config.name.split('-')[1:])
         ds = ds.sel(site=name)
 
-        if one_month:
-            keep = ds['time.month'] == _MONTHS[name]
-            ds = ds.isel(time=keep)
+        if month is None:
+            month = _MONTHS[name]
+
+        keep = ds['time.month'] == _MONTHS[name]
+        ds = ds.isel(time=keep)
 
         time = cftime.date2num(ds['time'].values, f'minutes since {EPOCH}')
         time = cftime.num2date(time - time[0], f'minutes since {EPOCH}')

@@ -38,8 +38,10 @@ def get_overrides(n: int) -> dict[str, Any]:
 
     """
 
-    site, lat = get_site_and_lat(n)
-    path = f'data/ml-accel/context/{site}.nc'
+    n_site = n // 12
+    month = (n % 12) + 1
+    site, lat = get_site_and_lat(n_site)
+    path = f'data/ml-accel/context/{site}-{month}.nc'
 
     return {
         'prescribed_mean_file' : path,
@@ -47,7 +49,7 @@ def get_overrides(n: int) -> dict[str, Any]:
 
         'n_max' : 5000,
         'dr_source' : -hp.generation.dt_output,
-        'n_source' : 96,
+        'n_source' : 128,
         'dr_ghost' : 0,
         
         'max_age' : 14 * 86400,
@@ -61,7 +63,7 @@ def get_overrides(n: int) -> dict[str, Any]:
         'strict_source' : True,
         'oob_action' : 'mark',
 
-        'n_day' : 360,
+        'n_day' : 30,
         'dt' : hp.generation.dt,
         'dt_output' : hp.generation.dt_output,
         'max_dt_multiplier' : 10

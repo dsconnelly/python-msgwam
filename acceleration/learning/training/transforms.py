@@ -77,6 +77,22 @@ def get_shift_and_scale(
     if mode == 'z':
         return a.mean(dim=0), a.std(dim=0)
     
+    if mode == 'nonzero':
+        b = a.clone().numpy()
+        b[b == 0] = np.nan
+
+        shift = np.zeros(b.shape[1])
+        scale = np.zeros(b.shape[1])
+
+        valid = (~np.isnan(b)).sum(0) > 0
+        shift[valid] = np.nanmean(b[:, valid], axis=0)
+        scale[valid] = np.nanstd(b[:, valid], axis=0)
+
+        shift = torch.nan_to_num(torch.as_tensor(shift))
+        scale = torch.nan_to_num(torch.as_tensor(scale))
+
+        return shift, scale
+    
     raise ValueError(f'Unknown transform mode: {mode}')
 
 def transform(

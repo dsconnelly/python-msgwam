@@ -164,9 +164,13 @@ def load_tensors(
     if n_bins is None:
         n_bins = hp.architectures.n_bins
 
+    base = 'data/ml-accel/training'
+    sites = _SITES_TR + _SITES_TE * (eval_type == 'te')
+    paths = [f'{base}/{site}-{i}.nc' for site in sites for i in range(1, 13)]
     args = [[], [], []]
-    for site in _SITES_TR + _SITES_TE * (eval_type == 'te'):
-        with xr.open_dataset(f'data/ml-accel/training/{site}.nc') as ds:
+    
+    for path in paths:
+        with xr.open_dataset(path) as ds:
             u = torch.as_tensor(ds['u'].values)
             v = torch.as_tensor(ds['v'].values)
             N = torch.as_tensor(ds['N'].values)

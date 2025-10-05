@@ -71,9 +71,9 @@ def save_training_data(n_str: Optional[str]=None) -> None:
     for i, name in enumerate(['u', 'v', 'N']):
         data[name] = (('time', 'z_centers'), windN[:, i])
 
-    site, lat = get_site_and_lat(n)
+    site, lat = get_site_and_lat(n // 12)
     ds = xr.Dataset(data).assign_attrs(latitude=lat)
-    ds.to_netcdf(f'data/ml-accel/training/{site}.nc')
+    ds.to_netcdf(f'data/ml-accel/training/{site}-{(n % 12) + 1}.nc')
 
 def _make_callback(
     windN: np.ndarray,

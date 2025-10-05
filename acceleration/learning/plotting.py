@@ -13,12 +13,56 @@ from msgwam.utils import get_vertical_grids
 from .. import hyperparameters as hp
 
 from .generation import get_bin_edges
-from .training import get_split, load_tensors
+from .training import get_shift_and_scale, get_split, load_tensors, transform
 
 _SAVE_KWARGS = {
     'dpi' : 600,
     'bbox_inches' : 'tight'
 }
+
+def plot_distributions() -> None:
+    """Plot the distributions of the input features after transformation."""
+
+    n_bins = hp.architectures.n_bins
+    fig, axes = plt.subplots(1, n_bins + 2)
+    fig.set_size_inches(3 * (n_bins + 2), 4.5)
+    z = get_vertical_grids()[1] / 1000
+
+    windN, M, _ = load_tensors('va')
+    idx_tr, _ = get_split(M.shape[0], 'va')
+    windN, M = windN[idx_tr], M[idx_tr]
+
+    windN_stats = get_shift_and_scale(windN, 'z')
+    M_stats = get_shift_and_scale(M, hp.training.in_transform)
+    windN = transform(windN, *windN_stats)
+    M = transform(M, *M_stats)
+
+    windN = windN[:, :-1].reshape(M.shape[0], -1, config.n_grid - 1)
+    M = M.reshape(M.shape[0], -1, config.n_grid - 1)
+    
+    datas = [*windN.transpose(0, 1), *M.transpose(0, 1)]
+    names = ['wind', 'N'] + [f'bin {i}' for i in range(hp.architectures.n_bins)]
+    idx = torch.randperm(datas[0].shape[0])[:100]
+
+    for i, (ax, data, name) in enumerate(zip(axes, datas, names)):
+        color = 'k' if i < 2 else 'royalblue'
+
+        for k in idx:
+            ax.plot(data[k], z, color=color, alpha=0.05)
+
+        ax.set_xlim(-4, 4)
+        ax.set_ylim(5, 60)
+
+        ax.grid(color='lightgray')
+        ax.tick_params('both', direction='in')
+
+        ax.set_xlabel(name)
+        if i == 0:
+            ax.set_ylabel('height (km)')
+
+    plt.tight_layout()
+    path = f'plots/ml-accel/distributions.png'
+    plt.savefig(path, **_SAVE_KWARGS)
 
 def plot_training_errors(model_path: str) -> None:
     """
@@ -92,47 +136,54 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     
     """
 
-    n_rows, n_cols = hp.architectures.n_bins + 1, 4
+    n_rows, n_cols = 2, hp.architectures.n_bins + 2
     z = get_vertical_grids()[1] / 1000
 
     fig, axes = plt.subplots(n_rows, n_cols)
     fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
 
-    *inputs, Y = load_tensors('va')
+    windN, M, Y = load_tensors('va')
+    wind = windN[:, :(config.n_grid - 1)]
     dM = Y[..., :-(config.n_grid - 1)]
     D = Y[..., -(config.n_grid - 1):]
 
     idx, _ = get_split(dM.shape[0], 'va')
-    ks = idx[np.argsort(np.random.rand(len(idx)))[:n_cols]]
+    ks = idx[np.argsort(np.random.rand(len(idx)))[:n_rows]]
 
     dM = dM.reshape(dM.shape[0], -1, config.n_grid - 1)
-    datas = [*dM.transpose(0, 1), D]
+    datas = [wind, *dM.transpose(0, 1), D]
     data_hats = [None] * len(datas)
     
     if model_path is not None:
-        Y_hat = torch.jit.load(model_path)(*inputs)
+        Y_hat = torch.jit.load(model_path)(windN, M)
         dM_hat = Y_hat[:, :-(config.n_grid - 1)]
         D_hat = Y_hat[:, -(config.n_grid - 1):]
 
         dM_hat = dM_hat.reshape(dM.shape[0], -1, config.n_grid - 1)
-        data_hats = [*dM_hat.transpose(0, 1), D_hat]
+        data_hats = [None, *dM_hat.transpose(0, 1), D_hat]
 
-    for j, k in enumerate(ks):
-        for i, (data, data_hat) in enumerate(zip(datas, data_hats)):
-            color = 'tab:red' if i == len(datas) - 1 else 'royalblue'
+    for i, k in enumerate(ks):
+        for j, (data, data_hat) in enumerate(zip(datas, data_hats)):
+            if j == 0:
+                color = 'k'
+            elif j == len(datas) - 1:
+                color = 'tab:red'
+            else:
+                color = 'royalblue'
+
             axes[i, j].plot(data[k], z, color=color)
-
             if data_hat is not None:
                 axes[i, j].plot(data_hat[k], z, color=color, ls='dashed')
 
-            xmax = 3e-3
+            xmax = 75 if j == 0 else 3e-3
             axes[i, j].set_xlim(-xmax, xmax)
             axes[i, j].set_ylim(5, 60)
 
             axes[i, j].grid(color='lightgray')
             axes[i, j].tick_params('both', direction='in')
 
-            axes[i, j].set_title(f'{100 * data[k].sum():.6f}%')
+            if j > 0:
+                axes[i, j].set_title(f'{100 * data[k].sum():.6f}%')
 
     plt.tight_layout()
     path = f'plots/ml-accel/training-samples.png'
