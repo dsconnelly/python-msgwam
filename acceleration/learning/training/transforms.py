@@ -121,7 +121,7 @@ def nonzero_std(a: torch.Tensor) -> torch.Tensor:
 
     """
 
-    b = a.clone().numpy()
+    b = a.clone().cpu().numpy()
     b[b == 0] = np.nan
 
     out = np.zeros(b.shape[1])

@@ -16,7 +16,8 @@ _COLORS = {
     'ICONlike' : 'k',
     'instantaneous' : 'tab:red',
     'stochastic' : 'royalblue',
-    'coarse' : 'forestgreen'
+    'coarse' : 'forestgreen',
+    'network' : 'darkviolet'
 }
 
 _STYLES = {

@@ -1,11 +1,12 @@
-from typing import Any
+from typing import Any, Optional
 
+import numba as nb
 import numpy as np
 import xarray as xr
 
 from ... import hyperparameters as hp
 
-def get_bin_edges() -> np.ndarray:
+def get_bin_edges(n_bins: Optional[int]=None) -> np.ndarray:
     """
     Get the bin edges to use when projecting the ray volumes.
 
@@ -19,6 +20,10 @@ def get_bin_edges() -> np.ndarray:
 
     edges = np.linspace(0, 54, hp.generation.n_bins)
     edges = np.concatenate((edges, [100]))
+
+    if n_bins is not None:
+        left = edges[:-1].reshape(n_bins, -1)[:, 0]
+        edges = np.concatenate((left, edges[-1:]))
 
     return edges
 
@@ -69,7 +74,12 @@ def get_overrides(n: int) -> dict[str, Any]:
         'max_dt_multiplier' : 10
     }
 
-def get_pdx(k: np.ndarray, l: np.ndarray, cp_hat: np.ndarray) -> np.ndarray:
+def get_pdx(
+    k: np.ndarray,
+    l: np.ndarray,
+    cp_hat: np.ndarray,
+    n_bins: Optional[int]=None
+) -> np.ndarray:
     """
     Return an integer array indicating the bin into which each ray should be
     projected. The rays are sorted by quadrant, and then perhaps more finely by
@@ -90,12 +100,15 @@ def get_pdx(k: np.ndarray, l: np.ndarray, cp_hat: np.ndarray) -> np.ndarray:
 
     """
 
-    edges = get_bin_edges()
+    edges = get_bin_edges(n_bins)
     cp_hat = np.clip(cp_hat, edges[0], edges[-1])
     out = np.argmax(cp_hat[:, None] <= edges[1:], axis=1)
 
+    if n_bins is None:
+        n_bins = hp.generation.n_bins
+
     quad = (k > 0) + 2 * (l > 0) + 3 * (k < 0) + 4 * (l < 0)
-    out = (quad - 1) * hp.generation.n_bins + out
+    out = (quad - 1) * n_bins + out
     out[np.isnan(cp_hat)] = -1
 
     return out.astype(np.int32)
@@ -123,3 +136,36 @@ def get_site_and_lat(n: int) -> tuple[str, float]:
         lat = ds['lat'].values[n]
 
     return site, lat
+
+@nb.njit
+def project(
+    r: np.ndarray,
+    dr: np.ndarray,
+    edges: np.ndarray,
+    data: np.ndarray,
+    pdx: np.ndarray,
+    out: np.ndarray,
+) -> None:
+    """
+    JITted function that projects the momentum and group velocity contributions
+    onto the vertical grid, and gets the indices of the most important rays for
+    each grid level and wavenumber quadrant. Similar to the `project` function
+    used by the MS-GWaM code proper, but specialized for use in the callback.
+    """
+
+    r_lo = r - 0.5 * dr
+    r_hi = r + 0.5 * dr
+
+    for i, (a, b, p) in enumerate(zip(r_lo, r_hi, pdx)):
+        if np.isnan(a) or p < 0:
+            continue
+
+        for j, (z_lo, z_hi) in enumerate(zip(edges[:-1], edges[1:])):
+            if b < z_lo:
+                break
+
+            if z_hi < a:
+                continue
+
+            frac = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
+            out[p, j] += frac * data[i]

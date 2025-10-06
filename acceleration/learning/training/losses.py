@@ -21,7 +21,10 @@ class BulkLoss(nn.Module):
 
         scales = nonzero_std(Y)
         scales = scales.reshape(-1, config.n_grid - 1)
-        self._scales = _topdown_fill(scales).flatten()
+        scales = _topdown_fill(scales).flatten()
+
+        self.register_buffer('_scales', scales)
+        self._scales: torch.Tensor
 
     def forward(self, Y: torch.Tensor, Y_hat: torch.Tensor) -> torch.Tensor:
         """

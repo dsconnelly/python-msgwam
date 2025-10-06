@@ -6,9 +6,11 @@ from .plotting import (
     plot_training_samples,
     plot_training_series
 )
+from .propagators import NetworkPropagator
 from .training import train_network
 
 __all__ = [
+    'NetworkPropagator',
     'plot_distributions',
     'plot_hyperparameter_scores',
     'plot_training_errors',

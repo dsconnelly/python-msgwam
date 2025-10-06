@@ -78,6 +78,17 @@ def _get_MiMAlike_overrides() -> dict[str, Any]:
         'n_source' : 40
     }
 
+def _get_network_overrides() -> dict[str, Any]:
+    """Use a neural network to advance the wave momentum state."""
+
+    return {
+        'model_path' : 'data/ml-accel/models/model-best.jit',
+        'propagator_type' : 'network',
+        'model_id' : 251,
+        'dr_source' : -1200,
+        'n_source' : 128
+    }
+
 def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""
 

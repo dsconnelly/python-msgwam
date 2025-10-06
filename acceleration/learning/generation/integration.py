@@ -1,7 +1,6 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
-import numba as nb
 import numpy as np
 import xarray as xr
 
@@ -12,7 +11,13 @@ from msgwam.utils import get_vertical_grids
 from ... import hyperparameters as _hp
 from ...hyperparameters import generation as hp
 
-from .utils import get_bin_edges, get_overrides, get_pdx, get_site_and_lat
+from .utils import (
+    get_bin_edges,
+    get_overrides,
+    get_pdx,
+    get_site_and_lat,
+    project
+)
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
@@ -127,8 +132,8 @@ def _make_callback(
         attr = prop.attrition * (abs(prop.age) >= since_last)   
         cg = prop._get_cg_r(mean) / (hp.dt_output // hp.dt)
 
-        _project(prop.r, prop.dr, mean.z_faces, attr, pdx, D[i])
-        _project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[i])
+        project(prop.r, prop.dr, mean.z_faces, attr, pdx, D[i])
+        project(prop.r, prop.dr, prop._z_padded, mom * cg, pdx, F[i])
         _break_oob_rays(prop, mean, mom + attr, pdx, D[i, :, -config.n_sponge:])
         
         if n_seconds % hp.dt_output:
@@ -139,8 +144,8 @@ def _make_callback(
 
         ndx = bdx.copy()
         ndx[prop.age >= hp.dt_output] = -1
-        _project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[i])
-        _project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i])
+        project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[i])
+        project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i])
 
     return callback
 
@@ -167,36 +172,3 @@ def _break_oob_rays(
     prop._data[1] = prop.dr - dr
     prop._data[0] = r_lo + prop.dr / 2
     prop._delete_rays(prop.age < 0)
-
-@nb.njit
-def _project(
-    r: np.ndarray,
-    dr: np.ndarray,
-    edges: np.ndarray,
-    data: np.ndarray,
-    pdx: np.ndarray,
-    out: np.ndarray,
-) -> None:
-    """
-    JITted function that projects the momentum and group velocity contributions
-    onto the vertical grid, and gets the indices of the most important rays for
-    each grid level and wavenumber quadrant. Similar to the `project` function
-    used by the MS-GWaM code proper, but specialized for use in the callback.
-    """
-
-    r_lo = r - 0.5 * dr
-    r_hi = r + 0.5 * dr
-
-    for i, (a, b, p) in enumerate(zip(r_lo, r_hi, pdx)):
-        if np.isnan(a) or p < 0:
-            continue
-
-        for j, (z_lo, z_hi) in enumerate(zip(edges[:-1], edges[1:])):
-            if b < z_lo:
-                break
-
-            if z_hi < a:
-                continue
-
-            frac = (min(b, z_hi) - max(a, z_lo)) / (z_hi - z_lo)
-            out[p, j] += frac * data[i]

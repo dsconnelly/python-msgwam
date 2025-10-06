@@ -13,7 +13,7 @@ _DEFAULTS = {}
 # global integration settings
 ################################################################################∂
 propagator_type: Literal['instantaneous', 'network', 'transient']
-source_type: Literal['constant', 'network', 'packet', 'stochastic']
+source_type: Literal['constant', 'packet', 'stochastic']
 spectrum_type: Literal['mima', 'custom']
 
 ################################################################################
@@ -95,10 +95,8 @@ strict_source: bool
 ################################################################################
 # 'network' propagator
 ################################################################################
-lookback: int
-n_history: int
-network_path: str
-time_horizon: float
+model_path: str
+model_id: int
 
 ################################################################################
 # 'packet' source

@@ -14,6 +14,8 @@ from .io import get_best_task_id, get_loaders, get_split, load_tensors
 from .losses import BulkLoss
 from .transforms import get_shift_and_scale, transform
 
+_DEVICE = torch.device('cpu')
+
 def train_network(
     eval_type: Literal['va', 'te'],
     state_path: Optional[str]=None
@@ -34,9 +36,10 @@ def train_network(
         print(f'Best hyperparameter setting was {i}.')
 
     hp.show_hyperparameters()
+    _set_device()
 
     loader_tr, loader_ev, windN_stats, M_stats = _load_data(eval_type)
-    loss_func = BulkLoss(loader_tr.dataset.tensors[-1])
+    loss_func = BulkLoss(loader_tr.dataset.tensors[-1]).to(_DEVICE)
     model, optimizer = _load_model(state_path)
 
     state = {}
@@ -47,10 +50,12 @@ def train_network(
     max_hours = hp.training.max_hours
 
     while n_epoch <= max_epochs and (time() - start) / 3600 < max_hours:
+        epoch_start = time()
         loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
-        
-        print(f'==== epoch {n_epoch} ====')
+        runtime = time() - epoch_start
+
+        print(f'==== epoch {n_epoch} ({runtime:.3f} s) ====')
         print(f'  loss_tr = {loss_tr:.6f}')
         print(f'  loss_ev = {loss_ev:.6f}')
 
@@ -63,6 +68,7 @@ def train_network(
 
     print(f'Best loss was {best_loss:.6f}')
     model.load_state_dict(state['model'])
+    model.to(torch.device('cpu'))
 
     del loader_tr, loader_ev
     traced = _trace(model, windN_stats, M_stats)
@@ -114,6 +120,7 @@ def _load_data(eval_type: Literal['va', 'te']) -> tuple[
     print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
     print(f'Maximum residual in targets is {max_res:.4e}.')
 
+    windN, M, Y = windN.to(_DEVICE), M.to(_DEVICE), Y.to(_DEVICE)
     loader_tr, loader_ev = get_loaders(windN, M, Y, idx_tr, idx_ev)
     return loader_tr, loader_ev, windN_stats, M_stats
 
@@ -134,7 +141,7 @@ def _load_model(state_path: Optional[str]=None) -> tuple[BulkNet, Adam]:
 
     """
 
-    model = BulkNet()
+    model = BulkNet().to(_DEVICE)
     optimizer = Adam(model.parameters(), hp.training.learning_rate)
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Loaded model has {n_params} trainable parameters.')
@@ -206,6 +213,14 @@ def _run_epoch(
             optimizer.step()
 
     return (total / weight_sum) ** 0.5
+
+def _set_device() -> None:
+    """Set the global `_DEVICE` depending on whether a GPU is available."""
+
+    global _DEVICE
+    if torch.cuda.is_available():
+        _DEVICE = torch.device('cuda')
+        print('Training will occur on the GPU.')
 
 def _trace(
     model: BulkNet,

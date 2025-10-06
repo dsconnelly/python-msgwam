@@ -1,0 +1,127 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING, Self
+
+import numpy as np
+import torch
+
+from msgwam import config
+from msgwam.dispersion import get_omega_hat
+from msgwam.propagators import Propagator
+
+from .. import hyperparameters as hp
+
+from .generation import get_pdx, project
+
+if TYPE_CHECKING:
+    from msgwam.means import MeanState
+
+class NetworkPropagator(Propagator):
+    def __init__(self, mean: MeanState):
+        """
+        Initializes arrays to hold the current bulk momentum profile in each
+        quadrant and phase speed bin, as well as the most recently calculated
+        momentum flux in each direction.
+        """
+
+        super().__init__(mean)
+
+        hp.load(hp.grid_path, config.model_id)
+        self._model = torch.jit.load(config.model_path)
+        self._n_bins = hp.architectures.n_bins
+        
+        self._M = np.zeros((4, self._n_bins, config.n_grid - 1))
+        self._F = np.zeros((4, config.n_grid))
+        self.step(mean, 0)
+
+    def get_fluxes(self, _, net: bool=True) -> np.ndarray:
+        """
+        The `NetworkPropagator` does most of its work in `step`, including the
+        calculation of the time-averaged flux profiles. Here all that needs to
+        be done is add the relevant signed components if `net`.
+        """
+
+        signs = np.array([1, 1, -1, -1])
+        F = signs[:, None] * self._F
+
+        if net:
+            return np.vstack((F[0] + F[2], F[1] + F[3]))
+        
+        return F[[0, 2, 1, 3]]
+
+    def step(self, mean: MeanState, n_step: int) -> Self:
+        """
+        Adds the momentum flux associated with ray volumes that launch this time
+        step to the momentum flux profiles, and then uses the loaded network to
+        advance the state of the system.
+        """
+
+        n_seconds = config.dt * n_step
+        if n_seconds % hp.generation.dt_output:
+            return self
+        
+        windN = self._make_windN(mean)
+        M_in = self._M + self._check_source(mean, n_step)
+        budget = M_in.reshape(4, -1).sum(axis=1)[:, None]
+
+        inputs = map(torch.as_tensor, [windN, M_in.reshape(4, -1) / budget])
+        Y = self._model(*inputs).numpy() * budget
+        Y = Y.reshape(4, self._n_bins + 1, -1)
+        M_out, D = Y[:, :-1], Y[:, -1]
+
+        delta = ((M_out - M_in).sum(axis=1) + D) / hp.generation.dt_output
+        self._F[:, 1:] = np.cumsum(-delta, axis=-1) * mean.dz
+        self._M = M_out
+    
+        return self
+
+    def _check_source(self, mean: MeanState, n_step: int) -> np.ndarray:
+        """
+        Get the extra momentum flux to add to each bin by checking the source
+        and then allowing the waves to break according to the Lindzen criterion.
+        """
+
+        N = np.interp(config.r_source, mean.z_centers, mean.N)
+        G2 = np.interp(config.r_source, mean.z_centers, mean.G2)
+
+        (dr, k, l, m, dk, dl, dm, dens), _ = self._source.launch(mean, n_step)
+        omega_hat = get_omega_hat(k, l, m, N, G2)
+        cp_hat = omega_hat / abs(k + l)
+
+        action = dens * dk * dl * dm
+        r = config.r_source - 0.5 * dr
+        pdx = get_pdx(k, l, cp_hat, self._n_bins)
+
+        wvn_hor_sq = k ** 2 + l ** 2
+        wvn_sq = wvn_hor_sq + m ** 2
+        S = action * wvn_hor_sq * m ** 2 / (omega_hat * wvn_sq)
+        P, Q = np.zeros((2, 4, config.n_grid - 1))
+
+        threshold = mean.rho / 2
+        project(r, dr, mean.z_faces, S, pdx // self._n_bins, P)
+        project(r, dr, mean.z_faces, S * wvn_sq, pdx // self._n_bins, Q)
+        P = P - threshold
+
+        idx = Q != 0
+        kappa = np.zeros_like(P)
+        kappa[idx] = P[idx] / Q[idx]
+
+        kappa = kappa.max(axis=1)[pdx // self._n_bins]
+        factor = np.maximum(0, 1 - wvn_sq * kappa)
+        mom = abs((k + l) * factor * action)
+
+        out = np.zeros((4 * self._n_bins, config.n_grid - 1))
+        project(r, dr, mean.z_faces, mom, pdx, out)
+
+        return out.reshape(4, self._n_bins, config.n_grid - 1)
+
+    def _make_windN(self, mean: MeanState) -> torch.Tensor:
+        """
+        Assemble the input to the neural network consisting of the mean wind,
+        buoyancy frequency, and latitude.
+        """
+
+        wind = np.vstack((mean.u, mean.v, -mean.u, -mean.v))
+        N = np.vstack((mean.N, mean.N, mean.N, mean.N))
+        lat = config.latitude * np.ones((4, 1))
+
+        return torch.as_tensor(np.hstack((wind, N, lat)))
