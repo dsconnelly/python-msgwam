@@ -136,7 +136,8 @@ def get_split(
 def load_tensors(
     eval_type: Literal['va', 'te'],
     min_samples: Optional[int]=None,
-    n_bins: Optional[int]=None    
+    n_bins: Optional[int]=None,
+    cached: bool=False
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Load input and target data from netCDF files saved to disk.
@@ -161,6 +162,14 @@ def load_tensors(
         time step are normalized by the appropriate budget.
 
     """
+
+    if cached:
+        _load = lambda s: torch.load(s, weights_only=True)
+        windN = _load(f'data/ml-accel/cached/windN-{eval_type}.pkl')
+        M = _load(f'data/ml-accel/cached/M-{eval_type}.pkl')
+        Y = _load(f'data/ml-accel/cached/Y-{eval_type}.pkl')
+
+        return windN, M, Y
 
     if n_bins is None:
         n_bins = hp.architectures.n_bins
@@ -208,7 +217,12 @@ def load_tensors(
         if min_samples is not None and total >= min_samples:
             break
 
-    return tuple(torch.vstack(arg) for arg in args)
+    windN, M, Y = tuple(torch.vstack(arg) for arg in args)
+    torch.save(windN, f'data/ml-accel/cached/windN-{eval_type}.pkl')
+    torch.save(M, f'data/ml-accel/cached/M-{eval_type}.pkl')
+    torch.save(Y, f'data/ml-accel/cached/Y-{eval_type}.pkl')
+
+    return windN, M, Y
 
 def _make_windN(
     u: torch.Tensor,

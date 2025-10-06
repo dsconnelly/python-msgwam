@@ -105,7 +105,7 @@ def _load_data(eval_type: Literal['va', 'te']) -> tuple[
 
     """
 
-    windN, M, Y = load_tensors(eval_type)
+    windN, M, Y = load_tensors(eval_type, cached=True)
     idx_tr, idx_ev = get_split(M.shape[0], eval_type)
 
     windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
