@@ -1,3 +1,5 @@
+import tomllib
+
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -5,7 +7,8 @@ import numpy as np
 import torch
 import xarray as xr
 
-from matplotlib.colors import LinearSegmentedColormap as LSC
+from matplotlib.colors import LinearSegmentedColormap as LSC, Normalize
+from matplotlib.patches import Rectangle
 
 from msgwam import config
 from msgwam.utils import get_vertical_grids
@@ -25,6 +28,92 @@ _SAVE_KWARGS = {
     'dpi' : 600,
     'bbox_inches' : 'tight'
 }
+
+def plot_hyperparameter_scores() -> None:
+    """
+    
+    """
+
+    with open(hp.grid_path, 'rb') as f:
+        options, _ = hp._parse_grid(tomllib.load(f))
+
+    mesh = np.meshgrid(*options.values(), indexing='ij')
+    params = np.stack(mesh, axis=0).reshape(len(options), -1)
+    totals = {name : np.zeros(len(v)) for name, v in options.items()}
+    counts = {name : np.zeros(len(v)) for name, v in options.items()}
+
+    best_score, best_k = np.inf, None
+    for k in range(params.shape[1]):
+        try:
+            with open(f'data/ml-accel/records/loss-{k}.txt') as f:
+                score = float(f.read().strip())
+
+        except FileNotFoundError:
+            continue
+
+        if score < best_score:
+            best_score = score
+            best_k = k
+
+        for i, (name, values) in enumerate(options.items()):
+            j = values.index(params[i, k])
+            totals[name][j] += score
+            counts[name][j] += 1
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(5.5, 4.5)
+    ax.invert_yaxis()
+
+    means = {}
+    for name in totals:
+        idx = counts[name] > 0
+        means[name] = np.zeros_like(totals[name])
+        means[name][idx] = totals[name][idx] / counts[name][idx]
+        
+    norm = Normalize(0, 1)
+    cmap = plt.cm.get_cmap('Reds')
+
+    for i, (name, data) in enumerate(means.items()):
+        colors = cmap(norm(data))
+        width = 1 / len(data)
+
+        for j, color in enumerate(colors):
+            ax.add_patch(Rectangle(
+                (j * width, i - 0.5),
+                width=width, height=1,
+                ec='none', fc=color
+            ))
+
+            value = options[name][j]
+            ax.text(
+                (j + 0.5) * width, i,
+                s='$\\bf{' + f'{value}:' + '}$' + f' {data[j]:.4f}',
+                size='large',
+                ha='center',
+                va='center'
+            )
+
+        j = options[name].index(params[i, best_k])
+        ax.add_patch(Rectangle(
+            (j * width, i - 0.5),
+            width=width, height=1,
+            ec='forestgreen', fc='none',
+            linewidth=1.5,
+            clip_on=False,
+            zorder=10
+        ))
+
+    ax.spines[['left', 'right', 'top', 'bottom']].set_visible(False)
+    ax.tick_params('both', color=[0, 0, 0, 0])
+
+    ax.set_ylim(len(means) - 0.5, -0.5)
+    ax.set_yticks(np.arange(len(means)))
+    ax.set_yticklabels([k.split('.')[-1] for k in means.keys()])
+    ax.set_xticks([])
+
+    plt.tight_layout()
+    path = f'plots/ml-accel/hyperparameter-scores.png'
+    plt.savefig(path, **_SAVE_KWARGS)
 
 def plot_distributions() -> None:
     """Plot the distributions of the input features after transformation."""
@@ -70,17 +159,20 @@ def plot_distributions() -> None:
     path = f'plots/ml-accel/distributions.png'
     plt.savefig(path, **_SAVE_KWARGS)
 
-def plot_training_errors(model_path: str) -> None:
+def plot_training_errors(n_str: str) -> None:
     """
     Plot the RMS training errors for each output profile.
     
     Parameters
     ----------
-    model_path
-        Path to a JITted model pipeline to evaluate.
+    n_str
+        String indicating the task ID from which to load a model.
 
     """
-    
+
+    hp.load(hp.grid_path, int(n_str))
+    model_path = f'data/ml-accel/models/model-{n_str}.jit'
+
     n_bins = hp.architectures.n_bins
     fig, axes = plt.subplots(1, n_bins + 1)
     fig.set_size_inches(3 * (n_bins + 1), 4.5)
@@ -129,19 +221,23 @@ def plot_training_errors(model_path: str) -> None:
     path = 'plots/ml-accel/training-errors.png'
     plt.savefig(path, **_SAVE_KWARGS)
 
-def plot_training_samples(model_path: Optional[str]=None) -> None:
+def plot_training_samples(n_str: Optional[str]=None) -> None:
     """
     Plot individual profiles in the training data.
     
     Parameters
     ----------
-    model_path
-        Path to a JITted model pipeline. If provided, the actual profiles will
-        be shown alongside what the loaded model predicted for that sample.
+    n_str
+        Task ID indicating a trained model to load. If provided, that model's
+        predictions will be shown along the true values.
     
     """
 
-    n_rows, n_cols = 2, hp.architectures.n_bins + 2
+    if n_str is not None:
+        hp.load(hp.grid_path, int(n_str))
+        model_path = f'data/ml-accel/models/model-{n_str}.jit'
+
+    n_rows, n_cols = 4, hp.architectures.n_bins + 2
     z = get_vertical_grids()[1] / 1000
 
     fig, axes = plt.subplots(n_rows, n_cols)
@@ -159,7 +255,7 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
     datas = [wind, *dM.transpose(0, 1), D]
     data_hats = [None] * len(datas)
     
-    if model_path is not None:
+    if n_str is not None:
         Y_hat = torch.jit.load(model_path)(windN, M)
         dM_hat = Y_hat[:, :-(config.n_grid - 1)]
         D_hat = Y_hat[:, -(config.n_grid - 1):]
@@ -171,17 +267,20 @@ def plot_training_samples(model_path: Optional[str]=None) -> None:
         for j, (data, data_hat) in enumerate(zip(datas, data_hats)):
             if j == 0:
                 color = 'k'
+                xmax = 75
             elif j == len(datas) - 1:
                 color = 'tab:red'
+                xmax = 2e-3
             else:
                 color = 'royalblue'
+                xmax = 1e-2
 
             axes[i, j].plot(data[k], z, color=color)
             if data_hat is not None:
                 axes[i, j].plot(data_hat[k], z, color=color, ls='dashed')
 
-            xmax = 75 if j == 0 else 3e-3
-            axes[i, j].set_xlim(-xmax, xmax)
+            factor = -1 if j == 0 else -0.1
+            axes[i, j].set_xlim(factor * xmax, xmax)
             axes[i, j].set_ylim(5, 60)
 
             axes[i, j].grid(color='lightgray')

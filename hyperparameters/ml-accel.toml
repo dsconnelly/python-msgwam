@@ -19,22 +19,18 @@ dt_output = 1200
 n_bins = 10
 
 [architectures]
-batch_norm_pos = [1, 0, -1]
-n_bins = [2]
+batch_norm_pos = [-1, 0, 1]
+n_bins = [2, 5]
 
-# n_convs = [3, 10]
-# n_hidden_conv = [8, 32]
-# max_kernel = 7
-
-n_blocks = [3, 5]
-n_hidden_lin = [64, 256]
+n_blocks = [2, 5]
+n_hidden_lin = [64, 256, 1024]
 block_depth = [3, 6]
+skip_mode = [-1, 1]
 
 [training]
-batch_size = 256
-in_transform = ['nonzero', 'z']
+batch_size = [32, 256]
+in_transform = 'nonzero'
 learning_rate = 1e-3
-max_epochs = 100
+max_epochs = 10
 max_hours = 2
 n_smoothing = 8
-output_scale = 1

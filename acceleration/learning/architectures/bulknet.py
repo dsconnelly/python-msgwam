@@ -62,8 +62,10 @@ class BulkNet(nn.Module):
         blocks = nn.ModuleList()
         for i in range(hp.n_blocks):
             final = i == hp.n_blocks - 1
-            sizes = [self._n_inputs] + [hp.n_hidden_lin] * hp.block_depth
-            sizes = sizes + [self._n_outputs if final else self._n_inputs]
+            first = self._n_inputs * (1 + (i > 0 and hp.skip_mode == -1))
+            last = self._n_outputs if final else self._n_inputs
+
+            sizes = [first] + [hp.n_hidden_lin] * hp.block_depth + [last]
             blocks.append(get_block(sizes, final=final))
 
         return blocks

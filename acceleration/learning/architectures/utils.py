@@ -1,5 +1,3 @@
-from typing import Optional
-
 import torch, torch.nn as nn
 
 from ...hyperparameters import architectures as hp
@@ -24,7 +22,13 @@ def apply_blocks(blocks: nn.ModuleList, X: torch.Tensor) -> torch.Tensor:
 
     output = X
     for block in blocks[:-1]:
-        output = X + block(output)
+        output = block(output)
+
+        if hp.skip_mode == -1:
+            output = torch.hstack((output, X))
+
+        elif hp.skip_mode == 1:
+            output = output + X
 
     return blocks[-1](output)
 

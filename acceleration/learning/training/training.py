@@ -101,7 +101,6 @@ def _load_data(eval_type: Literal['va', 'te']) -> tuple[
 
     windN, M, Y = load_tensors(eval_type)
     idx_tr, idx_ev = get_split(M.shape[0], eval_type)
-    Y = Y * hp.training.output_scale
 
     windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
     M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
@@ -110,7 +109,7 @@ def _load_data(eval_type: Literal['va', 'te']) -> tuple[
 
     n_tr, n_ev = len(idx_tr), len(idx_ev)
     word = {'va' : 'validation', 'te' : 'test'}[eval_type]
-    max_res = abs(Y.sum(dim=1)).max()
+    max_res = abs(Y.sum(dim=1) - 1).max()
 
     print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
     print(f'Maximum residual in targets is {max_res:.4e}.')
@@ -252,7 +251,7 @@ def _trace(
         windN = transform(windN, *windN_stats)
         M = transform(M, *M_stats)
 
-        return model(windN, M) / hp.training.output_scale
+        return model(windN, M)
 
     with torch.no_grad():
         return torch.jit.trace(trace_func, (windN, M))

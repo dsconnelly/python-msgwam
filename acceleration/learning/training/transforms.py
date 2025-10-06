@@ -78,22 +78,30 @@ def get_shift_and_scale(
         return a.mean(dim=0), a.std(dim=0)
     
     if mode == 'nonzero':
-        b = a.clone().numpy()
-        b[b == 0] = np.nan
-
-        shift = np.zeros(b.shape[1])
-        scale = np.zeros(b.shape[1])
-
-        valid = (~np.isnan(b)).sum(0) > 0
-        shift[valid] = np.nanmean(b[:, valid], axis=0)
-        scale[valid] = np.nanstd(b[:, valid], axis=0)
-
-        shift = torch.nan_to_num(torch.as_tensor(shift))
-        scale = torch.nan_to_num(torch.as_tensor(scale))
-
-        return shift, scale
+        return nonzero_mean(a), nonzero_std(a)
     
     raise ValueError(f'Unknown transform mode: {mode}')
+
+def nonzero_mean(a: torch.Tensor) -> torch.Tensor:
+    """
+    Get the mean of each column, counting only nonzero entries.
+
+    Parameters
+    ----------
+    a
+        Data for which to calculate means.
+    
+    Returns
+    -------
+    torch.Tensor
+        Means of nonzero entries in each column.
+
+    """
+
+    b = a.clone()
+    b[b == 0] = torch.nan
+
+    return torch.nan_to_num(torch.nanmean(b, dim=0))
 
 def nonzero_std(a: torch.Tensor) -> torch.Tensor:
     """
