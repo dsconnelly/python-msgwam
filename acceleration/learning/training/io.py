@@ -29,51 +29,24 @@ _SITES_TE = [
     'amundsen-sea'
 ]
 
-def get_best_task_id() -> int:
-    """
-    Get the index of the best hyperparameter setting found in grid search.
-
-    Returns
-    -------
-    int
-        Index of the best set of hyperparameters.
-
-    """
-
-    best_loss = np.inf
-    best_id = None
-
-    for i in range(hp.grid_size):
-        try:
-            with open(f'data/ml-accel/records/loss-{i}.txt') as f:
-                loss = float(f.read().strip())
-
-            if loss < best_loss:
-                best_loss = loss
-                best_id = i
-
-        except FileNotFoundError:
-            warn(f'Could not find record for hyperparameter setting {i}')
-
-    return best_id
-
 def get_loaders(
-    wind: torch.Tensor,
-    M: torch.Tensor,
-    Y: torch.Tensor,
+    batch_size_tr: int,
     idx_tr: torch.Tensor,
-    idx_ev: torch.Tensor
+    idx_ev: torch.Tensor,
+    *args: torch.Tensor
 ) -> tuple[DataLoader, DataLoader]:
     """
     Package the training and evaluation data into `DataLoader` instances.
 
     Parameters
     ----------
-    wind, M, Y
-        Tensors of input and output data.
+    batch_size_tr
+        Batch size to use for the training set.
     idx_tr, idx_ev
         Tensors that partition the data into training and evaluation sets.
-
+    args
+        Tensors to split and put into `DataLoader` instances.
+        
     Returns
     -------
     DataLoader, DataLoader
@@ -83,9 +56,9 @@ def get_loaders(
 
     loaders = []
     for i, idx in enumerate([idx_tr, idx_ev]):
-        batch_size = [hp.training.batch_size, 2048][i]
-        dataset = TensorDataset(wind[idx], M[idx], Y[idx])
-        loaders.append(DataLoader(dataset, batch_size, shuffle=(i == 0)))
+        ds = TensorDataset(*[arg[idx] for arg in args])
+        batch_size = (1 - i) * batch_size_tr + i * 4096
+        loaders.append(DataLoader(ds, batch_size, i == 0))
 
     return tuple(loaders)
 
@@ -136,7 +109,6 @@ def get_split(
 def load_tensors(
     eval_type: Literal['va', 'te'],
     min_samples: Optional[int]=None,
-    n_bins: Optional[int]=None,
     cached: bool=False
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
@@ -147,9 +119,6 @@ def load_tensors(
     eval_type
         String specifying whether evaluation data should be from the validation
         set or the test set, used here to determine which files to read.
-    n_bins
-        How many phase speed bins to preserve. Defaults to the value specified
-        by the loaded hyperparameter grid, but can be overridden.
 
     Returns
     -------
@@ -164,20 +133,16 @@ def load_tensors(
     """
 
     if cached:
-        _load = lambda s: torch.load(s, weights_only=True)
-        windN = _load(f'data/ml-accel/cached/windN-{eval_type}.pkl')
-        M = _load(f'data/ml-accel/cached/M-{eval_type}.pkl')
-        Y = _load(f'data/ml-accel/cached/Y-{eval_type}.pkl')
+        _make_path = lambda s: f'data/ml-accel/cached/{s}-{eval_type}.pkl'
+        _load = lambda s: torch.load(_make_path(s), weights_only=True)
+        outputs = map(_load, ['windN', 'M_in', 'M_out', 'D'])
 
-        return windN, M, Y
-
-    if n_bins is None:
-        n_bins = hp.architectures.n_bins
+        return tuple(outputs)
 
     base = 'data/ml-accel/training'
     sites = _SITES_TR + _SITES_TE * (eval_type == 'te')
     paths = [f'{base}/{site}-{i}.nc' for site in sites for i in range(1, 13)]
-    args = [[], [], []]
+    args = [[], [], [], []]
     
     total = 0
     for path in paths:
@@ -185,44 +150,40 @@ def load_tensors(
             u = torch.as_tensor(ds['u'].values)
             v = torch.as_tensor(ds['v'].values)
             N = torch.as_tensor(ds['N'].values)
+            lat = ds.attrs['latitude']
 
-            if len(ds['bin']) % n_bins:
-                raise ValueError('Nonconforming bin number:', n_bins)
-
-            div_by = len(ds['bin']) // n_bins
-            M = ds['M_bulk'].groupby(ds['bin'] // div_by).sum('bin')
-            S = ds['source'].groupby(ds['bin'] // div_by).sum('bin')
-            M, S, D = M.values, S.values, ds['sink'].values
+            M = ds['M_bulk'].values
+            S = ds['source'].values
+            D = ds['sink'].values
 
             for _ in range(hp.training.n_smoothing):
                 M = apply_smoothing(M)
                 S = apply_smoothing(S)
                 D = apply_smoothing(D)
 
-            lat = ds.attrs['latitude']
-            M = torch.as_tensor(M).flatten(2, 3)
-            S = torch.as_tensor(S).flatten(2, 3)
+            M = torch.as_tensor(M)
+            S = torch.as_tensor(S)
             D = torch.as_tensor(D)
 
-        M, Y = _make_pairs(M, S, D)
         windN = _make_windN(u, v, N)
         lats = lat * torch.ones(windN.shape[0])
         windN = torch.hstack((windN, lats[:, None]))
-    
-        args[0].append(windN)
-        args[1].append(M)
-        args[2].append(Y)
+        M_in, M_out, D = _make_pairs(M, S, D)
 
-        total = total + Y.shape[0]
+        args[0].append(windN)
+        args[1].append(M_in)
+        args[2].append(M_out)
+        args[3].append(D)
+
+        total = total + M_in.shape[0]
         if min_samples is not None and total >= min_samples:
             break
 
-    windN, M, Y = tuple(torch.vstack(arg) for arg in args)
-    torch.save(windN, f'data/ml-accel/cached/windN-{eval_type}.pkl')
-    torch.save(M, f'data/ml-accel/cached/M-{eval_type}.pkl')
-    torch.save(Y, f'data/ml-accel/cached/Y-{eval_type}.pkl')
+    outputs = tuple(torch.cat(arg, dim=0) for arg in args)
+    for data, name in zip(outputs, ['windN', 'M_in', 'M_out', 'D']):
+        torch.save(data, f'data/ml-accel/cached/{name}-{eval_type}.pkl')
 
-    return windN, M, Y
+    return outputs
 
 def _make_windN(
     u: torch.Tensor,
@@ -264,7 +225,7 @@ def _make_pairs(
     M: torch.Tensor,
     S: torch.Tensor,
     D: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Given the full time series of bulk momentum profiles, sources, and sinks,
     partition them into input and output entries, and scale both arrays by the
@@ -281,14 +242,15 @@ def _make_pairs(
 
     Returns
     -------
-    torch.Tensor, torch.Tensor
-        Input and output bulk momentum partitions normalized by the budget.
+    torch.Tensor, torch.Tensor, torch.Tensor
+        Input and output bulk momentum partitions and dissipation profiles, all
+        normalized by the budget for each sample.
 
     """
 
     M_in = M[:-1].flatten(0, 1)
     M_out = (M - S)[1:].flatten(0, 1)
-    Y = torch.hstack((M_out, D[1:].flatten(0, 1)))
-    budget = M_in.sum(dim=1)[:, None]
+    D = D[1:].flatten(0, 1)
 
-    return M_in / budget, Y / budget
+    budget = M_in.flatten(1, 2).sum(dim=1)[:, None, None]
+    return M_in / budget, M_out / budget, D / budget[:, 0]

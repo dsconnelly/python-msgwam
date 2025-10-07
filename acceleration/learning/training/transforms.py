@@ -63,8 +63,8 @@ def get_shift_and_scale(
         return (mins + maxs) / 2, (maxs - mins) / 2
     
     if mode == 'none':
-        shift = torch.zeros(a.shape[1], dtype=a.dtype)
-        scale = torch.ones(a.shape[1], dtype=a.dtype)
+        shift = torch.zeros(a.shape[1:], dtype=a.dtype)
+        scale = torch.ones(a.shape[1:], dtype=a.dtype)
 
         return shift, scale
 
@@ -79,7 +79,7 @@ def get_shift_and_scale(
     
     if mode == 'nonzero':
         return nonzero_mean(a), nonzero_std(a)
-    
+
     raise ValueError(f'Unknown transform mode: {mode}')
 
 def nonzero_mean(a: torch.Tensor) -> torch.Tensor:
@@ -124,7 +124,7 @@ def nonzero_std(a: torch.Tensor) -> torch.Tensor:
     b = a.clone().cpu().numpy()
     b[b == 0] = np.nan
 
-    out = np.zeros(b.shape[1])
+    out = np.zeros(b.shape[1:])
     valid = (~np.isnan(b)).sum(axis=0) > 0
     out[valid] = np.nanstd(b[:, valid], axis=0)
 

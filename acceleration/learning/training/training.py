@@ -1,53 +1,110 @@
 from time import time
 from typing import Literal, Optional
 
+import json
+
 import torch, torch.nn as nn
+
+from optuna import create_study
+from optuna.exceptions import TrialPruned
+from optuna.pruners import MedianPruner
+from optuna.trial import FixedTrial, Trial
 
 from torch.optim import Adam
 from torch.utils.data import DataLoader
+
+from msgwam import config
 
 from ... import hyperparameters as hp
 
 from ..architectures import BulkNet
 
-from .io import get_best_task_id, get_loaders, get_split, load_tensors
+from .io import get_loaders, get_split, load_tensors
 from .losses import BulkLoss
 from .transforms import get_shift_and_scale, transform
 
 _DEVICE = torch.device('cpu')
+_CACHED = True
 
-def train_network(
-    eval_type: Literal['va', 'te'],
-    state_path: Optional[str]=None
-) -> None:
+def search_hyperparameters() -> None:
     """
-    Train a neural network to advance the bulk momentum and velocity profiles.
+    Conduct a hyperparameter search to determine the best network architecture
+    and training scheme. The training data is loaded in advance, but reshaping
+    is deferred until the model is constructed and the number of bins is known.
+    """
+
+    _set_device()
+    *inputs, M, D = load_tensors('va', cached=_CACHED)
+    objective = lambda t: _train(t, *inputs, M, D)
+
+    n_samples = M.shape[0]
+    budget = M.sum(dim=(1, 2)) + D.sum(dim=1)
+    residual = abs(1 - budget).max().item()
+
+    print(f'Loaded {n_samples} total samples.')
+    print(f'Max residual is {residual:.4e}')
+
+    pruner = MedianPruner(5, 10)
+    study = create_study(direction='minimize', pruner=pruner)
+    study.optimize(objective, timeout=(2 * 3600), gc_after_trial=True)
+    trial = study.best_trial
+
+    print('==== Summary ====')
+    print(f'  best score: {trial.value:.4f}')
+    for key, value in trial.params.items():
+        print(f'  {key}: {value}')
+
+    with open(f'data/ml-accel/models/hyperparameters-best.json', 'w') as f:
+        json.dump(trial.params, f)
+
+def train_network() -> None:
+    """
+    Train a model on the best hyperparameter set. Must be called after
+    `search_hyperparameters` has already been run.
+    """
+
+    _set_device()
+    with open('data/ml-accel/models/hyperparameters-best.json') as f:
+        trial = FixedTrial(json.load(f), -1)
+
+    _train(trial, *load_tensors('te', cached=_CACHED))
+
+def _train(
+    trial: Trial,
+    *datas: torch.Tensor
+) -> float:
+    """
+    Train a network with a given `Trial` and return the best evaluation loss.
 
     Parameters
     ----------
-    eval_type
-        Whether to use validation or test data as the evaluation set.
+    trial
+        Trial to use to generate relevant hyperparameters.
+    datas
+        Training and evaluation inputs and targets.
+
+    Returns
+    -------
+    float
+        Best evaluation loss over all epochs.
 
     """
 
-    if eval_type == 'te':
-        i = get_best_task_id()
-        hp.load(hp.grid_path, i)
-        print(f'Best hyperparameter setting was {i}.')
+    eval_type = 'te' if trial.number == -1 else 'va'
+    model, optimizer = _load_model(trial)
 
-    hp.show_hyperparameters()
-    _set_device()
-
-    loader_tr, loader_ev, windN_stats, M_stats = _load_data(eval_type)
-    loss_func = BulkLoss(loader_tr.dataset.tensors[-1]).to(_DEVICE)
-    model, optimizer = _load_model(state_path)
+    args = (model._n_bins, trial, eval_type, *datas)
+    loader_tr, loader_ev, windN_stats, M_stats = _prepare_data(*args)
+    loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:]).to(_DEVICE)
 
     state = {}
     best_loss = torch.inf
     n_epoch, start = 1, time()
+    waited = 0
 
     max_epochs = hp.training.max_epochs
     max_hours = hp.training.max_hours
+    min_delta = hp.training.min_delta
 
     while n_epoch <= max_epochs and (time() - start) / 3600 < max_hours:
         epoch_start = time()
@@ -55,84 +112,46 @@ def train_network(
         loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
-        print(f'==== epoch {n_epoch} ({runtime:.3f} s) ====')
-        print(f'  loss_tr = {loss_tr:.6f}')
-        print(f'  loss_ev = {loss_ev:.6f}')
+        print(f'  ==== epoch {n_epoch} ({runtime:.2f} s) ====')
+        print(f'    loss_tr = {loss_tr:.6f}')
+        print(f'    loss_ev = {loss_ev:.6f}')
 
-        if loss_ev < best_loss:
+        trial.report(loss_ev, n_epoch)
+        if trial.should_prune():
+            raise TrialPruned()
+
+        if loss_ev < best_loss - min_delta:
             state['model'] = model.state_dict()
             state['optimizer'] = optimizer.state_dict()
+
             best_loss = loss_ev
+            waited = 0
+
+        else:
+            waited = waited + 1
+            if waited == hp.training.patience:
+                print(f'Stopping early.')
+                break
 
         n_epoch = n_epoch + 1
 
-    print(f'Best loss was {best_loss:.6f}')
-    model.load_state_dict(state['model'])
-    model.to(torch.device('cpu'))
+    if trial.number == -1:
+        del loader_tr, loader_ev
+        traced = _trace(model, windN_stats, M_stats)
 
-    del loader_tr, loader_ev
-    traced = _trace(model, windN_stats, M_stats)
-    tag = 'best' if eval_type == 'te' else hp.task_id
+        torch.save(state, f'data/ml-accel/models/state-best.pkl')
+        torch.jit.save(traced, 'data/ml-accel/models/model-best.jit')
 
-    torch.save(state, f'data/ml-accel/models/state-{tag}.pkl')
-    torch.jit.save(traced, f'data/ml-accel/models/model-{tag}.jit')
+    return best_loss
 
-    with open(f'data/ml-accel/records/loss-{tag}.txt', 'w') as f:
-        f.write(str(best_loss))
-
-def _load_data(eval_type: Literal['va', 'te']) -> tuple[
-    DataLoader,
-    DataLoader,
-    tuple[torch.Tensor, torch.Tensor],
-    tuple[torch.Tensor, torch.Tensor]
-]:
+def _load_model(trial: Trial) -> tuple[BulkNet, Adam]:
     """
-    Load the data, partition it into training and evaluation sets, and transform
-    it according to the loaded hyperparameters.
+    Load a `BulkNet` and associated optimizer.
 
     Parameters
     ----------
-    eval_type
-        Evaluation type specifier, as passed to `train_network`.
-
-    Returns
-    -------
-    DataLoader, DataLoader
-        Loaders containing training and evaluation inputs and outpus.
-    tuple[torch.Tensor, torch.Tensor], tuple[torch.Tensor, torch.Tensor]
-        Transforms for the mean state and bulk momentum budgets, respectively.
-        These are returned so that they can be passed to `_trace` later.
-
-    """
-
-    windN, M, Y = load_tensors(eval_type, cached=True)
-    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
-
-    windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
-    M_stats = get_shift_and_scale(M[idx_tr], hp.training.in_transform)
-    windN = transform(windN, *windN_stats)
-    M = transform(M, *M_stats)
-
-    n_tr, n_ev = len(idx_tr), len(idx_ev)
-    word = {'va' : 'validation', 'te' : 'test'}[eval_type]
-    max_res = abs(Y.sum(dim=1) - 1).max()
-
-    print(f'Loaded {n_tr} training samples and {n_ev} {word} samples.')
-    print(f'Maximum residual in targets is {max_res:.4e}.')
-
-    windN, M, Y = windN.to(_DEVICE), M.to(_DEVICE), Y.to(_DEVICE)
-    loader_tr, loader_ev = get_loaders(windN, M, Y, idx_tr, idx_ev)
-    return loader_tr, loader_ev, windN_stats, M_stats
-
-def _load_model(state_path: Optional[str]=None) -> tuple[BulkNet, Adam]:
-    """
-    Load a `BulkNet` and associated optimizer, possibly loading state for both
-    modules from a previous training run.
-
-    Parameters
-    ----------
-    state_path
-        Optional location of previous state for the model and optimizer.
+    trial
+        Current trial from which to draw a learning rate.
 
     Returns
     -------
@@ -141,19 +160,51 @@ def _load_model(state_path: Optional[str]=None) -> tuple[BulkNet, Adam]:
 
     """
 
-    model = BulkNet().to(_DEVICE)
-    optimizer = Adam(model.parameters(), hp.training.learning_rate)
+    model = BulkNet(trial).to(_DEVICE)
+    lr = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
+    optimizer = Adam(model.parameters(), lr=lr)
+
+    if n_params > hp.architectures.max_params:
+        raise TrialPruned()
+
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Loaded model has {n_params} trainable parameters.')
 
-    if state_path is not None:
-        state = torch.load(state_path, weights_only=True)
-        print(f'Loading previous state from {state_path}.')
-
-        model.load_state_dict(state['model'])
-        optimizer.load_state_dict(state['optimizer'])
-
     return model, optimizer
+
+def _prepare_data(
+    n_bins: int,
+    trial: Trial,
+    eval_type: Literal['va', 'te'],
+    *args: torch.Tensor
+) -> tuple[
+    DataLoader,
+    DataLoader,
+    tuple[torch.Tensor, torch.Tensor],
+    tuple[torch.Tensor, torch.Tensor]
+]:
+    """
+    Prepare the already-loaded data for a given trial. Reshapes the momentum
+    profiles to include the appropriate number of bins, transforms the input
+    features, and packages the tensors in `DataLoader` instances.
+    """
+
+    windN, M_in, M_out, D = args
+    shape = (M_in.shape[0], n_bins, -1, config.n_grid - 1)
+    M_in, M_out = [a.reshape(*shape).sum(dim=2) for a in (M_in, M_out)]
+
+    idx_tr, idx_ev = get_split(M_in.shape[0], eval_type)
+    windN_stats = get_shift_and_scale(windN[idx_tr], 'z')
+    M_stats = get_shift_and_scale(M_in[idx_tr], hp.training.in_transform)
+
+    windN = transform(windN, *windN_stats)
+    M_in = transform(M_in, *M_stats)
+
+    batch_size = trial.suggest_int('batch_size', 128, 512)
+    args = [a.to(_DEVICE) for a in (windN, M_in, M_out, D)]
+    loader_tr, loader_ev = get_loaders(batch_size, idx_tr, idx_ev, *args)
+
+    return loader_tr, loader_ev, windN_stats, M_stats
 
 def _run_epoch(
     model: nn.Module,
@@ -194,25 +245,25 @@ def _run_epoch(
         loss_func.train()
 
     weight_sum, total = 0, 0
-    for *inputs, Y in loader:
+    for *inputs, M, D in loader:
         if optimizer is None:
             with torch.no_grad():
-                Y_hat = model(*inputs)
+                M_hat, D_hat = model(*inputs)
 
         else:
             optimizer.zero_grad()
-            Y_hat = model(*inputs)
+            M_hat, D_hat = model(*inputs)
 
-        weight = Y.shape[0]
-        loss = loss_func(Y, Y_hat)
-        total = total + weight * loss.item()
+        weight = M.shape[0]
+        loss = loss_func(M, D, M_hat, D_hat)
         weight_sum = weight_sum + weight
+        total = total + weight * loss
 
         if optimizer is not None:
             loss.backward()
             optimizer.step()
 
-    return (total / weight_sum) ** 0.5
+    return (total / weight_sum).item() ** 0.5
 
 def _set_device() -> None:
     """Set the global `_DEVICE` depending on whether a GPU is available."""
@@ -251,7 +302,8 @@ def _trace(
         p.requires_grad = False
 
     windN, M, _ = load_tensors('va', min_samples=10)
-    windN, M = windN[:10], M[:10]
+    M = M.reshape(M.shape[0], model._n_bins, -1, config.n_grid - 1)
+    windN, M = windN[:10], M.sum(dim=2)[:10]
 
     def trace_func(
         windN: torch.Tensor,
