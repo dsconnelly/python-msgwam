@@ -1,15 +1,21 @@
-from typing import Literal, Optional
-from warnings import warn
+from typing import Literal, Iterator, Optional
 
 import numpy as np
 import torch
 import xarray as xr
 
-from torch.utils.data import DataLoader, TensorDataset
+from msgwam import config
 
 from ... import hyperparameters as hp
 
-from .transforms import apply_smoothing
+from ..architectures import BulkNet
+
+from .transforms import (
+    Transform,
+    apply_smoothing,
+    make_transform,
+    reshape_data
+)
 
 _SITES_TR = [
     'anchorage',
@@ -29,44 +35,13 @@ _SITES_TE = [
     'amundsen-sea'
 ]
 
-def get_loaders(
-    batch_size_tr: int,
-    idx_tr: torch.Tensor,
-    idx_ev: torch.Tensor,
-    *args: torch.Tensor
-) -> tuple[DataLoader, DataLoader]:
-    """
-    Package the training and evaluation data into `DataLoader` instances.
-
-    Parameters
-    ----------
-    batch_size_tr
-        Batch size to use for the training set.
-    idx_tr, idx_ev
-        Tensors that partition the data into training and evaluation sets.
-    args
-        Tensors to split and put into `DataLoader` instances.
-        
-    Returns
-    -------
-    DataLoader, DataLoader
-        Loaders for the training and evaluation sets.
-    
-    """
-
-    loaders = []
-    for i, idx in enumerate([idx_tr, idx_ev]):
-        ds = TensorDataset(*[arg[idx] for arg in args])
-        batch_size = (1 - i) * batch_size_tr + i * 4096
-        loaders.append(DataLoader(ds, batch_size, i == 0))
-
-    return tuple(loaders)
+CMYD = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 def get_split(
     n_samples: int,
     eval_type: Literal['va', 'te'],
     seed: int=1234
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Get index arrays that can be used to split the data into subsets for
     training and evaluation.
@@ -84,173 +59,271 @@ def get_split(
 
     Returns
     -------
-    torch.Tensor, torch.Tensor
+    np.ndarray, np.ndarray
         Indices for training and evaluation sets, respectively.
 
     """
 
-    g = torch.Generator()
-    g.manual_seed(seed)
-
     if eval_type == 'va':
         c = int(0.8 * n_samples)
-        idx = torch.randperm(n_samples, generator=g)
+        gen = np.random.default_rng(seed)
+        idx = np.argsort(gen.random(n_samples))
 
     elif eval_type == 'te':
         total = len(_SITES_TR + _SITES_TE)
         c = (n_samples * len(_SITES_TR)) // total
-        idx = torch.arange(n_samples)
+        idx = np.arange(n_samples)
 
     else:
         raise ValueError(f'Invalid eval_type: {eval_type}')
 
     return idx[:c], idx[c:]
 
-def load_tensors(
+def parse_integrations(
     eval_type: Literal['va', 'te'],
-    min_samples: Optional[int]=None,
-    cached: bool=False
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    cached: bool = False
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Load input and target data from netCDF files saved to disk.
+    Load input and target data from the MS-GWaM integrations saved to disk.
+
+    Parameters
+    ----------
+    fname
+        Whether the evaluation set should be validation or test data. Here used
+        to determine which integrations to read.
+    cached
+        Whether to read the already-concatenated data from disk instead of
+        opening the netCDF files. This function must have been called previously
+        with `cached` set to `False`, and `path` must be `'va'` or `'te'`.
+
+    Returns
+    -------
+    ndarray, ndarray, ndarray, ndarray
+        Concatenated training and evaluation inputs and targets. The arrays are
+        `C` (column information including the mean wind, buoyancy frequency, and
+        latitude); `M` (the bulk momentum profile in each phase speed bin); `Y`
+        (either the next bulk momentum profile or the change relative to `M`);
+        and `D` (the profile of sinks).
+    
+    """
+
+    base = 'data/ml-accel/cached'
+    make_path = lambda c: f'{base}/{c}-{eval_type}.npy'
+
+    if cached:
+        return tuple(map(np.load, map(make_path, 'CMYD')))
+
+    stacks = [[], [], [], []]
+    for path in _iter_paths(eval_type):
+        with xr.open_dataset(path) as ds:
+            datas = [_parse_column(ds), *_parse_momentum(ds)]
+            for stack, data in zip(stacks, datas):
+                stack.append(data)
+
+    make_stack = lambda s: np.concatenate(s, axis=0)
+    outputs = tuple(map(make_stack, stacks))
+    for data, name in zip(outputs, 'CMYD'):
+        np.save(make_path(name), data)
+
+    return outputs
+
+def prepare_data(
+    n_bins: int,
+    eval_type: Literal['va', 'te'],
+    arrays: Optional[CMYD]=None
+) -> tuple[
+    CMYD,
+    tuple[np.ndarray, np.ndarray],
+    tuple[Transform, Transform]
+]:
+    """
+    Prepare data for training or plotting.
+
+    Parameters
+    ----------
+    n_bins
+        Number of bins that should be in the transformed data.
+    eval_type
+        Whether the evaluation set is validation or test data. Needed here to
+        determine how to split the datasets.
+    arrays
+        Tuple of arrays as returned by `parse_integrations`. If `CMYD` is not
+        provided, `parse_integrations` is called here.
+
+    Returns
+    --------
+    ndarray, ndarray, ndarray, ndarray
+        Reshaped, filtered, and transformed `C`, `M`, `Y`, and `D` arrays.
+    ndarray, ndarray
+        Index arrays splitting the data into training and evaluation sets.
+    Transform, Transform
+        Transforms for the input arrays. Note that these transforms have already
+        been applied to the returned `C` and `M` arrays.
+    
+    """
+
+    if arrays is None:
+        arrays = parse_integrations(eval_type)
+
+    C, M, Y, D = arrays
+    M, Y = reshape_data(n_bins, M, Y)
+    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
+
+    for _ in range(hp.training.n_smoothing):
+        M = apply_smoothing(M)
+        Y = apply_smoothing(Y)
+        D = apply_smoothing(D)
+
+    budget = Y.sum(axis=(1, 2)) + D.sum(1)
+    residual = abs(budget - (not hp.architectures.learn_delta))
+    print(f'Maximum residual is {residual.max()}')
+
+    n_tr, n_ev = len(idx_tr), len(idx_ev)
+    print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
+
+    C_trans = make_transform(C[idx_tr], mode='z')
+    M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
+    C, M = C_trans(C), M_trans(M)
+
+    return (C, M, Y, D), (idx_tr, idx_ev), (C_trans, M_trans)
+
+def trace(
+    model: BulkNet,
+    C_trans: Transform,
+    M_trans: Transform
+) -> torch.jit.ScriptFunction:
+    """
+    Trace the model pipeline and return a JITted object that can be evaluated in
+    MS-GWaM without having the `BulkNet` class definition available.
+
+    Parameters
+    ----------
+    model
+        Trained `BulkNet` instance.
+    C_trans, M_trans
+        Transforms used during training on the model inputs.
+
+    Returns
+    -------
+    ScriptFunction
+        Traced model pipeline.
+
+    """
+
+    cpu = torch.device('cpu')
+    model.eval().to(cpu)
+
+    for p in model.parameters():
+        p.requires_grad = False
+
+    C, M, *_ = parse_integrations('va')
+    C = torch.as_tensor(C[:10])
+    M = torch.as_tensor(M[:10])
+
+    def trace_func(
+        C: torch.Tensor,
+        M: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Execute pipeline, excluding momentum budgeting (which can be done at
+        integration time) but including input transformations.
+        """
+
+        M, = reshape_data(model._n_bins, M)
+        return model(C_trans(C), M_trans(M))
+    
+    with torch.no_grad():
+        return torch.jit.trace(trace_func, (C, M))
+
+def _iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
+    """
+    Iterate over all paths to netCDF files that should be read for the given
+    source of evaluation data.
 
     Parameters
     ----------
     eval_type
-        String specifying whether evaluation data should be from the validation
-        set or the test set, used here to determine which files to read.
+        If `'te'`, then the held-out locations will be included in the paths to
+        read. Otherwise, only the training sites will be read.
 
-    Returns
-    -------
-    Tensor, Tensor, Tensor, Tensor
-        Tensors of bulk momentum, bulk group velocity, mean wind, and target
-        data for each sample, respectively. The appropriate component of the
-        mean wind is selected, and it is negated for negative wavenumbers. The
-        target data are the bulk momentum and velocity profiles at the next time
-        step concatenated. The input and output bulk momentum profiles at each
-        time step are normalized by the appropriate budget.
+    Yields
+    ------
+    str
+        Path to a netCDF file to read.
 
     """
 
-    if cached:
-        _make_path = lambda s: f'data/ml-accel/cached/{s}-{eval_type}.pkl'
-        _load = lambda s: torch.load(_make_path(s), weights_only=True)
-        outputs = map(_load, ['windN', 'M_in', 'M_out', 'D'])
-
-        return tuple(outputs)
-
-    base = 'data/ml-accel/training'
+    base = 'data/ml-accel/integrations'
     sites = _SITES_TR + _SITES_TE * (eval_type == 'te')
-    paths = [f'{base}/{site}-{i}.nc' for site in sites for i in range(1, 13)]
-    args = [[], [], [], []]
-    
-    total = 0
-    for path in paths:
-        with xr.open_dataset(path) as ds:
-            u = torch.as_tensor(ds['u'].values)
-            v = torch.as_tensor(ds['v'].values)
-            N = torch.as_tensor(ds['N'].values)
-            lat = ds.attrs['latitude']
 
-            M = ds['M_bulk'].values
-            S = ds['source'].values
-            D = ds['sink'].values
+    for site in sites:
+        for month in range(1, 2):
+            yield f'{base}/{site}-{month}.nc'
 
-            for _ in range(hp.training.n_smoothing):
-                M = apply_smoothing(M)
-                S = apply_smoothing(S)
-                D = apply_smoothing(D)
-
-            M = torch.as_tensor(M)
-            S = torch.as_tensor(S)
-            D = torch.as_tensor(D)
-
-        windN = _make_windN(u, v, N)
-        lats = lat * torch.ones(windN.shape[0])
-        windN = torch.hstack((windN, lats[:, None]))
-        M_in, M_out, D = _make_pairs(M, S, D)
-
-        args[0].append(windN)
-        args[1].append(M_in)
-        args[2].append(M_out)
-        args[3].append(D)
-
-        total = total + M_in.shape[0]
-        if min_samples is not None and total >= min_samples:
-            break
-
-    outputs = tuple(torch.cat(arg, dim=0) for arg in args)
-    for data, name in zip(outputs, ['windN', 'M_in', 'M_out', 'D']):
-        torch.save(data, f'data/ml-accel/cached/{name}-{eval_type}.pkl')
-
-    return outputs
-
-def _make_windN(
-    u: torch.Tensor,
-    v: torch.Tensor,
-    N: torch.Tensor
-) -> torch.Tensor:
+def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
-    Get the appropriate component of the mean wind at each sample, and negate
-    the wind profile for samples with negative wavenumber
+    Parse a `Dataset` to build a context array.
 
     Parameters
     ----------
-    u, v
-        Zonal and meridional components of the mean wind, respectively.
-    N
-        Buoyancy frequency at each time step
+    ds
+        Loaded dataset containing integration outputs.
 
     Returns
     -------
-    torch.Tensor
-        Wind profile to use in predicting each sample concatenated with N.
+    np.ndarray
+        Array whose first dimension ranges over samples and whose second ranges
+        first over velocity, than buoyancy frequency, and then the latitude.
 
     """
 
-    quad = torch.arange(4)[None, :, None]
-    u, v, N = u[:, None], v[:, None], N[:, None]
-    u, v, N, quad = torch.broadcast_tensors(u, v, N, quad)
+    u = ds['u'].values[:, None]
+    v = ds['v'].values[:, None]
+    N = ds['N'].values[:, None]
 
-    is_zonal = (torch.remainder(quad, 2) == 0).int()
+    quad = np.arange(4)[None, :, None]
+    u, v, N, quad = np.broadcast_arrays(u, v, N, quad)
+
+    is_zonal = (np.remainder(quad, 2) == 0)
     wind = is_zonal * u + (1 - is_zonal) * v
     wind[quad > 1] = -wind[quad > 1]
 
-    wind = wind[:-1].flatten(0, 1)
-    N = N[:-1].flatten(0, 1)
+    shape = (-1, config.n_grid - 1)
+    wind, N = wind[:-1].reshape(*shape), N[:-1].reshape(*shape)
+    lat = ds.attrs['latitude'] * np.ones((wind.shape[0], 1))
 
-    return torch.hstack((wind, N))
+    return np.hstack((wind, N, lat))
 
-def _make_pairs(
-    M: torch.Tensor,
-    S: torch.Tensor,
-    D: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def _parse_momentum(
+    ds: xr.Dataset
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Given the full time series of bulk momentum profiles, sources, and sinks,
-    partition them into input and output entries, and scale both arrays by the
-    appropriate budget terms.
+    Parse a `Dataset` for relevant information about the bulk momentum.
 
     Parameters
     ----------
-    M
-        Bulk momentum profiles for each time step, bin, and quadrant.
-    S
-        Added momentum for each time step, bin, and quadrant.
-    D
-        Dissipiated momentum for each time step and quadrant.
+    ds
+        Loaded dataset containing integration outputs.
 
     Returns
     -------
-    torch.Tensor, torch.Tensor, torch.Tensor
-        Input and output bulk momentum partitions and dissipation profiles, all
-        normalized by the budget for each sample.
+    ndarray, ndarray, ndarray
+        Arrays of current bulk momentum profiles, bulk momentum profiles or
+        deltas at the next times step, and dissipation profiles.
 
     """
 
-    M_in = M[:-1].flatten(0, 1)
-    M_out = (M - S)[1:].flatten(0, 1)
-    D = D[1:].flatten(0, 1)
+    M = ds['M_bulk'].values
+    S = ds['source'].values
+    D = ds['sink'].values
 
-    budget = M_in.flatten(1, 2).sum(dim=1)[:, None, None]
-    return M_in / budget, M_out / budget, D / budget[:, 0]
+    Y = (M - S)[1:].reshape(-1, M.shape[2], M.shape[3])
+    M = M[:-1].reshape(-1, M.shape[2], M.shape[3])
+    D = D[1:].reshape(-1, D.shape[2])
+
+    if hp.architectures.learn_delta:
+        Y = Y - M
+
+    budget = M.sum(axis=(1, 2))
+    keep, budget = budget > 0, budget[budget > 0, None, None]
+    return M[keep] / budget, Y[keep] / budget, D[keep] / budget[:, 0]

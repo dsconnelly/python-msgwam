@@ -1,6 +1,8 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
+import json
+
 import numpy as np
 import torch
 
@@ -25,10 +27,10 @@ class NetworkPropagator(Propagator):
 
         super().__init__(mean)
 
-        hp.load(hp.grid_path, config.model_id)
         self._model = torch.jit.load(config.model_path)
-        self._n_bins = hp.architectures.n_bins
-        
+        with open('data/ml-accel/models/hyperparameters.json') as f:
+            self._n_bins = json.load(f)['n_bins']
+
         self._M = np.zeros((4, self._n_bins, config.n_grid - 1))
         self._F = np.zeros((4, config.n_grid))
         self.step(mean, 0)
@@ -59,18 +61,17 @@ class NetworkPropagator(Propagator):
         if n_seconds % hp.generation.dt_output:
             return self
         
-        windN = self._make_windN(mean)
-        M_in = self._M + self._check_source(mean, n_step)
-        budget = M_in.reshape(4, -1).sum(axis=1)[:, None]
+        C = self._make_C(mean)
+        M = self._M + self._check_source(mean, n_step)
+        budget = M.reshape(4, -1).sum(axis=1)[:, None, None]
 
-        inputs = map(torch.as_tensor, [windN, M_in.reshape(4, -1) / budget])
-        Y = self._model(*inputs).numpy() * budget
-        Y = Y.reshape(4, self._n_bins + 1, -1)
-        M_out, D = Y[:, :-1], Y[:, -1]
+        inputs = map(torch.as_tensor, [C, M / budget])
+        Y, D = [out.numpy() for out in self._model(*inputs)]
+        Y, D = Y * budget, D * budget[:, 0]
 
-        delta = ((M_out - M_in).sum(axis=1) + D) / hp.generation.dt_output
+        delta = ((Y - M).sum(axis=1) + D) / hp.generation.dt_output
         self._F[:, 1:] = np.cumsum(-delta, axis=-1) * mean.dz
-        self._M = M_out
+        self._M = Y
     
         return self
 
@@ -114,7 +115,7 @@ class NetworkPropagator(Propagator):
 
         return out.reshape(4, self._n_bins, config.n_grid - 1)
 
-    def _make_windN(self, mean: MeanState) -> torch.Tensor:
+    def _make_C(self, mean: MeanState) -> torch.Tensor:
         """
         Assemble the input to the neural network consisting of the mean wind,
         buoyancy frequency, and latitude.

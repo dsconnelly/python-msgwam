@@ -1,23 +1,27 @@
+from typing import Callable, Iterator, Literal
+
 import numba as nb
 import numpy as np
 import torch
 
+_Array = np.ndarray | torch.Tensor
+Transform = Callable[[_Array], _Array]
+
 @nb.njit
 def apply_smoothing(a: np.ndarray) -> np.ndarray:
     """
-    JITted function to apply a Shapiro filter along the last dimension, while
-    respecting initial zeros and so not polluting levels below the source.
+    Apply a Shapiro filter along the last dimension, while respecting initial
+    zeros and so not polluting levels below the source.
 
     Parameters
     ----------
     a
-        Array to smooth.
+        Array to filter.
 
     Returns
     -------
-    np.ndarray
-        Smoothed array. Zeros in `a` before the first nonzero value in each
-        profile will remain zero.
+    a
+        Array filtered along the last dimension.
 
     """
 
@@ -32,128 +36,120 @@ def apply_smoothing(a: np.ndarray) -> np.ndarray:
 
     return out / 4
 
-def get_shift_and_scale(
-    a: torch.Tensor, mode: str
-) -> tuple[torch.Tensor, torch.Tensor]:
+def make_transform(a: np.ndarray, mode: str) -> Transform:
     """
-    Get shift and scale arrays that can be used to transform an array later.
+    Make a function that transforms an array. Simply calculates the shift and
+    scale and returns a reusable function that applies them.
 
     Parameters
     ----------
     a
-        Tensor for which to calculate shift and scale arrays.
+        Array to transform.
     mode
-        What kind of transform to prepare. Can be `'minmax'`, which will cause
-        each column to lie in [-1, 1]; `'robust'`, which shifts by the median
-        and scales by the IQR; or `'z'`, which shifts by the mean and scales by
-        the standard deviation. Can also pass `'none'`, in which case the shift
-        and scale will be zero and one, respectively.
-    
+        What kind of transform to prepare.
+
     Returns
     -------
-    torch.Tensor, torch.Tensor
-        Shift and scale arrays, respectively.
-
+    _Transform
+        Function that applies the appropriate shift and scale.
+    
     """
 
-    if mode == 'minmax':
-        mins, _ = a.min(dim=0)
-        maxs, _ = a.max(dim=0)
+    if mode == 'constant':
+        b = a.transpose(0, 2, 1).reshape(-1, a.shape[1])
+        sigma = nonzero_stat(b, mode='std')[:, None]
 
-        return (mins + maxs) / 2, (maxs - mins) / 2
+        shift = sigma * np.ones(a.shape[1:])
+        scale = sigma * np.ones(a.shape[1:])
+
+    elif mode == 'nonzero':
+        shift = nonzero_stat(a, 'mean')
+        scale = nonzero_stat(a, 'std')
     
-    if mode == 'none':
-        shift = torch.zeros(a.shape[1:], dtype=a.dtype)
-        scale = torch.ones(a.shape[1:], dtype=a.dtype)
+    elif mode == 'robust':
+        q25 = np.quantile(a, 0.25, axis=0)
+        q75 = np.quantile(a, 0.75, axis=0)
 
-        return shift, scale
+        shift = np.quantile(a, 0.5, axis=0)
+        scale = q75 - q25
 
-    if mode == 'robust':
-        q25 = torch.quantile(a, 0.25, dim=0)
-        q75 = torch.quantile(a, 0.75, dim=0)
-        
-        return torch.quantile(a, 0.5, dim=0), q75 - q25
-    
-    if mode == 'z':
-        return a.mean(dim=0), a.std(dim=0)
-    
-    if mode == 'nonzero':
-        return nonzero_mean(a), nonzero_std(a)
+    elif mode == 'z':
+        shift = a.mean(axis=0)
+        scale = a.std(axis=0)
 
-    raise ValueError(f'Unknown transform mode: {mode}')
+    else:
+        raise ValueError(f'Unknown transform mode: {mode}')      
 
-def nonzero_mean(a: torch.Tensor) -> torch.Tensor:
+    shift = torch.as_tensor(shift)
+    scale = torch.as_tensor(scale)
+    valid = scale > 0
+
+    def transform(b: _Array) -> _Array:
+        """
+        Apply the shift and scale. Written with several precautions so as to
+        both work on `numpy` arrays and be comptabible with `torch.jit`.
+        """
+
+        p, q = shift, scale
+        if isinstance(b, np.ndarray):
+            p = p.numpy()
+            q = q.numpy()
+
+        out = 0 * b
+        out[:, valid] = (b - p)[:, valid] / q[valid]
+
+        return out
+
+    return transform
+
+def nonzero_stat(a: np.ndarray, mode=Literal['mean', 'std']) -> np.ndarray:
     """
-    Get the mean of each column, counting only nonzero entries.
+    Take the mean or standard deviation along the outermost axis, including only
+    nonzero values.
 
     Parameters
     ----------
     a
-        Data for which to calculate means.
+        Array to calculate on.
+    mode
+        Whether to take the mean or standard deviation.
+
+    Returns
+    -------
+        Nonzero means or standard deviations, of shape `a.shape[1:]`. Entries
+        corresponding to columns that entirely zero are themselves zero.
     
-    Returns
-    -------
-    torch.Tensor
-        Means of nonzero entries in each column.
-
     """
 
-    b = a.clone()
-    b[b == 0] = torch.nan
-
-    return torch.nan_to_num(torch.nanmean(b, dim=0))
-
-def nonzero_std(a: torch.Tensor) -> torch.Tensor:
-    """
-    Get the standard deviation of each column, counting only nonzero entries.
-    Involves casting to `ndarray` to make use of `np.nanstd`.
-
-    Parameters
-    ----------
-    a
-        Data for which to calculate standard deviations.
-
-    Returns
-    -------
-    torch.Tensor
-        Standard deviations of nonzero entries. Entries corresponding to columns
-        that are entirely zero are themselves zero.
-
-    """
-
-    b = a.clone().cpu().numpy()
+    b = a.copy()
     b[b == 0] = np.nan
-
+    func = getattr(np, f'nan{mode}')
+    
     out = np.zeros(b.shape[1:])
     valid = (~np.isnan(b)).sum(axis=0) > 0
-    out[valid] = np.nanstd(b[:, valid], axis=0)
+    out[valid] = func(b[:, valid], axis=0)
 
-    return torch.as_tensor(out)
+    return out
 
-def transform(
-    a: torch.Tensor,
-    shift: torch.Tensor,
-    scale: torch.Tensor
-) -> torch.Tensor:
+def reshape_data(n_bins: int, *arrays: _Array) -> Iterator[_Array]:
     """
-    Transform an array with precomputed shift and scale terms.
+    Reshape arrays to have the appropriate number of phase speed bins. Designed
+    to support both `numpy` arrays and `torch` tensors.
 
     Parameters
     ----------
-    a
-        Tensor to transform.
-    shift, scale
-        Tensors as returned by `get_shift_and_scale`.
-
-    Returns
-    -------
-    torch.Tensor
-        Transformed tensor.
+    n_bins
+        How many bins the output arrays should have.
+    tensors
+        Arrays to reshape, with first dimensions ranging over samples, second
+        dimensions ranging over phase speed bins, and third dimensions ranging
+        over vertical grid points. `n_bins` must divide the existing number of
+        phase speed bins.
     
     """
 
-    valid = scale > 0
-    out = torch.zeros_like(a)
-    out[:, valid] = (a - shift)[:, valid] / scale[valid]
+    a, *_ = arrays
+    shape = (a.shape[0], n_bins, -1, a.shape[2])
+    func = lambda a: a.reshape(*shape).sum(2)
 
-    return out
+    return map(func, arrays)

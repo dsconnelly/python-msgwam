@@ -2,14 +2,38 @@ from typing import Literal
 
 import torch, torch.nn as nn
 
+def allocate_layers(n_layers: int, n_blocks: int) -> list[int]:
+    """
+    Allocate a specified number of layers between the requested numbeer of
+    blocks, such that the larger blocks come first.
+
+    Parameters
+    ----------
+    n_layers
+        How many total layers there should be.
+    n_blocks
+        How many blocks those layers should be split among.
+
+    Returns
+    -------
+    list[int]
+        How many layers each block should have.
+
+    """
+
+    base, rem = divmod(n_layers, n_blocks)
+    out = [base + (i < rem) for i in range(n_blocks)]
+
+    return out
+
 def apply_blocks(
     blocks: nn.ModuleList,
     X: torch.Tensor,
     skip_mode: int
 ) -> torch.Tensor:
     """
-    Apply the blocks of this network, with skip connections either additive,
-    concatenative, or nonexistent.
+    Apply the blocks of a network, with either additive, concatenative, or
+    nonexistent skip connections.
 
     Parameters
     ----------
@@ -43,30 +67,39 @@ def get_block(
     sizes: list[int],
     batch_norm_pos: int,
     activation: Literal['relu', 'leaky', 'tanh'],
+    dropout_rate: float,
     final: bool=False
 ) -> nn.Sequential:
     """
-    Build a block that will constitute a component of a `BulkNet`.
+    Build a block that will constitute a component of a `BulkNet`. Each block
+    consists of several fully-connected layers and activation functions, along
+    with possible batch normalization and dropout layers. The precise structure
+    of the block is set by the keyword arguments.
 
-        Parameters
-        ----------
-        sizes
-            Sizes of each layer.
-        batch_norm_pos
-            Where to put batch normalization layers. -1 and 1 indicate before
-            and after the ReLU, respectively, while 0 indicates omission.
-        activation
-            What activation to use. If `final`, then the last layer needs to be
-            non-negative, and so the last activation will be replaced with a
-            ReLU regardless of this choice.
-        final
-            Whether this is the last block in the network, in which case the
-            last output needs to be non-negative definite.
+    Parameters
+    ----------
+    sizes
+        Sizes of each layer. The resulting block will have `len(sizes) - 1`
+        fully-connected layers.
+    batch_norm_pos
+        Where to put batch normalization layers. -1 and 1 indicate before
+        and after the activation, respectively, while 0 indicates omission.
+    activation
+        What activation to use. If `final` and `not hp.learn_delta`, then
+        the last layer needs to be non-negative, and so the last activation
+        will be replaced with a ReLU regardless of this choice.
+    dropout
+        Dropout rate to use. If zero, the dropout layers will have no effect,
+        but they are included anyway.
+    final
+        Whether this is the last block in the network. If so, the last layer of
+        the block should be a `Linear` layer, so that the post-processing in the
+        `BulkNet` forward function can work properly.
 
-        Returns
-        -------
-        nn.Sequential
-            Module containing the layers in the block.
+    Returns
+    -------
+    nn.Sequential
+        Module containing the layers in the block.
 
     """
 
@@ -84,11 +117,11 @@ def get_block(
             k = len(args) - (batch_norm_pos == -1)
             args.insert(k, nn.BatchNorm1d(b))
 
-    if final:
-        while not isinstance(args[-1], cls):
-            args = args[:-1]
+        args = args + [nn.Dropout(dropout_rate)]
 
-        args = args[:-1] + [nn.ReLU()]
+    if final:
+        while not isinstance(args[-1], nn.Linear):
+            args = args[:-1]
 
     return nn.Sequential(*args)
 

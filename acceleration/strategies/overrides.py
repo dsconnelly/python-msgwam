@@ -86,7 +86,8 @@ def _get_network_overrides() -> dict[str, Any]:
         'propagator_type' : 'network',
         'model_id' : 251,
         'dr_source' : -1200,
-        'n_source' : 128
+        'n_source' : 128,
+        'dr_min' : 0
     }
 
 def _get_reference_overrides() -> dict[str, Any]:

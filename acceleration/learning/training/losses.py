@@ -2,89 +2,93 @@ import numba as nb
 import numpy as np
 import torch, torch.nn as nn
 
-from .transforms import nonzero_std
+from ...hyperparameters import architectures as hp
+
+from .transforms import nonzero_stat
 
 class BulkLoss(nn.Module):
-    _scales_M_tr: torch.Tensor
-    _scales_M_ev: torch.Tensor
+    _scales_Y_tr: torch.Tensor
+    _scales_Y_ev: torch.Tensor
     _scales_D: torch.Tensor
 
-    def __init__(self, M_out: torch.Tensor, D: torch.Tensor) -> None:
+    def __init__(self, Y: torch.Tensor, D: torch.Tensor) -> None:
         """
-        At initialization, a `BulkLoss` estimates the scales of the nonzero
-        values in the training targets, which will be used to normalize losses.
+        At initialization a `BulkLoss` estimates the scales of the nonzero
+        values in each training target, which will be used to normalize losses.
+        The scale is the mean for deltas and sink profiles, and the standard
+        deviation otherwise.
 
         Parameters
         ----------
-        Y
-            Tensor of training targets.
+        Y, D
+            Tensors of training targets.
 
         """
 
         super().__init__()
+        self._n_bins = Y.shape[1]
 
-        names = [f'_scales_{s}' for s in ('M_tr', 'M_ev', 'D')]
-        datas = [M_out, M_out.sum(dim=1)[:, None], D[:, None]]
         cpu = torch.device('cpu')
-
+        names = ['Y_tr', 'Y_ev', 'D']
+        datas = [a.to(cpu).numpy() for a in (Y, Y.sum(dim=1), D)]
+        
         for name, data in zip(names, datas):
-            scales = nonzero_std(data.to(cpu))
-            _topdown_fill(scales.numpy())
+            mode = 'mean' if (name == 'D' or hp.learn_delta) else 'std'
+            scales = nonzero_stat(abs(data), mode=mode)
+            _topdown_fill(scales)
 
-            self.register_buffer(name, scales)
+            scales = torch.as_tensor(scales)
+            self.register_buffer(f'_scales_{name}', scales)
 
     def forward(
         self,
-        M: torch.Tensor,
+        Y: torch.Tensor,
         D: torch.Tensor,
-        M_hat: torch.Tensor,
+        Y_hat: torch.Tensor,
         D_hat: torch.Tensor
     ) -> torch.Tensor:
         """
-        Calculate the mean-squared loss in momentum and flux profiles. During
-        training, the loss is computed on each phase speed bin separately, but
-        at evaluation time only the total profile is scored.
+        Calculate the mean-squared loss in momentum and sink profiles. During
+        training, the momentum is evaluated on each phase speed bin separately,
+        while at evaluation time only the total profile is scored.
 
         Parameters
         ----------
-        M, M_hat
-            True and network-predicted bulk momentum profiles.
+        Y, Y_hat
+            True and network-predicted bulk momentum profiles (or deltas).
         D, D_hat
-            True and network-predicted dissipation profiles.
-
-        Returns
-        -------
-        torch.Tensor
-            Mean-squared loss, scaled by precomputed scales.
+            True and network-predicted sink profiles.
 
         """
 
         if self.training:
-            scales_M = self._scales_M_tr
+            scales_Y = self._scales_Y_tr
 
         else:
-            M = M.sum(dim=1)
-            M_hat = M_hat.sum(dim=1)
-            scales_M = self._scales_M_ev
+            Y = Y.sum(dim=1)
+            Y_hat = Y_hat.sum(dim=1)
+            scales_Y = self._scales_Y_ev
 
-        loss_M = (((M - M_hat) / scales_M) ** 2).mean()
+        loss_Y = (((Y - Y_hat) / scales_Y) ** 2).mean()
         loss_D = (((D - D_hat) / self._scales_D) ** 2).mean()
-        
-        return 0.5 * (loss_M + loss_D)
+        weight = self._n_bins if self.training else 1
+
+        return (weight * loss_Y + loss_D) / (weight + 1)
 
 @nb.njit
 def _topdown_fill(a: np.ndarray) -> None:
     """
-    Fill an array of profiles that may start with zeros with the lowest nonzero
-    value in each profile. Modifies the input in place.
+    Fill a profile or an array of profiles that may start with zeros with the
+    lowest nonzero value in each profile. Useful so that levels with no observed
+    nonzero values do not produce NaN values during training.
 
     Parameters
     ----------
     a
-        Array to fill in.
-    
+        Array to fill in. Will be modified in place.
+
     """
 
-    for i in range(a.shape[0]):
-        j = np.argmax(a[i] != 0)
-        a[i, :j] = a[i, j]
+    for idx in np.ndindex(a.shape[:-1]):
+        j = np.argmax(a[*idx] != 0)
+        a[*idx, :j] = a[*idx, j]

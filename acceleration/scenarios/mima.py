@@ -44,7 +44,7 @@ def get_mima_scenario(month: Optional[int]=None) -> xr.Dataset:
         if month is None:
             month = _MONTHS[name]
 
-        keep = ds['time.month'] == _MONTHS[name]
+        keep = ds['time.month'] == month
         ds = ds.isel(time=keep)
 
         time = cftime.date2num(ds['time'].values, f'minutes since {EPOCH}')

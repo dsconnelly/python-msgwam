@@ -5,7 +5,9 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from .utils import apply_blocks, get_block, xavier_init
+from ...hyperparameters import architectures as hp
+
+from .utils import allocate_layers, apply_blocks, get_block, xavier_init
 
 if TYPE_CHECKING:
     from optuna.trial import Trial
@@ -13,8 +15,9 @@ if TYPE_CHECKING:
 class BulkNet(nn.Module):
     def __init__(self, trial: Trial) -> None:
         """
-        At initialization, a `BulkNet` creates a series of blocks that will be
-        used with skip connections at prediction time.
+        At initialization, a `BulkNet` queries the `Trial` object for a number
+        of hyperparameters used to instantiate one or more blocks of fully-
+        connected network layers.
 
         Parameters
         ----------
@@ -32,35 +35,50 @@ class BulkNet(nn.Module):
 
     def forward(
         self,
-        windN: torch.Tensor,
-        M: torch.Tensor,
+        C: torch.Tensor,
+        M: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """
-        Apply the forward model.
+        Apply the forward model. The inputs should already be transformed before
+        being passed to this function.
 
         Parameters
         ----------
-        windN
-            Tensor of wind, buoyancy frequency, and latitude data.
+        C
+            Tensor of column information, with first dimension ranging over
+            samples and second dimension ranging over mean wind, buoyancy
+            frequency, and latitude.
         M
-            Tensor of bulk momentum profiles.
+            Tensor of bulk momentum profiles, with first dimension ranging over
+            samples, second dimension over phase speed bins, and third dimension
+            over vertical grid points.
 
         Returns
         -------
         torch.Tensor, torch.Tensor
-            Tensors of updated bulk momentum profiles and a sink profile.
+            Predicted `Y` and `D` tensors. `D` is the total sink across all
+            phase speed bins, while `Y` has the same shape as `M` and contains
+            either the updated bulk momentum profiles (if `not learn_delta`) or
+            the deltas to those updated profiles.
 
         """
 
-        X = torch.hstack((windN, M.flatten(1, 2)))
+        X = torch.hstack((C, M.flatten(1, 2)))
         out = apply_blocks(self._blocks, X, self._skip_mode)
-
-        totals = out.sum(dim=1)[:, None]
-        totals[totals == 0] = 1
-        out = out / totals
-
         out = out.reshape(-1, self._n_bins + 1, config.n_grid - 1)
-        return out[:, :-1], out[:, -1]
+        Y, D = out[:, :-1], nn.functional.relu(out[:, -1])
+        
+        if hp.learn_delta:
+            raise NotImplementedError('learn_delta not yet supported')
+
+        else:
+            Y = nn.functional.relu(Y)
+            total = Y.sum(dim=(1, 2)) + D.sum(dim=1)
+            total[total == 0] = 1
+
+            Y, D = Y / total[:, None, None], D / total[:, None]
+
+        return Y, D
 
     def _init_blocks(self) -> nn.ModuleList:
         """
@@ -82,8 +100,8 @@ class BulkNet(nn.Module):
             last = self._n_outputs if final else self._n_inputs
             sizes = [first] + [self._width] * depth + [last]
 
-            args = (self._batch_norm_pos, self._activation, final)
-            blocks.append(get_block(sizes, *args))
+            args = (self._batch_norm_pos, self._activation, self._dropout_rate)
+            blocks.append(get_block(sizes, *args, final=final))
 
         return blocks
     
@@ -118,28 +136,24 @@ class BulkNet(nn.Module):
 
         """
 
-        n_hidden = trial.suggest_int('n_hidden', 4, 16)
-        n_blocks = trial.suggest_int('n_blocks', 1, min(5, n_hidden))
-        self._n_hiddens = [n_hidden // n_blocks] * n_blocks
-
-        for i in range(n_blocks):
-            if sum(self._n_hiddens) == n_hidden:
-                break
-
-            self._n_hiddens[i] = self._n_hiddens[i] + 1
-
-        args = ('batch_norm_pos', [-1, 0, 1])
-        self._batch_norm_pos = trial.suggest_categorical(*args)
-        self._skip_mode = 0
-
-        if n_blocks > 1:
-            self._skip_mode = trial.suggest_categorical('skip_mode', [-1, 0, 1])
-
-        activations = ['relu', 'leaky', 'tanh']
-        self._activation = trial.suggest_categorical('activation', activations)
-        self._n_bins = trial.suggest_categorical('n_bins', [1, 2, 5, 10])
+        n_hidden = trial.suggest_int('n_hidden', 4, 10)
+        n_blocks = trial.suggest_int('n_blocks', 1, min(4, n_hidden))
+        self._n_hiddens = allocate_layers(n_hidden, n_blocks)
         self._width = trial.suggest_int('width', 128, 512)
 
-        # TODO: uncomment later
-        # i = trial.suggest_int('n_bin_idx', 0, 3)
-        # self._n_bins = [1, 2, 5, 10][i]
+        options = [1, 2, 5]
+        i = trial.suggest_int('n_bin_idx', 0, len(options) - 1)
+        self._n_bins = options[i]
+
+        if n_blocks > 1:
+            args_sm = ('skip_mode', [-1, 1])
+            self._skip_mode = trial.suggest_categorical(*args_sm)
+        else:
+            self._skip_mode = 0
+
+        args_bn = ('batch_norm_pos', [-1, 0, 1])
+        args_act = ('activation', ['relu', 'leaky', 'tanh'])
+
+        self._activation = trial.suggest_categorical(*args_act)
+        self._batch_norm_pos = trial.suggest_categorical(*args_bn)
+        self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.15)

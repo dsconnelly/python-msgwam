@@ -19,12 +19,14 @@ dt_output = 1200
 n_bins = 10
 
 [architectures]
+learn_delta = false
 max_params = 4000000
 
 [training]
-in_transform = 'nonzero'
-max_epochs = 35
+M_transform = 'constant'
+max_epochs = 20
 max_hours = 1
 min_delta = 0.01
+min_epochs = 10
 n_smoothing = 8
-patience = 10
+patience = 5
