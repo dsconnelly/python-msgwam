@@ -4,14 +4,14 @@ import torch, torch.nn as nn
 
 from ...hyperparameters import architectures as hp
 
-from .transforms import nonzero_stat
+from .transforms import _Array, nonzero_stat
 
 class BulkLoss(nn.Module):
     _scales_Y_tr: torch.Tensor
     _scales_Y_ev: torch.Tensor
     _scales_D: torch.Tensor
 
-    def __init__(self, Y: torch.Tensor, D: torch.Tensor) -> None:
+    def __init__(self, Y: _Array, D: _Array) -> None:
         """
         At initialization a `BulkLoss` estimates the scales of the nonzero
         values in each training target, which will be used to normalize losses.
@@ -30,8 +30,11 @@ class BulkLoss(nn.Module):
 
         cpu = torch.device('cpu')
         names = ['Y_tr', 'Y_ev', 'D']
-        datas = [a.to(cpu).numpy() for a in (Y, Y.sum(dim=1), D)]
-        
+        datas = [Y, Y.sum(1), D]
+
+        if isinstance(Y, torch.Tensor):
+            datas = [a.to(cpu).numpy() for a in datas]
+
         for name, data in zip(names, datas):
             mode = 'mean' if (name == 'D' or hp.learn_delta) else 'std'
             scales = nonzero_stat(abs(data), mode=mode)

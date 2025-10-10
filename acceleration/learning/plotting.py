@@ -34,13 +34,10 @@ def plot_training_errors(
 
     n_bins = int(n_bins_str)
     (C, M, Y, D), idxs, _ = prepare_data(n_bins, 'te')
-    Y_tr, D_tr = torch.as_tensor(Y[idxs[0]]), torch.as_tensor(D[idxs[0]])
 
-    loss_func = BulkLoss(Y_tr, D_tr)
+    loss_func = BulkLoss(Y[idxs[0]], D[idxs[0]])
     scales = (loss_func._scales_Y_tr, loss_func._scales_D[None])
-    print([a.shape for a in scales])
     scales = np.concatenate([a.numpy() for a in scales], axis=0)
-    print(scales.shape)
 
     C, M = torch.as_tensor(C), torch.as_tensor(M)
     Y_hat, D_hat = torch.jit.load(model_path)(C, M)
