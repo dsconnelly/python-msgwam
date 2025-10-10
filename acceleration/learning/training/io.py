@@ -79,6 +79,31 @@ def get_split(
 
     return idx[:c], idx[c:]
 
+def iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
+    """
+    Iterate over all paths to netCDF files that should be read for the given
+    source of evaluation data.
+
+    Parameters
+    ----------
+    eval_type
+        If `'te'`, then the held-out locations will be included in the paths to
+        read. Otherwise, only the training sites will be read.
+
+    Yields
+    ------
+    str
+        Path to a netCDF file to read.
+
+    """
+
+    base = 'data/ml-accel/integrations'
+    sites = _SITES_TR + _SITES_TE * (eval_type == 'te')
+
+    for site in sites:
+        for month in range(1, 13):
+            yield f'{base}/{site}-{month}.nc'
+
 def parse_integrations(
     eval_type: Literal['va', 'te'],
     cached: bool = False
@@ -114,7 +139,7 @@ def parse_integrations(
         return tuple(map(np.load, map(make_path, 'CMYD')))
 
     stacks = [[], [], [], []]
-    for path in _iter_paths(eval_type):
+    for path in iter_paths(eval_type):
         with xr.open_dataset(path) as ds:
             datas = [_parse_column(ds), *_parse_momentum(ds)]
             for stack, data in zip(stacks, datas):
@@ -174,12 +199,12 @@ def prepare_data(
         Y = apply_smoothing(Y)
         D = apply_smoothing(D)
 
-    budget = Y.sum(axis=(1, 2)) + D.sum(1)
-    residual = abs(budget - (not hp.architectures.learn_delta))
-    print(f'Maximum residual is {residual.max()}')
-
     n_tr, n_ev = len(idx_tr), len(idx_ev)
     print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
+
+    budget = Y.sum(axis=(1, 2)) + D.sum(1)
+    residual = abs(budget - (not hp.architectures.learn_delta))
+    print(f'Maximum residual is {residual.max():.4e}.')
 
     C_trans = make_transform(C[idx_tr], mode='z')
     M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
@@ -234,31 +259,6 @@ def trace(
     
     with torch.no_grad():
         return torch.jit.trace(trace_func, (C, M))
-
-def _iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
-    """
-    Iterate over all paths to netCDF files that should be read for the given
-    source of evaluation data.
-
-    Parameters
-    ----------
-    eval_type
-        If `'te'`, then the held-out locations will be included in the paths to
-        read. Otherwise, only the training sites will be read.
-
-    Yields
-    ------
-    str
-        Path to a netCDF file to read.
-
-    """
-
-    base = 'data/ml-accel/integrations'
-    sites = _SITES_TR + _SITES_TE * (eval_type == 'te')
-
-    for site in sites:
-        for month in range(1, 2):
-            yield f'{base}/{site}-{month}.nc'
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """

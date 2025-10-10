@@ -37,7 +37,7 @@ def search_hyperparameters() -> None:
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
-        json.dump(trial.params, f)
+        json.dump(trial.params, f, indent=4)
 
 def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
