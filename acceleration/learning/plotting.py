@@ -7,14 +7,7 @@ from matplotlib.colors import LinearSegmentedColormap as LSC
 
 from msgwam.utils import get_vertical_grids
 
-from ..hyperparameters import architectures as hp
-
-from .training import (
-    BulkLoss,
-    iter_paths,
-    parse_integrations,
-    prepare_data
-)
+from .training import iter_paths, parse_integrations, prepare_data
 
 def plot_training_errors(
     n_bins_str: str,
@@ -33,11 +26,7 @@ def plot_training_errors(
     """
 
     n_bins = int(n_bins_str)
-    (C, M, Y, D), idxs, _ = prepare_data(n_bins, 'te')
-
-    loss_func = BulkLoss(Y[idxs[0]], D[idxs[0]])
-    scales = (loss_func._scales_Y_tr, loss_func._scales_D[None])
-    scales = np.concatenate([a.numpy() for a in scales], axis=0)
+    (C, M, Y, W), idxs, _ = prepare_data(n_bins, 'te')
 
     C, M = torch.as_tensor(C), torch.as_tensor(M)
     Y_hat, D_hat = torch.jit.load(model_path)(C, M)
@@ -47,7 +36,7 @@ def plot_training_errors(
     fig.set_size_inches(3 * (n_bins + 1), 4.5)
     z = get_vertical_grids()[1] / 1000
 
-    data = np.concatenate((Y, D[:, None]), axis=1)
+    data = Y * W
     data_hat = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
 
     for j, ax, in enumerate(axes):
@@ -59,9 +48,7 @@ def plot_training_errors(
             rmse = np.sqrt((diff ** 2).mean(axis=0))
             ax.plot(rmse, z, color=color, label=label)
 
-        ax.plot(scales[j], z, color='gray', ls='dashed', label='scale')
-
-        rmax = scales[j].max()
+        rmax = data[idx, j].max()
         unit = 10 ** np.floor(np.log10(rmax))
         xmax = unit * (1 + np.floor(rmax / unit))
         ax.set_xlim(-0.1 * xmax, xmax)
@@ -95,7 +82,7 @@ def plot_training_samples(
 
     """
 
-    C, M, Y, D = parse_integrations('va')
+    C, M, Y = parse_integrations('te')
     data_hats = None
 
     if kind not in ['inputs', 'outputs']:
@@ -107,17 +94,17 @@ def plot_training_samples(
         data_hats = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
 
     n_bins = int(n_bins_str)
-    (_, M, Y, D), (idx_tr, _), _ = prepare_data(n_bins, 'va', (C, M, Y, D))
+    (C, M, Y, W), (idx_tr, _), _ = prepare_data(n_bins, 'te', (C, M, Y))
 
     if kind == 'inputs':
-        datas = M
         xmaxes = [3] * n_bins
         colors = ['royalblue'] * n_bins
+        datas = M
 
     elif kind == 'outputs':
-        datas = np.concatenate((Y, D[:, None]), axis=1)
         xmaxes = [0.08] + [0.02] * (n_bins - 1) + [0.001]
         colors = ['royalblue'] * n_bins + ['tab:red']
+        datas = Y * W
 
     n_rows, n_cols = datas.shape[1], 4
     fig, axes = plt.subplots(n_rows, n_cols)
@@ -151,7 +138,12 @@ def plot_training_samples(
             axes[i, j].tick_params('both', direction='in')
 
             if kind == 'outputs':
-                axes[i, j].set_title(f'{100 * datas[k, i].sum():.2f}%')
+                title = f'{100 * datas[k, i].sum():.2f}%'
+                
+                if data_hats is not None:
+                    title = title + f' ({100 * data_hats[k, i].sum():.2f}%)'
+
+                axes[i, j].set_title(title)
 
             if i == n_rows - 1:
                 axes[i, j].set_xlabel(kind[:-1])
