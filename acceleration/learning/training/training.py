@@ -1,5 +1,6 @@
 import json
 
+from copy import deepcopy
 from time import time
 from typing import Iterator, Optional
 
@@ -17,7 +18,7 @@ from ... import hyperparameters as hp
 
 from ..architectures import BulkNet
 
-from .io import CMYD, parse_integrations, prepare_data, trace
+from .io import CMYW, parse_integrations, prepare_data, trace
 from .losses import BulkLoss
 
 _DEVICE = torch.device('cpu')
@@ -92,7 +93,7 @@ def _get_model(
 
 def _iter_loaders(
     trial: Trial,
-    arrays: CMYD,
+    arrays: CMYW,
     idxs: tuple[np.ndarray, np.ndarray],
 ) -> Iterator[DataLoader]:
     """
@@ -121,7 +122,7 @@ def _iter_loaders(
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
 
-def _train(trial: Trial, arrays: CMYD) -> float:
+def _train(trial: Trial, arrays: CMYW) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
     It is assumed that the data has been read in from the netCDF files already,
@@ -145,12 +146,11 @@ def _train(trial: Trial, arrays: CMYD) -> float:
     """
 
     model, optimizer = _get_model(trial)
+    loss_func = BulkLoss().to(_DEVICE)
+
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     arrays, idxs, transforms = prepare_data(model._n_bins, eval_type, arrays)
-
     loader_tr, loader_ev = _iter_loaders(trial, arrays, idxs)
-    loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:])
-    loss_func = loss_func.to(_DEVICE)
 
     state = {}
     best_loss = torch.inf
@@ -162,17 +162,20 @@ def _train(trial: Trial, arrays: CMYD) -> float:
         loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
+        improved = loss_ev < best_loss - hp.training.min_delta
+        suffix = ' (new best)' if improved else ''
+
         print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
         print(f'      loss_tr = {loss_tr:.6f}')
-        print(f'      loss_ev = {loss_ev:.6f}')
+        print(f'      loss_ev = {loss_ev:.6f}{suffix}')
 
         trial.report(loss_ev, n_epoch)
         if trial.should_prune():
             raise TrialPruned()
-        
-        if loss_ev < best_loss - hp.training.min_delta:
-            state['model'] = model.state_dict()
-            state['optimizer'] = optimizer.state_dict()
+
+        if improved:
+            state['model'] = deepcopy(model.state_dict())
+            state['optimizer'] = deepcopy(optimizer.state_dict())
             best_loss, waited = loss_ev, 0
 
         elif n_epoch > hp.training.min_epochs - hp.training.patience:
@@ -232,17 +235,17 @@ def _run_epoch(
         loss_func.train()
 
     weight_sum, total = 0, 0
-    for *inputs, Y, D in loader:
+    for *inputs, Y, W in loader:
         if optimizer is None:
             with torch.no_grad():
-                Y_hat, D_hat = model(*inputs)
+                Y_hat, W_hat = model(*inputs)
 
         else:
             optimizer.zero_grad()
-            Y_hat, D_hat = model(*inputs)
+            Y_hat, W_hat = model(*inputs)
 
         weight = Y.shape[0]
-        loss = loss_func(Y, D, Y_hat, D_hat)
+        loss = loss_func(Y, W, Y_hat, W_hat)
         weight_sum = weight_sum + weight
         total = total + weight * loss
 

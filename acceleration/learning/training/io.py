@@ -35,7 +35,7 @@ _SITES_TE = [
     'amundsen-sea'
 ]
 
-CMYD = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 def get_split(
     n_samples: int,
@@ -106,8 +106,8 @@ def iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
 
 def parse_integrations(
     eval_type: Literal['va', 'te'],
-    cached: bool = False
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    cached: bool=False
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Load input and target data from the MS-GWaM integrations saved to disk.
 
@@ -126,9 +126,10 @@ def parse_integrations(
     ndarray, ndarray, ndarray, ndarray
         Concatenated training and evaluation inputs and targets. The arrays are
         `C` (column information including the mean wind, buoyancy frequency, and
-        latitude); `M` (the bulk momentum profile in each phase speed bin); `Y`
-        (either the next bulk momentum profile or the change relative to `M`);
-        and `D` (the profile of sinks).
+        latitude); `M` (the bulk momentum profile in each phase speed bin); and
+        `Y` (the next momentum profile in each phase speed bin along with the
+        sink profile). Reshaping and transforming is deferred to trial time,
+        except for smoothing, since the Shapiro filter is linear.
     
     """
 
@@ -136,9 +137,9 @@ def parse_integrations(
     make_path = lambda c: f'{base}/{c}-{eval_type}.npy'
 
     if cached:
-        return tuple(map(np.load, map(make_path, 'CMYD')))
+        return tuple(map(np.load, map(make_path, 'CMY')))
 
-    stacks = [[], [], [], []]
+    stacks = [[], [], []]
     for path in iter_paths(eval_type):
         with xr.open_dataset(path) as ds:
             datas = [_parse_column(ds), *_parse_momentum(ds)]
@@ -147,7 +148,7 @@ def parse_integrations(
 
     make_stack = lambda s: np.concatenate(s, axis=0)
     outputs = tuple(map(make_stack, stacks))
-    for data, name in zip(outputs, 'CMYD'):
+    for data, name in zip(outputs, 'CMY'):
         np.save(make_path(name), data)
 
     return outputs
@@ -155,9 +156,9 @@ def parse_integrations(
 def prepare_data(
     n_bins: int,
     eval_type: Literal['va', 'te'],
-    arrays: Optional[CMYD]=None
+    arrays: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]=None
 ) -> tuple[
-    CMYD,
+    CMYW,
     tuple[np.ndarray, np.ndarray],
     tuple[Transform, Transform]
 ]:
@@ -172,13 +173,13 @@ def prepare_data(
         Whether the evaluation set is validation or test data. Needed here to
         determine how to split the datasets.
     arrays
-        Tuple of arrays as returned by `parse_integrations`. If `CMYD` is not
+        Tuple of arrays as returned by `parse_integrations`. If no arrays are
         provided, `parse_integrations` is called here.
 
     Returns
     --------
     ndarray, ndarray, ndarray, ndarray
-        Reshaped, filtered, and transformed `C`, `M`, `Y`, and `D` arrays.
+        Reshaped, filtered, and transformed `C`, `M`, `Y`, and `W` arrays.
     ndarray, ndarray
         Index arrays splitting the data into training and evaluation sets.
     Transform, Transform
@@ -190,27 +191,28 @@ def prepare_data(
     if arrays is None:
         arrays = parse_integrations(eval_type)
 
-    C, M, Y, D = arrays
+    C, M, Y = arrays
+    Y, D = Y[:, :-1], Y[:, -1:]
     M, Y = reshape_data(n_bins, M, Y)
-    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
+    Y = np.concatenate((Y, D), axis=1)
 
-    for _ in range(hp.training.n_smoothing):
-        M = apply_smoothing(M)
-        Y = apply_smoothing(Y)
-        D = apply_smoothing(D)
+    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
 
     n_tr, n_ev = len(idx_tr), len(idx_ev)
     print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
 
-    budget = Y.sum(axis=(1, 2)) + D.sum(1)
-    residual = abs(budget - (not hp.architectures.learn_delta))
-    print(f'Maximum residual is {residual.max():.4e}.')
+    residual = abs(Y.sum(axis=(1, 2)) - 1).max()
+    print(f'Maximum residual is {residual:.4e}.')
 
     C_trans = make_transform(C[idx_tr], mode='z')
     M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
-    C, M = C_trans(C), M_trans(M)
+    W = Y.sum(axis=-1, keepdims=True)
 
-    return (C, M, Y, D), (idx_tr, idx_ev), (C_trans, M_trans)
+    C, M = C_trans(C), M_trans(M)
+    keep = (W > 0)[..., 0]
+    Y[keep] /= W[keep]
+
+    return (C, M, Y, W), (idx_tr, idx_ev), (C_trans, M_trans)
 
 def trace(
     model: BulkNet,
@@ -255,8 +257,11 @@ def trace(
         """
 
         M, = reshape_data(model._n_bins, M)
-        return model(C_trans(C), M_trans(M))
-    
+        Y, W = model(C_trans(C), M_trans(M))
+        Y = Y * W
+
+        return Y[:, :-1], Y[:, -1]
+
     with torch.no_grad():
         return torch.jit.trace(trace_func, (C, M))
 
@@ -294,9 +299,7 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
 
     return np.hstack((wind, N, lat))
 
-def _parse_momentum(
-    ds: xr.Dataset
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _parse_momentum(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
     """
     Parse a `Dataset` for relevant information about the bulk momentum.
 
@@ -308,8 +311,8 @@ def _parse_momentum(
     Returns
     -------
     ndarray, ndarray, ndarray
-        Arrays of current bulk momentum profiles, bulk momentum profiles or
-        deltas at the next times step, and dissipation profiles.
+        Arrays of current bulk momentum profiles and still-dimensional momentum
+        and sink profiles at the next time step.
 
     """
 
@@ -319,11 +322,15 @@ def _parse_momentum(
 
     Y = (M - S)[1:].reshape(-1, M.shape[2], M.shape[3])
     M = M[:-1].reshape(-1, M.shape[2], M.shape[3])
-    D = D[1:].reshape(-1, D.shape[2])
-
-    if hp.architectures.learn_delta:
-        Y = Y - M
+    D = D[1:].reshape(-1, 1, D.shape[2])
+    Y = np.concatenate((Y, D), axis=1)
 
     budget = M.sum(axis=(1, 2))
     keep, budget = budget > 0, budget[budget > 0, None, None]
-    return M[keep] / budget, Y[keep] / budget, D[keep] / budget[:, 0]
+    M, Y = M[keep] / budget, Y[keep] / budget
+
+    for _ in range(hp.training.n_smoothing):
+        M = apply_smoothing(M)
+        Y = apply_smoothing(Y)
+
+    return M, Y

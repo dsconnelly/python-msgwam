@@ -19,7 +19,6 @@ dt_output = 1200
 n_bins = 10
 
 [architectures]
-learn_delta = false
 max_params = 4000000
 
 [training]

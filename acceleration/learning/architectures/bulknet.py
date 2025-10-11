@@ -5,8 +5,6 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from ...hyperparameters import architectures as hp
-
 from .utils import allocate_layers, apply_blocks, get_block, xavier_init
 
 if TYPE_CHECKING:
@@ -65,20 +63,14 @@ class BulkNet(nn.Module):
 
         X = torch.hstack((C, M.flatten(1, 2)))
         out = apply_blocks(self._blocks, X, self._skip_mode)
-        out = out.reshape(-1, self._n_bins + 1, config.n_grid - 1)
-        Y, D = out[:, :-1], nn.functional.relu(out[:, -1])
+        Y, W = out[:, :-self._n_weights], out[:, -self._n_weights:, None]
+        Y = Y.reshape(-1, self._n_weights, config.n_grid - 1)
+
+        Y, W = self._make_nonnegative(Y), W ** 2
+        Y = Y / Y.sum(dim=2, keepdim=True)
+        W = W / W.sum(dim=1, keepdim=True)
         
-        if hp.learn_delta:
-            raise NotImplementedError('learn_delta not yet supported')
-
-        else:
-            Y = nn.functional.relu(Y)
-            total = Y.sum(dim=(1, 2)) + D.sum(dim=1)
-            total[total == 0] = 1
-
-            Y, D = Y / total[:, None, None], D / total[:, None]
-
-        return Y, D
+        return Y, W
 
     def _init_blocks(self) -> nn.ModuleList:
         """
@@ -105,6 +97,25 @@ class BulkNet(nn.Module):
 
         return blocks
     
+    def _make_nonnegative(self, a: torch.Tensor) -> torch.Tensor:
+        """
+        Make a tensor negative, using a smooth function during training and a
+        function that allows exact zeros at evaluation time.
+
+        Parameters
+        ----------
+        a
+            Tensor of fully-connected layer output.
+        
+        Returns
+        -------
+        torch.Tensor
+            Tensor with no negative entries.
+
+        """
+
+        return nn.functional.softplus(a)
+
     @property
     def _n_inputs(self) -> int:
         """
@@ -120,10 +131,19 @@ class BulkNet(nn.Module):
         """
         For each wavenumber quadrant, a `BulkNet` predicts one momentum profile
         for each phase speed bin, as well as a prediction of the dissipative
-        momentum loss at each level.
+        momentum loss at each level. Then there is a weight for each profile.
         """
 
-        return (config.n_grid - 1) * (self._n_bins + 1)
+        return config.n_grid * self._n_weights
+    
+    @property
+    def _n_weights(self) -> int:
+        """
+        A `Bulknet` outputs one scaling coefficient for each phase speed bin and
+        one for the sink profile.
+        """
+
+        return self._n_bins + 1
 
     def _set_hyperparameters(self, trial: Trial) -> None:
         """
