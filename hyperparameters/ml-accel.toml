@@ -19,13 +19,14 @@ dt_output = 1200
 n_bins = 10
 
 [architectures]
+beta_final = 6500
 max_params = 4000000
 
 [training]
 M_transform = 'constant'
 max_epochs = 20
 max_hours = 1
-min_delta = 0.01
+min_delta = 0.0001
 min_epochs = 10
 n_smoothing = 8
 patience = 5

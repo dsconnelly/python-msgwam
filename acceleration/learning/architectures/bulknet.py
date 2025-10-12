@@ -1,14 +1,19 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import torch, torch.nn as nn
 
 from msgwam import config
 
+from ... import hyperparameters as hp
+
 from .utils import allocate_layers, apply_blocks, get_block, xavier_init
 
 if TYPE_CHECKING:
     from optuna.trial import Trial
+
+_RELU = nn.functional.relu
+_SOFTPLUS = nn.functional.softplus
 
 class BulkNet(nn.Module):
     def __init__(self, trial: Trial) -> None:
@@ -28,9 +33,11 @@ class BulkNet(nn.Module):
 
         self._set_hyperparameters(trial)
         self._blocks = self._init_blocks()
+        self._beta = 1
+
         self.apply(xavier_init)
         self.to(torch.double)
-
+        
     def forward(
         self,
         C: torch.Tensor,
@@ -66,11 +73,49 @@ class BulkNet(nn.Module):
         Y, W = out[:, :-self._n_weights], out[:, -self._n_weights:, None]
         Y = Y.reshape(-1, self._n_weights, config.n_grid - 1)
 
-        Y, W = self._make_nonnegative(Y), W ** 2
-        Y = Y / Y.sum(dim=2, keepdim=True)
-        W = W / W.sum(dim=1, keepdim=True)
-        
+        Y = self._normalize(Y, d=2)
+        W = self._normalize(W, d=1)
+
         return Y, W
+
+    def update_beta(self, n_epoch: int) -> None:
+        """
+        Update the current value of the Softplus sharpness parameter. Should be
+        called once per iteration in the training loop.
+
+        Parameters
+        ----------
+        n_epoch
+            Current iteration of the training loop.
+
+        """
+
+        factor = (n_epoch / self._tau_beta) ** self._p_beta
+        self._beta = 1 + (hp.architectures.beta_final - 1) * factor
+
+    def _approx_relu(self, a: torch.Tensor) -> torch.Tensor:
+        """
+        A function that, during training, applies Softplus with the current
+        sharpness parameter `self._beta`, but at evaluation time applies the
+        actual ReLU function. As beta is increased, this function becomes more
+        like ReLU during training.
+
+        Parameters
+        ----------
+        a
+            Data to transform.
+
+        Returns
+        -------
+        torch.Tensor
+            Tensor of non-negative values.
+
+        """
+
+        if self.training:
+            return _SOFTPLUS(a, self._beta)
+        
+        return _RELU(a)
 
     def _init_blocks(self) -> nn.ModuleList:
         """
@@ -97,24 +142,41 @@ class BulkNet(nn.Module):
 
         return blocks
     
-    def _make_nonnegative(self, a: torch.Tensor) -> torch.Tensor:
+    def _normalize(self, a: torch.Tensor, d: Literal[1, 2]) -> torch.Tensor:
         """
-        Make a tensor negative, using a smooth function during training and a
-        function that allows exact zeros at evaluation time.
+        Make a tensor non-negative and then scale its entries such that its sum
+        along a given axis is one, while respecting the physical constraints.
 
         Parameters
         ----------
         a
             Tensor of fully-connected layer output.
+        d
+            Axis to normalize along. If `2`, the array is the array of shape
+            values, and the function applied to all entries is the approximation
+            to the ReLU defined above. If `1`, this is the array of scales, and
+            the same function is applied except to the last weight (that for the
+            sink profile) which is always positive and thus takes Softplus.
         
         Returns
         -------
         torch.Tensor
-            Tensor with no negative entries.
+            Tensor with no negative entries summing to one.
 
         """
 
-        return nn.functional.softplus(a)
+        if d == 1:
+            out = torch.zeros_like(a)
+            out[:, -1] = _SOFTPLUS(a[:, -1])
+            out[:, :-1] = self._approx_relu(a[:, :-1])
+
+        else:
+            out = self._approx_relu(a)
+
+        totals = out.sum(dim=d, keepdim=True)
+        totals[totals == 0] = 1
+
+        return out / totals
 
     @property
     def _n_inputs(self) -> int:
@@ -177,3 +239,7 @@ class BulkNet(nn.Module):
         self._activation = trial.suggest_categorical(*args_act)
         self._batch_norm_pos = trial.suggest_categorical(*args_bn)
         self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.15)
+
+        self._p_beta = trial.suggest('p_beta', 6, 12)
+        tau_beta = trial.suggest_float('tau_beta', 0.75, 1.25)
+        self._tau_beta = tau_beta * hp.training.max_epochs

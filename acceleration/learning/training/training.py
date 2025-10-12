@@ -34,7 +34,7 @@ def search_hyperparameters() -> None:
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, n_trials=10, gc_after_trial=True)
+    study.optimize(objective, timeout=3600, gc_after_trial=True)
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -73,7 +73,7 @@ def _get_model(
     """
 
     model = BulkNet(trial)
-    lr = trial.suggest_float('learning_rate', 1e-5, 1e-3, log=True)
+    lr = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     n_params = sum(param.numel() for param in model.parameters())
@@ -158,7 +158,8 @@ def _train(trial: Trial, arrays: CMYW) -> float:
 
     while n_epoch <= hp.training.max_epochs:
         epoch_start = time()
-        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        _ = _run_epoch(model, loader_tr, loss_func, optimizer)
+        loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
@@ -185,6 +186,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
                 print('Stopping early due to lack of improvement.')
                 break
 
+        model.update_beta(n_epoch)
         n_epoch = n_epoch + 1
 
     if eval_type == 'te':

@@ -28,10 +28,7 @@ class NetworkPropagator(Propagator):
         super().__init__(mean)
 
         self._model = torch.jit.load(config.model_path)
-        with open('data/ml-accel/models/hyperparameters.json') as f:
-            self._n_bins = json.load(f)['n_bins']
-
-        self._M = np.zeros((4, self._n_bins, config.n_grid - 1))
+        self._M = np.zeros((4, config.n_bins, config.n_grid - 1))
         self._F = np.zeros((4, config.n_grid))
         self.step(mean, 0)
 
@@ -90,7 +87,7 @@ class NetworkPropagator(Propagator):
 
         action = dens * dk * dl * dm
         r = config.r_source - 0.5 * dr
-        pdx = get_pdx(k, l, cp_hat, self._n_bins)
+        pdx = get_pdx(k, l, cp_hat, config.n_bins)
 
         wvn_hor_sq = k ** 2 + l ** 2
         wvn_sq = wvn_hor_sq + m ** 2
@@ -98,22 +95,22 @@ class NetworkPropagator(Propagator):
         P, Q = np.zeros((2, 4, config.n_grid - 1))
 
         threshold = mean.rho / 2
-        project(r, dr, mean.z_faces, S, pdx // self._n_bins, P)
-        project(r, dr, mean.z_faces, S * wvn_sq, pdx // self._n_bins, Q)
+        project(r, dr, mean.z_faces, S, pdx // config.n_bins, P)
+        project(r, dr, mean.z_faces, S * wvn_sq, pdx // config.n_bins, Q)
         P = P - threshold
 
         idx = Q != 0
         kappa = np.zeros_like(P)
         kappa[idx] = P[idx] / Q[idx]
 
-        kappa = kappa.max(axis=1)[pdx // self._n_bins]
+        kappa = kappa.max(axis=1)[pdx // config.n_bins]
         factor = np.maximum(0, 1 - wvn_sq * kappa)
         mom = abs((k + l) * factor * action)
 
-        out = np.zeros((4 * self._n_bins, config.n_grid - 1))
+        out = np.zeros((4 * config.n_bins, config.n_grid - 1))
         project(r, dr, mean.z_faces, mom, pdx, out)
 
-        return out.reshape(4, self._n_bins, config.n_grid - 1)
+        return out.reshape(4, config.n_bins, config.n_grid - 1)
 
     def _make_C(self, mean: MeanState) -> torch.Tensor:
         """

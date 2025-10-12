@@ -84,10 +84,10 @@ def _get_network_overrides() -> dict[str, Any]:
     return {
         'model_path' : 'data/ml-accel/models/model-best.jit',
         'propagator_type' : 'network',
-        'model_id' : 251,
         'dr_source' : -1200,
         'n_source' : 128,
-        'dr_min' : 0
+        'dr_min' : 0,
+        'n_bins' : 1
     }
 
 def _get_reference_overrides() -> dict[str, Any]:
