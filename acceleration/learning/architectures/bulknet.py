@@ -240,6 +240,6 @@ class BulkNet(nn.Module):
         self._batch_norm_pos = trial.suggest_categorical(*args_bn)
         self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.15)
 
-        self._p_beta = trial.suggest('p_beta', 6, 12)
+        self._p_beta = trial.suggest_float('p_beta', 6, 12)
         tau_beta = trial.suggest_float('tau_beta', 0.75, 1.25)
         self._tau_beta = tau_beta * hp.training.max_epochs

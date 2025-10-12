@@ -29,12 +29,12 @@ if torch.cuda.is_available():
 def search_hyperparameters() -> None:
     """Search hyperparameter space for the best set."""
 
-    arrays = parse_integrations('va')
+    arrays = parse_integrations('va', cached=False)
     objective = lambda t: _train(t, arrays)
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=3600, gc_after_trial=True)
+    study.optimize(objective, n_trials=3, gc_after_trial=True)
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -46,7 +46,7 @@ def train_network() -> None:
     with open('data/ml-accel/models/hyperparameters.json') as f:
         trial = FixedTrial(json.load(f))
 
-    _train(trial, parse_integrations('te'))
+    _train(trial, parse_integrations('te', cached=True))
 
 def _get_model(
     trial: Trial,
@@ -158,8 +158,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
 
     while n_epoch <= hp.training.max_epochs:
         epoch_start = time()
-        _ = _run_epoch(model, loader_tr, loss_func, optimizer)
-        loss_tr = _run_epoch(model, loader_tr, loss_func)
+        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 

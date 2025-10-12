@@ -8,25 +8,7 @@ from msgwam import config
 from msgwam.constants import EPOCH
 from msgwam.utils import get_vertical_grids
 
-_MONTHS = {
-    'copenhagen' : 1,
-    'anchorage' : 1,
-
-    'new-york' : 1,
-    'lisbon' : 1,
-
-    'miami' : 4,
-    'brisbane' : 10,
-
-    'singapore' : 10,
-    'maldives' : 4,
-
-    'buenos-aires' : 7,
-    'perth' : 7,
-
-    'amundsen-sea' : 7,
-    'weddell-sea' : 7
-}
+from ..shared.constants import MIMA_MONTHS
 
 _N_MIN = 2 * np.pi / (2 * 3600)
 
@@ -42,7 +24,7 @@ def get_mima_scenario(month: Optional[int]=None) -> xr.Dataset:
         ds = ds.sel(site=name)
 
         if month is None:
-            month = _MONTHS[name]
+            month = MIMA_MONTHS[name]
 
         keep = ds['time.month'] == month
         ds = ds.isel(time=keep)

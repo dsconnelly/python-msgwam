@@ -7,6 +7,7 @@ import xarray as xr
 from msgwam import config
 
 from ... import hyperparameters as hp
+from ...shared.constants import MIMA_MONTHS
 
 from ..architectures import BulkNet
 
@@ -16,24 +17,6 @@ from .transforms import (
     make_transform,
     reshape_data
 )
-
-_SITES_TR = [
-    'anchorage',
-    'new-york',
-    'lisbon',
-    'miami',
-    'maldives',
-    'brisbane',
-    'buenos-aires',
-    'weddell-sea'
-]
-
-_SITES_TE = [
-    'copenhagen',
-    'singapore',
-    'perth',
-    'amundsen-sea'
-]
 
 CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
@@ -65,13 +48,12 @@ def get_split(
     """
 
     if eval_type == 'va':
-        c = int(0.8 * n_samples)
+        c = int(0.85 * n_samples)
         gen = np.random.default_rng(seed)
         idx = np.argsort(gen.random(n_samples))
 
     elif eval_type == 'te':
-        total = len(_SITES_TR + _SITES_TE)
-        c = (n_samples * len(_SITES_TR)) // total
+        c = int(0.75 * n_samples)
         idx = np.arange(n_samples)
 
     else:
@@ -82,13 +64,15 @@ def get_split(
 def iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
     """
     Iterate over all paths to netCDF files that should be read for the given
-    source of evaluation data.
+    source of evaluation data. The strategy is to hold out the months of data
+    that we evaluate strategies on, as well as the months just before and after.
+    Those data are included only if `eval_type == 'te'`.
 
     Parameters
     ----------
     eval_type
-        If `'te'`, then the held-out locations will be included in the paths to
-        read. Otherwise, only the training sites will be read.
+        If `'te'`, then the held-out months will be included in the paths to
+        read. Otherwise, only the training months will be read.
 
     Yields
     ------
@@ -98,11 +82,14 @@ def iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
     """
 
     base = 'data/ml-accel/integrations'
-    sites = _SITES_TR + _SITES_TE * (eval_type == 'te')
+    for site, month, in MIMA_MONTHS.items():
+        for m in range(month + 1, month + 10):
+            yield f'{base}/{site}-{(m % 12) + 1}.nc'
 
-    for site in sites:
-        for month in range(1, 13):
-            yield f'{base}/{site}-{month}.nc'
+    if eval_type == 'te':
+        for site, month in MIMA_MONTHS.items():
+            for m in range(month - 2, month + 1):
+                yield f'{base}/{site}-{(m % 12) + 1}.nc'
 
 def parse_integrations(
     eval_type: Literal['va', 'te'],
