@@ -26,15 +26,23 @@ if torch.cuda.is_available():
     _DEVICE = torch.device('cuda')
     print('Training will occur on the GPU.')
 
+def cache_arrays() -> None:
+    """
+    Convenience function to cache training arrays with the current settings, to
+    be called e.g. before submitting a job to a GPU node.
+    """
+
+    _ = parse_integrations(cached=False)
+
 def search_hyperparameters() -> None:
     """Search hyperparameter space for the best set."""
 
-    arrays = parse_integrations('va', cached=False)
+    arrays = parse_integrations(cached=True)
     objective = lambda t: _train(t, arrays)
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, n_trials=3, gc_after_trial=True)
+    study.optimize(objective, n_trials=1, gc_after_trial=True)
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -46,7 +54,7 @@ def train_network() -> None:
     with open('data/ml-accel/models/hyperparameters.json') as f:
         trial = FixedTrial(json.load(f))
 
-    _train(trial, parse_integrations('te', cached=True))
+    _train(trial, parse_integrations(cached=True))
 
 def _get_model(
     trial: Trial,

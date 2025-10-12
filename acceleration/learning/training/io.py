@@ -1,3 +1,4 @@
+from itertools import product
 from typing import Literal, Iterator, Optional
 
 import numpy as np
@@ -21,9 +22,8 @@ from .transforms import (
 CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 def get_split(
-    n_samples: int,
-    eval_type: Literal['va', 'te'],
-    seed: int=1234
+    C: np.ndarray,
+    eval_type: Literal['va', 'te']
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Get index arrays that can be used to split the data into subsets for
@@ -31,14 +31,13 @@ def get_split(
 
     Parameters
     ----------
-    n_samples
-        How many total datapoints are available.
+    C
+        Array of column information as returned by `parse_integrations`. The
+        first column of `C` contains a flag which is used to determine whether
+        samples come from the training, validation, or held-out test sets, and
+        to split the data accordingly.
     eval_type
-        Whether to use validation or test data as the evaluation set. If test
-        data is used, the evaluation set will be pulled from MiMA scenarios that
-        are entirely left out of the training data.
-    seed
-        Seed to use for random splitting if `eval_type == 'va'`.
+        Whether the evaluation data should be validation or test data.
 
     Returns
     -------
@@ -47,52 +46,36 @@ def get_split(
 
     """
 
-    if eval_type == 'va':
-        c = int(0.85 * n_samples)
-        gen = np.random.default_rng(seed)
-        idx = np.argsort(gen.random(n_samples))
+    flag = 1 + (eval_type == 'te')
+    idx_tr, = np.where(C[:, 0] < flag)
+    idx_ev, = np.where(C[:, 0] == flag)
 
-    elif eval_type == 'te':
-        c = int(0.75 * n_samples)
-        idx = np.arange(n_samples)
+    return idx_tr, idx_ev
 
-    else:
-        raise ValueError(f'Invalid eval_type: {eval_type}')
-
-    return idx[:c], idx[c:]
-
-def iter_paths(eval_type: Literal['va', 'te']) -> Iterator[str]:
+def iter_paths() -> Iterator[tuple[str, int]]:
     """
     Iterate over all paths to netCDF files that should be read for the given
     source of evaluation data. The strategy is to hold out the months of data
     that we evaluate strategies on, as well as the months just before and after.
     Those data are included only if `eval_type == 'te'`.
 
-    Parameters
-    ----------
-    eval_type
-        If `'te'`, then the held-out months will be included in the paths to
-        read. Otherwise, only the training months will be read.
-
     Yields
     ------
     str
         Path to a netCDF file to read.
+    int
+        A flag that is 0, 1, or 2 depending on whether the path points to an
+        integration that is from the training, validation, or test set.
 
     """
 
     base = 'data/ml-accel/integrations'
-    for site, month, in MIMA_MONTHS.items():
-        for m in range(month + 1, month + 10):
-            yield f'{base}/{site}-{(m % 12) + 1}.nc'
-
-    if eval_type == 'te':
-        for site, month in MIMA_MONTHS.items():
-            for m in range(month - 2, month + 1):
-                yield f'{base}/{site}-{(m % 12) + 1}.nc'
+    for site, m_te in MIMA_MONTHS.items():
+        for m in range(1, 13):
+            d = min((m - m_te) % 12, (m_te - m) % 12)
+            yield f'{base}/{site}-{m}.nc', 3 - min(3, max(1, d))
 
 def parse_integrations(
-    eval_type: Literal['va', 'te'],
     cached: bool=False
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
@@ -100,9 +83,6 @@ def parse_integrations(
 
     Parameters
     ----------
-    fname
-        Whether the evaluation set should be validation or test data. Here used
-        to determine which integrations to read.
     cached
         Whether to read the already-concatenated data from disk instead of
         opening the netCDF files. This function must have been called previously
@@ -121,17 +101,20 @@ def parse_integrations(
     """
 
     base = 'data/ml-accel/cached'
-    make_path = lambda c: f'{base}/{c}-{eval_type}.npy'
+    make_path = lambda c: f'{base}/{c}.npy'
 
     if cached:
         return tuple(map(np.load, map(make_path, 'CMY')))
 
     stacks = [[], [], []]
-    for path in iter_paths(eval_type):
+    for path, flag in iter_paths():
         with xr.open_dataset(path) as ds:
-            datas = [_parse_column(ds), *_parse_momentum(ds)]
-            for stack, data in zip(stacks, datas):
-                stack.append(data)
+            M, Y, keep = _parse_momentum(ds)
+            col = flag * np.ones((M.shape[0], 1))
+            C = np.hstack((col, _parse_column(ds)))
+
+            for stack, data in zip(stacks, [C, M, Y]):
+                stack.append(data[keep])
 
     make_stack = lambda s: np.concatenate(s, axis=0)
     outputs = tuple(map(make_stack, stacks))
@@ -143,7 +126,7 @@ def parse_integrations(
 def prepare_data(
     n_bins: int,
     eval_type: Literal['va', 'te'],
-    arrays: Optional[tuple[np.ndarray, np.ndarray, np.ndarray]]=None
+    arrays: tuple[np.ndarray, np.ndarray, np.ndarray]
 ) -> tuple[
     CMYW,
     tuple[np.ndarray, np.ndarray],
@@ -157,16 +140,17 @@ def prepare_data(
     n_bins
         Number of bins that should be in the transformed data.
     eval_type
-        Whether the evaluation set is validation or test data. Needed here to
-        determine how to split the datasets.
+        Whether the evaluation data is validation or test. Used here to
+        generate training and evaluation index arrays.
     arrays
-        Tuple of arrays as returned by `parse_integrations`. If no arrays are
-        provided, `parse_integrations` is called here.
+        Tuple of arrays as returned by `parse_integrations`.
 
     Returns
     --------
     ndarray, ndarray, ndarray, ndarray
-        Reshaped, filtered, and transformed `C`, `M`, `Y`, and `W` arrays.
+        Reshaped, filtered, and transformed `C`, `M`, `Y`, and `W` arrays. The
+        first column of `C`, containing flags indicating the provenance of each
+        sample, will be discarded.
     ndarray, ndarray
         Index arrays splitting the data into training and evaluation sets.
     Transform, Transform
@@ -175,15 +159,13 @@ def prepare_data(
     
     """
 
-    if arrays is None:
-        arrays = parse_integrations(eval_type)
-
     C, M, Y = arrays
+    idx_tr, idx_ev = get_split(C, eval_type)
+    C = C[:, 1:]
+
     Y, D = Y[:, :-1], Y[:, -1:]
     M, Y = reshape_data(n_bins, M, Y)
     Y = np.concatenate((Y, D), axis=1)
-
-    idx_tr, idx_ev = get_split(M.shape[0], eval_type)
 
     n_tr, n_ev = len(idx_tr), len(idx_ev)
     print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
@@ -230,9 +212,8 @@ def trace(
     for p in model.parameters():
         p.requires_grad = False
 
-    C, M, *_ = parse_integrations('va')
-    C = torch.as_tensor(C[:10])
-    M = torch.as_tensor(M[:10])
+    C, M, *_ = parse_integrations(cached=True)
+    C, M = torch.as_tensor(C[:10, 1:]), torch.as_tensor(M[:10])
 
     def trace_func(
         C: torch.Tensor,
@@ -286,7 +267,9 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
 
     return np.hstack((wind, N, lat))
 
-def _parse_momentum(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
+def _parse_momentum(
+    ds: xr.Dataset
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Parse a `Dataset` for relevant information about the bulk momentum.
 
@@ -299,7 +282,9 @@ def _parse_momentum(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
     -------
     ndarray, ndarray, ndarray
         Arrays of current bulk momentum profiles and still-dimensional momentum
-        and sink profiles at the next time step.
+        and sink profiles at the next time step. The last array is an index
+        indicating which samples should be retained, so that the corresponding
+        rows of the `C` array can be indexed similarly.
 
     """
 
@@ -314,10 +299,13 @@ def _parse_momentum(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
 
     budget = M.sum(axis=(1, 2))
     keep, budget = budget > 0, budget[budget > 0, None, None]
-    M, Y = M[keep] / budget, Y[keep] / budget
+    M[keep], Y[keep] = M[keep] / budget, Y[keep] / budget
 
     for _ in range(hp.training.n_smoothing):
         M = apply_smoothing(M)
         Y = apply_smoothing(Y)
 
-    return M, Y
+    residual = abs(1 - Y.sum(axis=(1, 2)))
+    keep = keep & (residual < 1e-14)
+
+    return M, Y, keep

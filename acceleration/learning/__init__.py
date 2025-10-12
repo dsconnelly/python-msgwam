@@ -5,10 +5,11 @@ from .plotting import (
     plot_training_series
 )
 from .propagators import NetworkPropagator
-from .training import search_hyperparameters, train_network
+from .training import cache_arrays, search_hyperparameters, train_network
 
 __all__ = [
     'NetworkPropagator',
+    'cache_arrays',
     'plot_training_errors',
     'plot_training_samples',
     'plot_training_series',
