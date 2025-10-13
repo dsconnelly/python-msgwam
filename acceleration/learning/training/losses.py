@@ -14,6 +14,7 @@ class BulkLoss(nn.Module):
 
         super().__init__()
 
+        Y, W = Y.cpu(), W.cpu()
         a = nonzero_stat(Y.transpose(1, 2).flatten(0, 1).numpy(), 'std')
         b = nonzero_stat(W[..., 0].numpy(), 'std')
 
@@ -41,7 +42,7 @@ class BulkLoss(nn.Module):
 
         """
 
-        error_Y = (((Y - Y_hat) / self._scales_Y) ** 2).mean()
-        error_W = (((W - W_hat) / self._scales_W) ** 2).mean()
+        loss_Y = (((Y - Y_hat) / self._scales_Y) ** 2).mean()
+        loss_W = (((W - W_hat) / self._scales_W) ** 2).mean()
 
-        return (Y.shape[2] * error_Y + error_W) / (Y.shape[2] + 1)
+        return loss_Y, loss_W

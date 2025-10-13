@@ -172,7 +172,8 @@ def prepare_data(
     """
 
     C, M, Y = arrays
-    idx_tr, idx_ev = get_split(C, eval_type)
+    n_samples = 600000 if eval_type == 'va' else None
+    idx_tr, idx_ev = get_split(C, eval_type, n_samples)
     C = C[:, 1:]
 
     Y, D = Y[:, :-1], Y[:, -1:]

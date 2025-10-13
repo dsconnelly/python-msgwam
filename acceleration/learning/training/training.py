@@ -2,7 +2,7 @@ import json
 
 from copy import deepcopy
 from time import time
-from typing import Iterator, Optional
+from typing import Iterator, Literal, Optional
 
 import numpy as np
 import torch
@@ -42,7 +42,7 @@ def search_hyperparameters() -> None:
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=(5 * 3600), gc_after_trial=True)
+    study.optimize(objective, timeout=(20 * 60), gc_after_trial=True)
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -58,6 +58,7 @@ def train_network() -> None:
 
 def _get_model(
     trial: Trial,
+    eval_type: Literal['va', 'te'],
     state_path: Optional[str]=None
 ) -> tuple[BulkNet, torch.optim.Adam]:
     """
@@ -69,6 +70,8 @@ def _get_model(
     trial
         Current trial, used to instantiate the neural network architecture and
         to sample a learning rate.
+    eval_type
+        Evaluation data type specifier, used to set `model._relax_beta`.
     state_path
         If provided, a path to existing model state. Will only work if `trial`
         is a `FixedTrial`. If not provided, a new model is returned.
@@ -80,7 +83,7 @@ def _get_model(
 
     """
 
-    model = BulkNet(trial)
+    model = BulkNet(trial, eval_type == 'te')
     lr = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
@@ -153,16 +156,16 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     
     """
 
-    model, optimizer = _get_model(trial)
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    arrays, idxs, transforms = prepare_data(model._n_bins, eval_type, arrays)
+    model, optimizer = _get_model(trial, eval_type)
 
+    arrays, idxs, transforms = prepare_data(model._n_bins, eval_type, arrays)
     loader_tr, loader_ev = _iter_loaders(trial, arrays, idxs)
     loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
-    best_loss = torch.inf
+    best_score = torch.inf
     n_epoch, waited = 1, 0
 
     max_epochs = hp.training.max_epochs
@@ -170,16 +173,22 @@ def _train(trial: Trial, arrays: CMYW) -> float:
 
     while n_epoch <= max_epochs:
         epoch_start = time()
-        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        loss_ev = _run_epoch(model, loader_ev, loss_func)
+        losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        losses_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
-        improved = loss_ev < best_loss - hp.training.min_delta
-        suffix = ' (new best)' if improved else ''
-
         print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
-        print(f'      loss_tr = {loss_tr:.6f}')
-        print(f'      loss_ev = {loss_ev:.6f}{suffix}')
+        for losses, suffix in zip([losses_tr, losses_ev], ['tr', 'ev']):
+            print(f'      loss_{suffix}  = {losses[2]:.6f}')
+            print(f'        loss_Y = {losses[0]:.6f}')
+            print(f'        loss_W = {losses[1]:.6f}')
+
+        (*_, loss_tr), (*_, loss_ev) = losses_tr, losses_ev
+        score = (1 - model.progress) * loss_tr + model.progress * loss_ev
+        improved = score < best_score - hp.training.min_delta
+        
+        suffix = ' (new best)' if improved else ''
+        print(f'      score    = {score:.6f}{suffix}')
 
         trial.report(loss_ev, n_epoch)
         if trial.should_prune():
@@ -188,7 +197,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
         if improved:
             state['model'] = deepcopy(model.state_dict())
             state['optimizer'] = deepcopy(optimizer.state_dict())
-            best_loss, waited = loss_ev, 0
+            best_score, waited = score, 0
 
         elif n_epoch > hp.training.min_epochs - hp.training.patience:
             waited = waited + 1
@@ -197,7 +206,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
                 print('Stopping early due to lack of improvement.')
                 break
 
-        model.update_beta(n_epoch)
+        model.update_beta(loss_tr)
         n_epoch = n_epoch + 1
 
     if eval_type == 'te':
@@ -208,14 +217,14 @@ def _train(trial: Trial, arrays: CMYW) -> float:
         torch.save(state, 'data/ml-accel/models/state-best.pkl')
         torch.jit.save(traced, 'data/ml-accel/models/model-best.jit')
 
-    return best_loss
+    return best_score
 
 def _run_epoch(
     model: BulkNet,
     loader: DataLoader,
     loss_func: BulkLoss,
     optimizer: Optional[torch.optim.Adam]=None
-) -> float:
+) -> tuple[float, float, float]:
     """
     Run a training or evaluation epoch, calculating the total loss over all
     batches in the provided loader.
@@ -247,7 +256,9 @@ def _run_epoch(
         model.train()
         loss_func.train()
 
-    weight_sum, total = 0, 0
+    weight_sum = 0
+    total_Y, total_W, total = 0, 0, 0
+    
     for *inputs, Y, W in loader:
         if optimizer is None:
             with torch.no_grad():
@@ -257,13 +268,21 @@ def _run_epoch(
             optimizer.zero_grad()
             Y_hat, W_hat = model(*inputs)
 
+        loss_Y, loss_W = loss_func(Y, W, Y_hat, W_hat)
+        loss = loss_Y + loss_W
+
         weight = Y.shape[0]
-        loss = loss_func(Y, W, Y_hat, W_hat)
         weight_sum = weight_sum + weight
+
+        total_Y = total_Y + weight * loss_Y
+        total_W = total_W + weight * loss_W
         total = total + weight * loss
 
         if optimizer is not None:
             loss.backward()
             optimizer.step()
 
-    return (total / weight_sum).item() ** 0.5
+    totals = [total_Y, total_W, total]
+    rms = lambda a: (a / weight_sum).item() ** 0.5
+
+    return tuple(map(rms, totals))

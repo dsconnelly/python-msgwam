@@ -5,7 +5,7 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
-from ... import hyperparameters as hp
+from ...hyperparameters import architectures as hp
 
 from .unet import UNet
 from .utils import allocate_layers, apply_blocks, get_block, xavier_init
@@ -17,7 +17,7 @@ _RELU = nn.functional.relu
 _SOFTPLUS = nn.functional.softplus
 
 class BulkNet(nn.Module):
-    def __init__(self, trial: Trial) -> None:
+    def __init__(self, trial: Trial, relax_beta: bool) -> None:
         """
         At initialization, a `BulkNet` queries the `Trial` object for a number
         of hyperparameters used to instantiate one or more blocks of fully-
@@ -32,8 +32,11 @@ class BulkNet(nn.Module):
 
         super().__init__()
         self._set_hyperparameters(trial)
-        
+
+        self._relax_beta = relax_beta
+        self._updates = 0
         self._beta = 1
+        
         self._blocks = self._init_blocks()
         self.apply(xavier_init)
         self.to(torch.double)
@@ -88,20 +91,38 @@ class BulkNet(nn.Module):
 
         return Y, W
 
-    def update_beta(self, n_epoch: int) -> None:
+    @property
+    def progress(self) -> float:
+        """
+        Float representing the progress towards the final value of beta, used to
+        calculate the score during training. If `_beta` is not being relaxed
+        (i.e. we are doing hyperparameter search) the progress is always 1.
+        """
+
+        if not self._relax_beta:
+            return 1
+
+        return (self._beta - 1) / (hp.beta_final - 1)
+
+    def update_beta(self, loss_tr: float) -> None:
         """
         Update the current value of the Softplus sharpness parameter. Should be
         called once per iteration in the training loop.
 
         Parameters
         ----------
-        n_epoch
-            Current iteration of the training loop.
-
+        loss_tr
+            Current training loss. When the training loss is sufficiently low,
+            the sharpness parameter begins to increase.
+        
         """
 
-        factor = (n_epoch / self._tau_beta) ** self._p_beta
-        self._beta = 1 + (hp.architectures.beta_final - 1) * factor
+        if (loss_tr > hp.ramp_start) or (not self._relax_beta):
+            return
+        
+        self._updates = self._updates + 1
+        factor = min(self._updates / hp.ramp_length, 1) ** hp.ramp_p
+        self._beta = 1 + (hp.beta_final - 1) * factor
 
     def _approx_relu(self, a: torch.Tensor) -> torch.Tensor:
         """
@@ -122,7 +143,7 @@ class BulkNet(nn.Module):
 
         """
 
-        if self.training:
+        if self.training or (not self._relax_beta):
             return _SOFTPLUS(a, self._beta)
         
         return _RELU(a)
@@ -235,7 +256,7 @@ class BulkNet(nn.Module):
         i = trial.suggest_int('n_bin_idx', 0, len(options) - 1)
         self._n_bins = options[i]
 
-        self._has_unet = trial.suggest_categorical('has_unet', [True])
+        self._has_unet = trial.suggest_categorical('has_unet', [True, False])
         n_hidden = trial.suggest_int('n_hidden', 4, 5 if self._has_unet else 10)
 
         if self._has_unet:
@@ -260,7 +281,3 @@ class BulkNet(nn.Module):
         self._activation = trial.suggest_categorical(*args_act)
         self._batch_norm_pos = trial.suggest_categorical(*args_bn)
         self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.15)
-
-        self._p_beta = trial.suggest_float('p_beta', 6, 12)
-        tau_beta = trial.suggest_float('tau_beta', 0.75, 1.25)
-        self._tau_beta = tau_beta * hp.training.max_epochs
