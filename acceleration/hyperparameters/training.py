@@ -1,3 +1,4 @@
+batch_size: int
 M_transform: str
 max_epochs: int
 max_hours: int

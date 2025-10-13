@@ -42,7 +42,7 @@ def search_hyperparameters() -> None:
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=(20 * 60), gc_after_trial=True)
+    study.optimize(objective, timeout=(270 * 60), gc_after_trial=True)
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -103,7 +103,6 @@ def _get_model(
     return model.to(_DEVICE), optimizer
 
 def _iter_loaders(
-    trial: Trial,
     arrays: CMYW,
     idxs: tuple[np.ndarray, np.ndarray],
 ) -> Iterator[DataLoader]:
@@ -116,9 +115,7 @@ def _iter_loaders(
         Reshaped and transformed inputs and outputs.
     idxs
         Index arrays separating the data into training and evaluation sets.
-    batch_size_tr
-        Batch size to use for the training data.
-        
+
     Returns
     -------
     DataLoader, DataLoader
@@ -126,7 +123,7 @@ def _iter_loaders(
 
     """
 
-    batch_sizes = [trial.suggest_int('batch_size', 64, 1024), 4096]
+    batch_sizes = [hp.training.batch_size, 4096]
     tensors = [torch.as_tensor(a).to(_DEVICE) for a in arrays]
 
     for i, (idx, batch_size) in enumerate(zip(idxs, batch_sizes)):
@@ -160,7 +157,8 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     model, optimizer = _get_model(trial, eval_type)
 
     arrays, idxs, transforms = prepare_data(model._n_bins, eval_type, arrays)
-    loader_tr, loader_ev = _iter_loaders(trial, arrays, idxs)
+    loader_tr, loader_ev = _iter_loaders(arrays, idxs)
+
     loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:])
     loss_func = loss_func.to(_DEVICE)
 
@@ -170,6 +168,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
 
     max_epochs = hp.training.max_epochs
     max_epochs = max_epochs * (1 + (eval_type == 'te'))
+    patience = -1 if eval_type == 'te' else hp.training.patience
 
     while n_epoch <= max_epochs:
         epoch_start = time()
@@ -199,10 +198,10 @@ def _train(trial: Trial, arrays: CMYW) -> float:
             state['optimizer'] = deepcopy(optimizer.state_dict())
             best_score, waited = score, 0
 
-        elif n_epoch > hp.training.min_epochs - hp.training.patience:
+        elif n_epoch > hp.training.min_epochs - patience:
             waited = waited + 1
 
-            if waited == hp.training.patience:
+            if waited == patience:
                 print('Stopping early due to lack of improvement.')
                 break
 

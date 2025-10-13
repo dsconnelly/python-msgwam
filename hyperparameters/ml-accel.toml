@@ -21,12 +21,15 @@ n_bins = 10
 [architectures]
 beta_final = 6500
 max_params = 4000000
+ramp_start = 0.1
+ramp_length = 15
+ramp_p = 10
 
 [training]
+batch_size = 256
 M_transform = 'constant'
-max_epochs = 50
-max_hours = 1
-min_delta = 0.00005
+max_epochs = 35
+min_delta = 0.001
 min_epochs = 10
 n_smoothing = 8
-patience = 10 
+patience = 5
