@@ -7,6 +7,7 @@ from msgwam import config
 
 from ... import hyperparameters as hp
 
+from .unet import UNet
 from .utils import allocate_layers, apply_blocks, get_block, xavier_init
 
 if TYPE_CHECKING:
@@ -30,11 +31,10 @@ class BulkNet(nn.Module):
         """
 
         super().__init__()
-
         self._set_hyperparameters(trial)
-        self._blocks = self._init_blocks()
+        
         self._beta = 1
-
+        self._blocks = self._init_blocks()
         self.apply(xavier_init)
         self.to(torch.double)
         
@@ -68,7 +68,17 @@ class BulkNet(nn.Module):
 
         """
 
-        X = torch.hstack((C, M.flatten(1, 2)))
+        if self._has_unet:
+            C, lat = C[:, :-1], C[:, -1:, None]
+            C = C.reshape(-1, 2, config.n_grid - 1)
+            lat = lat * torch.ones_like(C[:, :1])
+
+            X = torch.cat((C, lat, M), dim=1)
+            X = self._unet(X).flatten(1, 2)
+
+        else:
+            X = torch.hstack((C, M.flatten(1, 2)))
+
         out = apply_blocks(self._blocks, X, self._skip_mode)
         Y, W = out[:, :-self._n_weights], out[:, -self._n_weights:, None]
         Y = Y.reshape(-1, self._n_weights, config.n_grid - 1)
@@ -186,6 +196,9 @@ class BulkNet(nn.Module):
         profile has `config.n_grid - 1` values.
         """
 
+        if self._has_unet:
+            return (config.n_grid - 1) * self._n_weights
+
         return 1 + (config.n_grid - 1) * (2 + self._n_bins)
 
     @property
@@ -218,14 +231,22 @@ class BulkNet(nn.Module):
 
         """
 
-        n_hidden = trial.suggest_int('n_hidden', 4, 10)
-        n_blocks = trial.suggest_int('n_blocks', 1, min(4, n_hidden))
-        self._n_hiddens = allocate_layers(n_hidden, n_blocks)
-        self._width = trial.suggest_int('width', 128, 512)
-
         options = [1, 2, 5]
         i = trial.suggest_int('n_bin_idx', 0, len(options) - 1)
         self._n_bins = options[i]
+
+        self._has_unet = trial.suggest_categorical('has_unet', [True])
+        n_hidden = trial.suggest_int('n_hidden', 4, 5 if self._has_unet else 10)
+
+        if self._has_unet:
+            self._unet = UNet(self._n_bins, trial)
+            n_blocks = 1
+
+        else:    
+            n_blocks = trial.suggest_int('n_blocks', 1, min(4, n_hidden))
+
+        self._n_hiddens = allocate_layers(n_hidden, n_blocks)
+        self._width = trial.suggest_int('width', 128, 512)
 
         if n_blocks > 1:
             args_sm = ('skip_mode', [-1, 1])

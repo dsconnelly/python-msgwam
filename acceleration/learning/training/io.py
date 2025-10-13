@@ -23,7 +23,8 @@ CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 def get_split(
     C: np.ndarray,
-    eval_type: Literal['va', 'te']
+    eval_type: Literal['va', 'te'],
+    n_samples: Optional[int]=None
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Get index arrays that can be used to split the data into subsets for
@@ -38,6 +39,8 @@ def get_split(
         to split the data accordingly.
     eval_type
         Whether the evaluation data should be validation or test data.
+    n_samples
+        How many samples to return. If `None`, all samples are returned.
 
     Returns
     -------
@@ -49,6 +52,15 @@ def get_split(
     flag = 1 + (eval_type == 'te')
     idx_tr, = np.where(C[:, 0] < flag)
     idx_ev, = np.where(C[:, 0] == flag)
+
+    if n_samples is not None:
+        gen = np.random.default_rng(1234)
+        f = len(idx_tr) / (len(idx_tr) + len(idx_ev))
+        n_tr = int(f * n_samples)
+        n_ev = n_samples - n_tr
+
+        idx_tr = idx_tr[np.argsort(gen.random(len(idx_tr)))[:n_tr]]
+        idx_ev = idx_ev[np.argsort(gen.random(len(idx_ev)))[:n_ev]]
 
     return idx_tr, idx_ev
 

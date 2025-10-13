@@ -83,18 +83,19 @@ def plot_training_samples(
     """
 
     C, M, Y = parse_integrations(cached=True)
+    inputs = [torch.as_tensor(a).clone() for a in (C[:, 1:], M)]
     data_hats = None
+
+    n_bins = int(n_bins_str)
+    (_, M, Y, W), (idx_tr, _), _ = prepare_data(n_bins, 'te', (C, M, Y))
 
     if kind not in ['inputs', 'outputs']:
         model_path = kind
         kind = 'outputs'
 
         model = torch.jit.load(model_path)
-        Y_hat, D_hat = model(torch.as_tensor(C[:, 1:]), torch.as_tensor(M))
+        Y_hat, D_hat = model(*[a[idx_tr] for a in inputs])
         data_hats = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
-
-    n_bins = int(n_bins_str)
-    (_, M, Y, W), (_, idx_tr), _ = prepare_data(n_bins, 'te', (C, M, Y))
 
     if kind == 'inputs':
         xmaxes = [3] * n_bins
@@ -110,9 +111,10 @@ def plot_training_samples(
     fig, axes = plt.subplots(n_rows, n_cols)
     fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
     
-    rand = np.random.rand(len(idx_tr))
-    ks = idx_tr[np.argsort(rand)[:n_cols]]
     z = get_vertical_grids()[1] / 1000
+    rand = np.random.rand(len(idx_tr))
+    ks = np.argsort(rand)[:n_cols]
+    datas = datas[idx_tr]
 
     for j, k in enumerate(ks):
         for i in range(n_rows):

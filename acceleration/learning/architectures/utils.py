@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Iterator, Literal
 
 import torch, torch.nn as nn
 
@@ -124,6 +124,51 @@ def get_block(
             args = args[:-1]
 
     return nn.Sequential(*args)
+
+def iter_pairs(values: list[int]) -> Iterator[tuple[int, int]]:
+    """
+    Iterate over pairs of adjacent values in a list.
+
+    Parameters
+    ----------
+    values
+        List of values to iterate.
+
+    Yields
+    ------
+    tuple[int, int]
+        Adjacent pairs of values. Yields one fewer pair than there are values in
+        the provided list.
+
+    """
+
+    for a, b in zip(values[:-1], values[1:]):
+        yield a, b
+
+def maybe_interp(a: torch.Tensor, n: int) -> torch.Tensor:
+    """
+    Interpolate along the last dimension of a Tensor, with a check to ensure
+    that the dimension is not already the correct length.
+
+    Parameters
+    ----------
+    a
+        Tensor to interpolate.
+    n
+        Desired length for the last dimension.
+    
+    Returns
+    -------
+    torch.Tensor
+        Interpolated data.
+
+    """
+
+    if a.shape[-1] == n:
+        return a
+    
+    kwargs = dict(mode='linear', align_corners=False)
+    return nn.functional.interpolate(a, n, **kwargs)
 
 def xavier_init(layer: nn.Module) -> None:
     """
