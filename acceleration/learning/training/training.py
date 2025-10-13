@@ -42,7 +42,7 @@ def search_hyperparameters() -> None:
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, n_trials=1, gc_after_trial=True)
+    study.optimize(objective, timeout=(5 * 3600), gc_after_trial=True)
     trial = study.best_trial
 
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -164,7 +164,10 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     best_loss = torch.inf
     n_epoch, waited = 1, 0
 
-    while n_epoch <= hp.training.max_epochs:
+    max_epochs = hp.training.max_epochs
+    max_epochs = max_epochs * (1 + (eval_type == 'te'))
+
+    while n_epoch <= max_epochs:
         epoch_start = time()
         loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
         loss_ev = _run_epoch(model, loader_ev, loss_func)

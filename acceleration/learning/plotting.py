@@ -82,7 +82,7 @@ def plot_training_samples(
 
     """
 
-    C, M, Y = parse_integrations('te')
+    C, M, Y = parse_integrations(cached=True)
     data_hats = None
 
     if kind not in ['inputs', 'outputs']:
@@ -90,11 +90,11 @@ def plot_training_samples(
         kind = 'outputs'
 
         model = torch.jit.load(model_path)
-        Y_hat, D_hat = model(torch.as_tensor(C), torch.as_tensor(M))
+        Y_hat, D_hat = model(torch.as_tensor(C[:, 1:]), torch.as_tensor(M))
         data_hats = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
 
     n_bins = int(n_bins_str)
-    (C, M, Y, W), (idx_tr, _), _ = prepare_data(n_bins, 'te', (C, M, Y))
+    (_, M, Y, W), (_, idx_tr), _ = prepare_data(n_bins, 'te', (C, M, Y))
 
     if kind == 'inputs':
         xmaxes = [3] * n_bins

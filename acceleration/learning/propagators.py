@@ -36,7 +36,7 @@ class NetworkPropagator(Propagator):
         """
         The `NetworkPropagator` does most of its work in `step`, including the
         calculation of the time-averaged flux profiles. Here all that needs to
-        be done is add the relevant signed components if `net`.
+        be done is add the relevant signed components of `net`.
         """
 
         signs = np.array([1, 1, -1, -1])
@@ -60,7 +60,7 @@ class NetworkPropagator(Propagator):
         
         C = self._make_C(mean)
         M = self._M + self._check_source(mean, n_step)
-        budget = M.reshape(4, -1).sum(axis=1)[:, None, None]
+        budget = M.sum(axis=(1, 2), keepdims=True)
 
         inputs = map(torch.as_tensor, [C, M / budget])
         Y, D = [out.numpy() for out in self._model(*inputs)]
@@ -69,7 +69,7 @@ class NetworkPropagator(Propagator):
         delta = ((Y - M).sum(axis=1) + D) / hp.generation.dt_output
         self._F[:, 1:] = np.cumsum(-delta, axis=-1) * mean.dz
         self._M = Y
-    
+
         return self
 
     def _check_source(self, mean: MeanState, n_step: int) -> np.ndarray:
