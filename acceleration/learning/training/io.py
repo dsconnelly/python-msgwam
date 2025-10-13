@@ -54,11 +54,11 @@ def get_split(
     idx_ev, = np.where(C[:, 0] == flag)
 
     if n_samples is not None:
-        gen = np.random.default_rng(1234)
         f = len(idx_tr) / (len(idx_tr) + len(idx_ev))
         n_tr = int(f * n_samples)
         n_ev = n_samples - n_tr
 
+        gen = np.random.default_rng(1234)
         idx_tr = idx_tr[np.argsort(gen.random(len(idx_tr)))[:n_tr]]
         idx_ev = idx_ev[np.argsort(gen.random(len(idx_ev)))[:n_ev]]
 

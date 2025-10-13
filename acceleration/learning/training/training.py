@@ -154,11 +154,12 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     """
 
     model, optimizer = _get_model(trial)
-    loss_func = BulkLoss().to(_DEVICE)
-
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     arrays, idxs, transforms = prepare_data(model._n_bins, eval_type, arrays)
+
     loader_tr, loader_ev = _iter_loaders(trial, arrays, idxs)
+    loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:])
+    loss_func = loss_func.to(_DEVICE)
 
     state = {}
     best_loss = torch.inf
