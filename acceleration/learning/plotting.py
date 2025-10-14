@@ -26,29 +26,51 @@ def plot_training_errors(
     """
 
     n_bins = int(n_bins_str)
-    (C, M, Y, W), idxs, _ = prepare_data(n_bins, 'te')
+    C, M, Y = parse_integrations(cached=True)
+    (C, M, Y, W), idxs, _ = prepare_data(
+        n_bins,
+        eval_type='te',
+        arrays=(C, M, Y),
+        n_samples=10000,
+        transform_inputs=False
+    )
 
     C, M = torch.as_tensor(C), torch.as_tensor(M)
-    Y_hat, D_hat = torch.jit.load(model_path)(C, M)
-    Y_hat, D_hat = Y_hat.numpy(), D_hat.numpy()
+    Y_hat, D_hat = torch.zeros_like(M), torch.zeros_like(M[:, 0])
+    model = torch.jit.load(model_path)
+    batch_size, i = 4096, 0
+
+    while i * batch_size < M.shape[0]:
+        start, end = i * batch_size, min(M.shape[0], (i + 1) * batch_size)
+        Y_hat[start:end], D_hat[start:end] = model(C[start:end], M[start:end])
+        i = i + 1
+
+    Y_hat = torch.cat((Y_hat, D_hat[:, None]), dim=1).numpy()
+    W_hat = Y_hat.sum(axis=2, keepdims=True)
+    kdx = (W_hat > 0)[..., 0]
+    Y_hat[kdx] /= W_hat[kdx]
 
     fig, axes = plt.subplots(ncols=(n_bins + 1))
     fig.set_size_inches(3 * (n_bins + 1), 4.5)
     z = get_vertical_grids()[1] / 1000
 
-    data = Y * W
-    data_hat = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
-
     for j, ax, in enumerate(axes):
+        rmses_W = []
         for i, idx in enumerate(idxs):
             label = ['training', 'test'][i]
             color = ['forestgreen', 'tab:red'][i]
             
-            diff = data[idx, j] - data_hat[idx, j]
+            diff = Y[idx, j] - Y_hat[idx, j]
             rmse = np.sqrt((diff ** 2).mean(axis=0))
             ax.plot(rmse, z, color=color, label=label)
 
-        rmax = data[idx, j].max()
+            diff = W[idx, j, 0] - W_hat[idx, j, 0]
+            rmses_W.append(np.sqrt((diff ** 2).mean(axis=0)))
+
+        rms = np.sqrt((Y[:, j] ** 2).mean(axis=0))
+        ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
+
+        rmax = rms.max()
         unit = 10 ** np.floor(np.log10(rmax))
         xmax = unit * (1 + np.floor(rmax / unit))
         ax.set_xlim(-0.1 * xmax, xmax)
@@ -56,6 +78,10 @@ def plot_training_errors(
         ax.set_ylim(5, 60)
         ax.grid(color='lightgray')
         ax.tick_params('both', direction='in')
+
+        rms = np.sqrt((W[:, j, 0] ** 2).mean(axis=0))
+        title = f'({rmses_W[0]:.2f}, {rmses_W[1]:.2f}) / {rms:.2f}'
+        ax.set_title(title)
 
         if j == 0:
             ax.legend()
@@ -82,25 +108,29 @@ def plot_training_samples(
 
     """
 
-    C, M, Y = parse_integrations(cached=True)
-    inputs = [torch.as_tensor(a).clone() for a in (C[:, 1:], M)]
-    data_hats = None
-
     n_bins = int(n_bins_str)
-    (_, M, Y, W), (idx_tr, _), _ = prepare_data(n_bins, 'te', (C, M, Y))
+    arrays = parse_integrations(cached=True)
+    (C, M, Y, W), (idx_tr, _), (M_trans, _) = prepare_data(
+        n_bins,
+        eval_type='te',
+        arrays=arrays,
+        n_samples=100,
+        transform_inputs=False
+    )
 
+    data_hats = None
     if kind not in ['inputs', 'outputs']:
         model_path = kind
         kind = 'outputs'
 
         model = torch.jit.load(model_path)
-        Y_hat, D_hat = model(*[a[idx_tr] for a in inputs])
+        Y_hat, D_hat = model(*[torch.as_tensor(a[idx_tr]) for a in (C, M)])
         data_hats = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
 
     if kind == 'inputs':
         xmaxes = [3] * n_bins
         colors = ['royalblue'] * n_bins
-        datas = M
+        datas = M_trans(M)
 
     elif kind == 'outputs':
         xmaxes = [0.08] + [0.02] * (n_bins - 1) + [0.001]

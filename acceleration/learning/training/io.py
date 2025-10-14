@@ -138,7 +138,9 @@ def parse_integrations(
 def prepare_data(
     n_bins: int,
     eval_type: Literal['va', 'te'],
-    arrays: tuple[np.ndarray, np.ndarray, np.ndarray]
+    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
+    n_samples: Optional[int]=None,
+    transform_inputs: bool=True
 ) -> tuple[
     CMYW,
     tuple[np.ndarray, np.ndarray],
@@ -156,6 +158,11 @@ def prepare_data(
         generate training and evaluation index arrays.
     arrays
         Tuple of arrays as returned by `parse_integrations`.
+    n_samples
+        How many samples to return. By default, returns everything.
+    transform_inputs
+        Whether to actually apply the transforms to the inputs or just return
+        them. Defaults to applying them, but can be skipped in plotting.
 
     Returns
     --------
@@ -172,25 +179,30 @@ def prepare_data(
     """
 
     C, M, Y = arrays
-    n_samples = 600000 if eval_type == 'va' else None
     idx_tr, idx_ev = get_split(C, eval_type, n_samples)
-    C = C[:, 1:]
+    keep = np.concatenate((idx_tr, idx_ev))
+    n_tr, n_ev = len(idx_tr), len(idx_ev)
+    
+    idx = np.arange(n_tr + n_ev)
+    C, M, Y = C[keep, 1:], M[keep], Y[keep]
+    idx_tr, idx_ev = idx[:n_tr], idx[n_tr:]
 
     Y, D = Y[:, :-1], Y[:, -1:]
     M, Y = reshape_data(n_bins, M, Y)
     Y = np.concatenate((Y, D), axis=1)
 
-    n_tr, n_ev = len(idx_tr), len(idx_ev)
-    print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
-
     residual = abs(Y.sum(axis=(1, 2)) - 1).max()
+    print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
     print(f'Maximum residual is {residual:.4e}.')
 
     C_trans = make_transform(C[idx_tr], mode='z')
     M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
-    W = Y.sum(axis=-1, keepdims=True)
 
-    C, M = C_trans(C), M_trans(M)
+    if transform_inputs:
+        C = C_trans(C)
+        M = M_trans(M)
+
+    W = Y.sum(axis=-1, keepdims=True)
     keep = (W > 0)[..., 0]
     Y[keep] /= W[keep]
 
