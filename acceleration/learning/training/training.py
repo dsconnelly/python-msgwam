@@ -42,11 +42,12 @@ def search_hyperparameters() -> None:
 
     pruner = MedianPruner(5, hp.training.min_epochs)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=(270 * 60), gc_after_trial=True)
-    trial = study.best_trial
+    study.optimize(objective, timeout=(6 * 3600), gc_after_trial=True)
 
+    params = study.best_trial.params
+    params['ramp_start'] = 1.05 * study.best_value
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
-        json.dump(trial.params, f, indent=4)
+        json.dump(params, f, indent=4)
 
 def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
@@ -83,9 +84,14 @@ def _get_model(
 
     """
 
+    optim_name = trial.suggest_categorical('optimizer', ['Adam', 'SGD'])
+    lr_bounds = {'Adam' : (1e-5, 1e-2), 'SGD' : (5e-2, 1)}[optim_name]
+    lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
+    kwargs = dict(momentum=0.9) if optim_name == 'SGD' else {}
+    
     model = BulkNet(trial, eval_type == 'te')
-    lr = trial.suggest_float('learning_rate', 1e-5, 1e-2, log=True)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optim_cls = getattr(torch.optim, optim_name)
+    optimizer = optim_cls(model.parameters(), lr=lr, **kwargs)
 
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Loaded model has {n_params} trainable parameters.')
@@ -156,9 +162,14 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     model, optimizer = _get_model(trial, eval_type)
 
-    arrays, idxs, transforms = prepare_data(model._n_bins, eval_type, arrays)
-    loader_tr, loader_ev = _iter_loaders(arrays, idxs)
+    arrays, idxs, transforms = prepare_data(
+        n_bins=model._n_bins,
+        eval_type=eval_type,
+        arrays=arrays,
+        n_samples=10000
+    )
 
+    loader_tr, loader_ev = _iter_loaders(arrays, idxs)
     loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:])
     loss_func = loss_func.to(_DEVICE)
 
@@ -170,10 +181,13 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     max_epochs = max_epochs * (1 + (eval_type == 'te'))
     patience = -1 if eval_type == 'te' else hp.training.patience
 
+    bias_Y = trial.suggest_float('bias_Y', 10, 100, log=True)
+    frac_Y = bias_Y / (bias_Y + 1)
+
     while n_epoch <= max_epochs:
         epoch_start = time()
-        losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        losses_ev = _run_epoch(model, loader_ev, loss_func)
+        losses_tr = _run_epoch(model, loader_tr, loss_func, frac_Y, optimizer)
+        losses_ev = _run_epoch(model, loader_ev, loss_func, 0.5)
         runtime = time() - epoch_start
 
         print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
@@ -182,7 +196,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
             print(f'        loss_Y = {losses[0]:.6f}')
             print(f'        loss_W = {losses[1]:.6f}')
 
-        (*_, loss_tr), (*_, loss_ev) = losses_tr, losses_ev
+        (loss_Y, loss_W, loss_tr), (*_, loss_ev) = losses_tr, losses_ev
         score = (1 - model.progress) * loss_tr + model.progress * loss_ev
         improved = score < best_score - hp.training.min_delta
         
@@ -205,7 +219,9 @@ def _train(trial: Trial, arrays: CMYW) -> float:
                 print('Stopping early due to lack of improvement.')
                 break
 
+        frac_Y = bias_Y * loss_Y / (bias_Y * loss_Y + loss_W)
         model.update_beta(loss_tr)
+
         n_epoch = n_epoch + 1
 
     if eval_type == 'te':
@@ -222,6 +238,7 @@ def _run_epoch(
     model: BulkNet,
     loader: DataLoader,
     loss_func: BulkLoss,
+    frac_Y: float,
     optimizer: Optional[torch.optim.Adam]=None
 ) -> tuple[float, float, float]:
     """
@@ -236,6 +253,9 @@ def _run_epoch(
         Loader containing training or evaluation samples.
     loss_func
         Module to compute the appropriate loss function.
+    frac_Y
+        Weight to assign to the `Y` loss. The weight assigned to the `W` loss
+        will be one minus this value.
     optimizer
         Optimizer to use for gradient descent. If `None`, then this is an
         evaluation step and the weights are not updated.
@@ -268,7 +288,7 @@ def _run_epoch(
             Y_hat, W_hat = model(*inputs)
 
         loss_Y, loss_W = loss_func(Y, W, Y_hat, W_hat)
-        loss = loss_Y + loss_W
+        loss = frac_Y * loss_Y + (1 - frac_Y) * loss_W
 
         weight = Y.shape[0]
         weight_sum = weight_sum + weight

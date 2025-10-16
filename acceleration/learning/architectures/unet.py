@@ -122,11 +122,13 @@ def _make_conv(
 
     """
 
+    sizes = [a] + [b] * depth
     kwargs = dict(kernel_size=3, padding='same')
-    args = [nn.Conv1d(a, b, **kwargs), nn.ReLU()]
-
-    for _ in range(depth - 1):
-        args = args + [nn.Conv1d(b, b, **kwargs)]
+    
+    args = []
+    for p, q, in zip(sizes[:-1], sizes[1:]):
+        args = args + [nn.Conv1d(p, q, **kwargs)]
+        args = args + [nn.BatchNorm1d(q)]
         args = args + [nn.ReLU()]
 
     if final:

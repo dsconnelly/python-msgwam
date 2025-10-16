@@ -31,9 +31,9 @@ class BulkNet(nn.Module):
         """
 
         super().__init__()
+        self._relax_beta = relax_beta
         self._set_hyperparameters(trial)
 
-        self._relax_beta = relax_beta
         self._updates = 0
         self._beta = 1
         
@@ -117,7 +117,10 @@ class BulkNet(nn.Module):
         
         """
 
-        if (loss_tr > hp.ramp_start) or (not self._relax_beta):
+        if not self._relax_beta:
+            return
+
+        if loss_tr > self._ramp_start:
             return
         
         self._updates = self._updates + 1
@@ -197,13 +200,16 @@ class BulkNet(nn.Module):
         """
 
         if d == 1:
-            out = torch.zeros_like(a)
-            out[:, -1] = _SOFTPLUS(a[:, -1])
-            out[:, :-1] = self._approx_relu(a[:, :-1])
+            others = self._approx_relu(a[:, :-1])
+            totals = others.sum(dim=1, keepdim=True)
+            totals[totals == 0] = 1
 
-        else:
-            out = self._approx_relu(a)
+            last = hp.max_sink * torch.sigmoid(a[:, -1:])
+            others = (1 - last) * others / totals
 
+            return torch.cat((others, last), dim=1)
+
+        out = self._approx_relu(a)
         totals = out.sum(dim=d, keepdim=True)
         totals[totals == 0] = 1
 
@@ -280,4 +286,7 @@ class BulkNet(nn.Module):
 
         self._activation = trial.suggest_categorical(*args_act)
         self._batch_norm_pos = trial.suggest_categorical(*args_bn)
-        self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.15)
+        self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.5)
+
+        if self._relax_beta:
+            self._ramp_start = trial.suggest_float('ramp_start', 0, 1)

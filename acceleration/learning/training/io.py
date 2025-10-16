@@ -330,7 +330,9 @@ def _parse_momentum(
         M = apply_smoothing(M)
         Y = apply_smoothing(Y)
 
+    sink_frac = Y[:, -1].sum(axis=-1)
     residual = abs(1 - Y.sum(axis=(1, 2)))
+    keep = keep & (sink_frac < hp.architectures.max_sink)
     keep = keep & (residual < 1e-14)
 
     return M, Y, keep

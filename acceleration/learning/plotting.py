@@ -7,7 +7,7 @@ from matplotlib.colors import LinearSegmentedColormap as LSC
 
 from msgwam.utils import get_vertical_grids
 
-from .training import iter_paths, parse_integrations, prepare_data
+from .training import BulkLoss, iter_paths, parse_integrations, prepare_data
 
 def plot_training_errors(
     n_bins_str: str,
@@ -31,9 +31,12 @@ def plot_training_errors(
         n_bins,
         eval_type='te',
         arrays=(C, M, Y),
-        n_samples=10000,
+        n_samples=300000,
         transform_inputs=False
     )
+
+    tensors = [torch.as_tensor(a)[idxs[0]] for a in (Y, W)]
+    loss_func = BulkLoss(*tensors)
 
     C, M = torch.as_tensor(C), torch.as_tensor(M)
     Y_hat, D_hat = torch.zeros_like(M), torch.zeros_like(M[:, 0])
@@ -54,33 +57,37 @@ def plot_training_errors(
     fig.set_size_inches(3 * (n_bins + 1), 4.5)
     z = get_vertical_grids()[1] / 1000
 
+    scales_Y = loss_func._scales_Y.numpy()
+    scales_W = loss_func._scales_W.numpy()
+
     for j, ax, in enumerate(axes):
         rmses_W = []
         for i, idx in enumerate(idxs):
             label = ['training', 'test'][i]
             color = ['forestgreen', 'tab:red'][i]
             
-            diff = Y[idx, j] - Y_hat[idx, j]
-            rmse = np.sqrt((diff ** 2).mean(axis=0))
-            ax.plot(rmse, z, color=color, label=label)
+            error = (Y[idx, j] - Y_hat[idx, j]) / scales_Y[j]
+            loss = np.sqrt((error ** 2).mean(axis=0))
+            ax.plot(loss, z, color=color, label=label)
 
-            diff = W[idx, j, 0] - W_hat[idx, j, 0]
-            rmses_W.append(np.sqrt((diff ** 2).mean(axis=0)))
+            error = (W[idx, j] - W_hat[idx, j]) / scales_W[j]
+            rmses_W.append(np.sqrt((error[..., 0] ** 2).mean(axis=0)))
 
-        rms = np.sqrt((Y[:, j] ** 2).mean(axis=0))
-        ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
+        # rms = loss_func._scales_Y[j]
+        # ax.plot(rms, z, color='gray', ls='dashed', label='RMS')
 
-        rmax = rms.max()
-        unit = 10 ** np.floor(np.log10(rmax))
-        xmax = unit * (1 + np.floor(rmax / unit))
-        ax.set_xlim(-0.1 * xmax, xmax)
+        # rmax = rms.max()
+        # unit = 10 ** np.floor(np.log10(rmax))
+        # xmax = unit * (1 + np.floor(rmax / unit))
+        # ax.set_xlim(-0.1 * xmax, xmax)
+        ax.set_xlim(-0.1, 1.5)
 
         ax.set_ylim(5, 60)
         ax.grid(color='lightgray')
         ax.tick_params('both', direction='in')
 
-        rms = np.sqrt((W[:, j, 0] ** 2).mean(axis=0))
-        title = f'({rmses_W[0]:.2f}, {rmses_W[1]:.2f}) / {rms:.2f}'
+        # rms = np.sqrt((W[:, j, 0] ** 2).mean(axis=0))
+        title = f'{rmses_W[0]:.4f}, {rmses_W[1]:.4f}'
         ax.set_title(title)
 
         if j == 0:
@@ -112,7 +119,7 @@ def plot_training_samples(
     arrays = parse_integrations(cached=True)
     (C, M, Y, W), (idx_tr, _), (M_trans, _) = prepare_data(
         n_bins,
-        eval_type='te',
+        eval_type='va',
         arrays=arrays,
         n_samples=100,
         transform_inputs=False
