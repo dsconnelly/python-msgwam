@@ -1,3 +1,4 @@
+from os import listdir
 from typing import Literal, Iterator, Optional
 
 import numpy as np
@@ -80,17 +81,24 @@ def iter_paths() -> Iterator[tuple[str, int]]:
 
     """
 
-    base = 'data/ml-accel/integrations'
-    for site, month_te in MIMA_MONTHS.items():
-        month_te = month_te + 12
+    dt_output = hp.generation.dt_output
+    base = f'data/ml-accel/integrations/{dt_output}'
+    n_years = len(listdir(base))
 
-        for k, year in enumerate([24, 25]):
+    n_va = 1 + (n_years > 1)
+    y_min = 25 - n_years + 1
+    modulus = n_years * 12
+
+    for site, month_te in MIMA_MONTHS.items():
+        month_te = month_te + 12 * (n_years - 1)
+
+        for k, year in enumerate(range(y_min, 26)):
             for m in range(1, 13):
                 month = m + k * 12  
                 d = month - month_te
-                d = min(d % 24, -d % 24)
-                flag = 2 - min(2, d // 2)
+                d = min(d % modulus, -d % modulus)
 
+                flag = 2 if d < 2 else (1 if d < 2 + n_va else 0)
                 yield f'{base}/{year}/{site}-{m}.nc', flag
 
 def parse_integrations(
@@ -118,7 +126,7 @@ def parse_integrations(
     
     """
 
-    base = 'data/ml-accel/cached'
+    base = f'data/ml-accel/cached/{hp.generation.dt_output}'
     make_path = lambda c: f'{base}/{c}.npy'
 
     if cached:
@@ -130,6 +138,7 @@ def parse_integrations(
 
     Cs, Ms, Ys = None, None, None
     for i, (path, flag) in enumerate(iter_paths()):
+        print(path, flag)
         with xr.open_dataset(path) as ds:
             M, Y, keep = _parse_momentum(ds)
             col = flag * np.ones((M.shape[0], 1))

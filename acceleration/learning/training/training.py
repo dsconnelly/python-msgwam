@@ -45,7 +45,6 @@ def search_hyperparameters() -> None:
     study.optimize(objective, timeout=(6 * 3600), gc_after_trial=True)
 
     params = study.best_trial.params
-    params['ramp_start'] = 1.05 * study.best_value
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
         json.dump(params, f, indent=4)
 
@@ -161,7 +160,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     model, optimizer = _get_model(trial)
 
-    n_samples = 800000 if eval_type == 'va' else 500000
+    n_samples = 800000 if eval_type == 'va' else None
     args = (model._n_bins, eval_type, arrays, n_samples)
     arrays, idxs, transforms = prepare_data(*args)
 

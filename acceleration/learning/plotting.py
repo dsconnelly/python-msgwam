@@ -1,3 +1,7 @@
+import json
+
+from typing import Literal
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -97,93 +101,73 @@ def plot_training_errors(
     path = 'plots/ml-accel/training-errors.png'
     plt.savefig(path, dpi=400, bbox_inches='tight')
 
-def plot_training_samples(
-    n_bins_str: str,
-    kind: str
-) -> None:
+def plot_training_samples(kind: Literal['inputs', 'outputs']) -> None:
     """
-    Plot training samples from the dataset.
+    Plot input or output profiles from the dataset.
 
     Parameters
     ----------
-    n_bins_str
-        How many phase speed bins to include.
     kind
-        Whether to plot `'inputs'` or `'outputs'`. Alternatively, can be a path
-        to a JITted model, in which case output data will be plotted along with
-        neural network predictions for each sample.
+        Whether to plot `'inputs'` or `'outputs'`.
 
     """
 
-    n_bins = int(n_bins_str)
+    with open('data/ml-accel/models/hyperparameters.json') as f:
+        n_bins = [1, 2, 5][json.load(f)['n_bin_idx']]
+
     arrays = parse_integrations(cached=True)
-    (C, M, Y, W), (idx_tr, _), (M_trans, _) = prepare_data(
-        n_bins,
-        eval_type='va',
-        arrays=arrays,
-        n_samples=100,
-        transform_inputs=False
-    )
-
-    data_hats = None
-    if kind not in ['inputs', 'outputs']:
-        model_path = kind
-        kind = 'outputs'
-
-        model = torch.jit.load(model_path)
-        Y_hat, D_hat = model(*[torch.as_tensor(a[idx_tr]) for a in (C, M)])
-        data_hats = np.concatenate((Y_hat, D_hat[:, None]), axis=1)
+    args = (n_bins, 'te', arrays, 1000, False)
+    (C, M, Y, W), (idx_tr, _), (_, M_trans) = prepare_data(*args)
 
     if kind == 'inputs':
         xmaxes = [3] * n_bins
         colors = ['royalblue'] * n_bins
-        datas = M_trans(M)
+        data = M_trans(M[idx_tr])
+        data_hat = None
 
-    elif kind == 'outputs':
+    else:
         xmaxes = [0.08] + [0.02] * (n_bins - 1) + [0.001]
         colors = ['royalblue'] * n_bins + ['tab:red']
-        datas = Y * W
+        data = (W * Y)[idx_tr]
+        M = M[idx_tr]
 
-    n_rows, n_cols = datas.shape[1], 4
+        model = torch.jit.load('data/ml-accel/models/model-best.jit')
+        Y_hat, D_hat = model(*[torch.as_tensor(a)[idx_tr] for a in (C, M)])
+        data_hat = torch.cat((Y_hat, D_hat[:, None]), dim=1).numpy()
+
+    n_rows, n_cols = 4, data.shape[1]
     fig, axes = plt.subplots(n_rows, n_cols)
     fig.set_size_inches(3 * n_cols, 4.5 * n_rows)
-    
+
     z = get_vertical_grids()[1] / 1000
-    rand = np.random.rand(len(idx_tr))
-    ks = np.argsort(rand)[:n_cols]
-    datas = datas[idx_tr]
+    rng = np.random.default_rng(1111)
+    rand = rng.random(data.shape[0])
+    ks = np.argsort(rand)[:n_rows]
 
-    for j, k in enumerate(ks):
-        for i in range(n_rows):
-            axes[i, j].plot(datas[k, i], z, color=colors[i])
+    for i, k in enumerate(ks):
+        for j, (color, xmax) in enumerate(zip(colors, xmaxes)):
+            axes[i, j].plot(data[k, j], z, color=color)
 
-            if data_hats is not None:
-                axes[i, j].plot(
-                    data_hats[k, i], z,
-                    color=colors[i],
-                    ls='dashed'
-                )
+            if kind == 'outputs':
+                axes[i, j].plot(data_hat[k, j], z, color=color, ls='dashed')
 
-            xmax = xmaxes[i]
             xmin = -(1 if kind == 'inputs' else 0.1) * xmax
             axes[i, j].set_xlim(xmin, xmax)
+            axes[i, j].set_xlim(-0.0005, 0.0005)
             axes[i, j].set_ylim(5, 60)
 
             tmin = xmin if kind == 'inputs' else 0
             n_ticks = 5 if kind == 'inputs' else 3
-            axes[i, j].set_xticks(np.linspace(tmin, xmaxes[i], n_ticks))
-            
+            axes[i, j].set_xticks(np.linspace(tmin, xmax, n_ticks))
+
             axes[i, j].grid(color='lightgray')
             axes[i, j].tick_params('both', direction='in')
 
             if kind == 'outputs':
-                title = f'{100 * datas[k, i].sum():.2f}%'
+                a = 100 * data[k, j].sum()
+                b = 100 * data_hat[k, j].sum()
+                axes[i, j].set_title(f'{a:.2f}% ({b:.2f}%)')
                 
-                if data_hats is not None:
-                    title = title + f' ({100 * data_hats[k, i].sum():.2f}%)'
-
-                axes[i, j].set_title(title)
-
             if i == n_rows - 1:
                 axes[i, j].set_xlabel(kind[:-1])
 
