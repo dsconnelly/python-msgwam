@@ -2,7 +2,7 @@ import json
 
 from copy import deepcopy
 from time import time
-from typing import Iterator, Literal, Optional
+from typing import Iterator, Optional
 
 import numpy as np
 import torch
@@ -59,7 +59,6 @@ def train_network() -> None:
 
 def _get_model(
     trial: Trial,
-    eval_type: Literal['va', 'te'],
     state_path: Optional[str]=None
 ) -> tuple[BulkNet, torch.optim.Adam]:
     """
@@ -89,7 +88,7 @@ def _get_model(
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
     kwargs = dict(momentum=0.9) if optim_name == 'SGD' else {}
     
-    model = BulkNet(trial, eval_type == 'te')
+    model = BulkNet(trial)
     optim_cls = getattr(torch.optim, optim_name)
     optimizer = optim_cls(model.parameters(), lr=lr, **kwargs)
 
@@ -130,7 +129,7 @@ def _iter_loaders(
     """
 
     batch_sizes = [hp.training.batch_size, 4096]
-    tensors = [torch.as_tensor(a).to(_DEVICE) for a in arrays]
+    tensors = [torch.as_tensor(a) for a in arrays]
 
     for i, (idx, batch_size) in enumerate(zip(idxs, batch_sizes)):
         ds = TensorDataset(*[a[idx] for a in tensors])
@@ -160,17 +159,14 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    model, optimizer = _get_model(trial, eval_type)
+    model, optimizer = _get_model(trial)
 
-    arrays, idxs, transforms = prepare_data(
-        n_bins=model._n_bins,
-        eval_type=eval_type,
-        arrays=arrays,
-        n_samples=10000
-    )
+    n_samples = 800000 if eval_type == 'va' else 500000
+    args = (model._n_bins, eval_type, arrays, n_samples)
+    arrays, idxs, transforms = prepare_data(*args)
 
     loader_tr, loader_ev = _iter_loaders(arrays, idxs)
-    loss_func = BulkLoss(*loader_tr.dataset.tensors[-2:])
+    loss_func = BulkLoss(loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -190,18 +186,17 @@ def _train(trial: Trial, arrays: CMYW) -> float:
         losses_ev = _run_epoch(model, loader_ev, loss_func, 0.5)
         runtime = time() - epoch_start
 
+        (loss_Y, loss_W, _), (*_, loss_ev) = losses_tr, losses_ev
+        improved = loss_ev < best_score - hp.training.min_delta
+        frac_Y = bias_Y * loss_Y / (bias_Y * loss_Y + loss_W)
+
         print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
-        for losses, suffix in zip([losses_tr, losses_ev], ['tr', 'ev']):
-            print(f'      loss_{suffix}  = {losses[2]:.6f}')
+        for losses, tag in zip([losses_tr, losses_ev], ['tr', 'ev']):
+            suffix = ' (new best)' if improved and tag == 'ev' else ''
+
+            print(f'      loss_{tag}  = {losses[2]:.6f}{suffix}')
             print(f'        loss_Y = {losses[0]:.6f}')
             print(f'        loss_W = {losses[1]:.6f}')
-
-        (loss_Y, loss_W, loss_tr), (*_, loss_ev) = losses_tr, losses_ev
-        score = (1 - model.progress) * loss_tr + model.progress * loss_ev
-        improved = score < best_score - hp.training.min_delta
-        
-        suffix = ' (new best)' if improved else ''
-        print(f'      score    = {score:.6f}{suffix}')
 
         trial.report(loss_ev, n_epoch)
         if trial.should_prune():
@@ -210,7 +205,7 @@ def _train(trial: Trial, arrays: CMYW) -> float:
         if improved:
             state['model'] = deepcopy(model.state_dict())
             state['optimizer'] = deepcopy(optimizer.state_dict())
-            best_score, waited = score, 0
+            best_score, waited = loss_ev, 0
 
         elif n_epoch > hp.training.min_epochs - patience:
             waited = waited + 1
@@ -219,13 +214,10 @@ def _train(trial: Trial, arrays: CMYW) -> float:
                 print('Stopping early due to lack of improvement.')
                 break
 
-        frac_Y = bias_Y * loss_Y / (bias_Y * loss_Y + loss_W)
-        model.update_beta(loss_tr)
-
         n_epoch = n_epoch + 1
 
     if eval_type == 'te':
-        del loader_tr, loader_ev
+        del arrays, loader_tr, loader_ev
         model.load_state_dict(state['model'])
         traced = trace(model, *transforms)
 
@@ -278,7 +270,9 @@ def _run_epoch(
     weight_sum = 0
     total_Y, total_W, total = 0, 0, 0
     
-    for *inputs, Y, W in loader:
+    for tensors in loader:
+        *inputs, Y, W = [a.to(_DEVICE) for a in tensors]
+
         if optimizer is None:
             with torch.no_grad():
                 Y_hat, W_hat = model(*inputs)

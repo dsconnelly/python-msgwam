@@ -1,4 +1,3 @@
-from itertools import product
 from typing import Literal, Iterator, Optional
 
 import numpy as np
@@ -82,10 +81,17 @@ def iter_paths() -> Iterator[tuple[str, int]]:
     """
 
     base = 'data/ml-accel/integrations'
-    for site, m_te in MIMA_MONTHS.items():
-        for m in range(1, 13):
-            d = min((m - m_te) % 12, (m_te - m) % 12)
-            yield f'{base}/{site}-{m}.nc', 3 - min(3, max(1, d))
+    for site, month_te in MIMA_MONTHS.items():
+        month_te = month_te + 12
+
+        for k, year in enumerate([24, 25]):
+            for m in range(1, 13):
+                month = m + k * 12  
+                d = month - month_te
+                d = min(d % 24, -d % 24)
+                flag = 2 - min(2, d // 2)
+
+                yield f'{base}/{year}/{site}-{m}.nc', flag
 
 def parse_integrations(
     cached: bool=False
@@ -118,22 +124,39 @@ def parse_integrations(
     if cached:
         return tuple(map(np.load, map(make_path, 'CMY')))
 
-    stacks = [[], [], []]
-    for path, flag in iter_paths():
+    n_paths = 0
+    for _ in iter_paths():
+        n_paths = n_paths + 1
+
+    Cs, Ms, Ys = None, None, None
+    for i, (path, flag) in enumerate(iter_paths()):
         with xr.open_dataset(path) as ds:
             M, Y, keep = _parse_momentum(ds)
             col = flag * np.ones((M.shape[0], 1))
             C = np.hstack((col, _parse_column(ds)))
 
-            for stack, data in zip(stacks, [C, M, Y]):
-                stack.append(data[keep])
+            if Cs is None:
+                Cs = np.nan * np.zeros((n_paths, *C.shape))
+                Ms = np.nan * np.zeros((n_paths, *M.shape))
+                Ys = np.nan * np.zeros((n_paths, *Y.shape))
 
-    make_stack = lambda s: np.concatenate(s, axis=0)
-    outputs = tuple(map(make_stack, stacks))
-    for data, name in zip(outputs, 'CMY'):
+            n_valid = keep.sum()
+            Cs[i, :n_valid] = C[keep]
+            Ms[i, :n_valid] = M[keep]
+            Ys[i, :n_valid] = Y[keep]
+
+    flatten = lambda a: a.reshape(a.shape[0] * a.shape[1], *a.shape[2:])
+    Cs, Ms, Ys = flatten(Cs), flatten(Ms), flatten(Ys)    
+    keep = ~np.isnan(Cs[:, 0])
+
+    Cs = Cs[keep]
+    Ms = Ms[keep]
+    Ys = Ys[keep]
+
+    for data, name in zip([Cs, Ms, Ys], 'CMY'):
         np.save(make_path(name), data)
 
-    return outputs
+    return Cs, Ms, Ys
 
 def prepare_data(
     n_bins: int,
@@ -251,7 +274,11 @@ def trace(
 
         M, = reshape_data(model._n_bins, M)
         Y, W = model(C_trans(C), M_trans(M))
-        Y = Y * W
+        W = torch.softmax(W, dim=1)
+    
+        totals = Y.sum(dim=2, keepdim=True)
+        totals[totals == 0] = 1
+        Y = W * (Y / totals)
 
         return Y[:, :-1], Y[:, -1]
 

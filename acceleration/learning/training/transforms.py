@@ -121,13 +121,13 @@ def nonzero_stat(a: np.ndarray, mode=Literal['mean', 'std']) -> np.ndarray:
     
     """
 
-    b = a.copy()
-    b[b == 0] = np.nan
+    a[a == 0] = np.nan
+    out = np.zeros(a.shape[1:])
+    valid = (~np.isnan(a)).sum(axis=0) > 0
+
     func = getattr(np, f'nan{mode}')
-    
-    out = np.zeros(b.shape[1:])
-    valid = (~np.isnan(b)).sum(axis=0) > 0
-    out[valid] = func(b[:, valid], axis=0)
+    out[valid] = func(a[:, valid], axis=0)
+    a[np.isnan(a)] = 0
 
     return out
 
