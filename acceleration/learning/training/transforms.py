@@ -153,3 +153,35 @@ def reshape_data(n_bins: int, *arrays: _Array) -> Iterator[_Array]:
     func = lambda a: a.reshape(*shape).sum(2)
 
     return map(func, arrays)
+
+def signed_log(
+    a: _Array,
+    inverse: bool=False,
+    prefactor: float=100
+) -> _Array:
+    """
+    Take a log-like transform that allows non-positive values.
+
+    Parameters
+    ----------
+    a
+        Data to transform
+    inverse
+        Whether to instead apply the inverse transformation.
+    prefactor
+        Scalar to multiply before applying. Can be used to get small values into
+        the range where this transformation acts like a logarithm.
+
+    Parameters
+    ----------
+    _Array
+        Transformed data, of the same type as `a`.
+    
+    """
+
+    lib = np if isinstance(a, np.ndarray) else torch
+
+    if inverse:
+        return lib.sign(a) * (lib.exp(abs(a)) - 1) / prefactor
+    
+    return lib.sign(a) * lib.log(1 + prefactor * abs(a))

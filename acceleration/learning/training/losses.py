@@ -1,20 +1,37 @@
+from abc import ABC, abstractmethod
+from typing import Optional
+
 import numpy as np
 import torch, torch.nn as nn
 
-class BulkLoss(nn.Module):
-    _threshold: torch.Tensor
+from optuna.trial import Trial
+
+from .transforms import signed_log
+
+class AbstractLoss(nn.Module, ABC):
     _scales_W: torch.Tensor
 
-    def __init__(self, W: torch.Tensor):
+    def __init__(self, trial: Trial, W: torch.Tensor) -> None:
         """
-        At initalization, the `BulkLoss` calculates scale parameters from the
-        training data with which the losses will be weighted.
+        At initialization, calculates the scales (in transformed space) that
+        will be used to weight loss in `W` later on.
+
+        Parameters
+        ----------
+        trial
+            Current trial, used to sample a `Y` bias.
+        W
+            `W` samples from the training data.
+        bias_Y
+            Bias towards `Y` to use when aggregating losses.
+
         """
 
         super().__init__()
+        self._scale_Y = trial.suggest_float('scale_Y', 0.1, 0.1)
+        self._bias_Y = trial.suggest_float('bias_Y', 0.9, 0.9)
 
-        threshold, scales_W = _get_W_buffers(W.cpu().numpy())
-        self.register_buffer('_threshold', threshold)
+        scales_W = self._get_scales_W(W.cpu().numpy())
         self.register_buffer('_scales_W', scales_W)
 
     def forward(
@@ -24,86 +41,147 @@ class BulkLoss(nn.Module):
         Y_hat: torch.Tensor,
         W_hat: torch.Tensor,
         reduce: bool=True
-    ) -> torch.Tensor:
+    ) -> tuple[torch.tensor, torch.Tensor, Optional[torch.Tensor]]:
         """
-        Calculate the mean-squared loss in momentum and sink profiles. The loss
-        is decomposed into shape and scale parameters, so that the entries in
-        each sub-profile are taken to sum to unity (or be zero everywhere.)
+        Compute the losses over both target types.
 
         Parameters
         ----------
         Y, Y_hat
-            True and network-predicted bulk momentum and sink profiles.
+            True and network-predicted shape profiles.
         W, W_hat
-            True and network-predicted amplitudes for each profile.
+            True and network-predict scale profiles, where `W_hat` is already in
+            the transformed space.
         reduce
-            Whether to take the average over all components (for training) or to
-            leave the bin and vertical dimensions intact (for plotting).
+            Whether to take a mean over all samples and entries (for training)
+            or to leave the arrays intact (for plotting).
+        
+        Returns
+        -------
+        torch.Tensor, torch.Tensor
+            Losses for `Y` and `W` targets, respectively.
+        Optional[torch.Tensor]
+            If `reduce`, the combined loss.
 
         """
 
-        mask = W > self._threshold
-        mask_hat = torch.exp(W_hat) > self._threshold
-        W = torch.log(torch.clip(W, min=self._threshold))
-        scales_Y = _get_Y_scales(Y)
+        mask = self._get_mask(W)
+        mask_hat = self._get_mask(self._transform(W_hat, inverse=True))
+        W = self._transform(W)
 
-        loss_Y = mask * (((Y - Y_hat) / scales_Y) ** 2)
+        loss_Y = mask * ((Y - Y_hat) / self._scale_Y) ** 2
         loss_W = ((W - W_hat) / self._scales_W) ** 2
         loss_W = loss_W * (mask | mask_hat).int()
 
         if reduce:
-            return loss_Y.mean(), loss_W.mean()
+            loss_Y, loss_W = loss_Y.mean(), loss_W.mean()
+            return loss_Y, loss_W, self._combine(loss_Y, loss_W)
+        
+        return loss_Y, loss_W, None
 
-        return loss_Y, loss_W
+    def _combine(
+        self,
+        loss_Y: torch.Tensor,
+        loss_W: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Combine the `Y` and `W` losses, possibly with an unequal waiting, and
+        return an aggregate loss that can be used for training or evaluation.
+
+        Paramters
+        ---------
+        loss_Y, loss_W
+            Tensors of (reduced) losses for each target type.
+
+        Returns
+        -------
+        torch.Tensor
+            Aggregate loss.
+
+        """
+
+        b = self._bias_Y if self.training else 0.5
+        return b * loss_Y + (1 - b) * loss_W
+
+    @abstractmethod
+    def _get_mask(self, W: torch.Tensor) -> torch.Tensor:
+        """
+        Get a mask indicating which scale parameters are active (that is, which
+        shape profiles should be graded and not ignored).
+        """
+
+    def _get_scales_W(self, W: np.ndarray) -> torch.Tensor:
+        """
+        Given the `W` data from the training set, calculate and set any buffers
+        that will be needed to compute losses later.
+
+        Parameters
+        ----------
+        W
+            `W` samples from the training data, cast to `ndarray` but still
+            sharing memory with the actual training data.
+
+        """
+
+        a = W.copy()
+        a[~self._get_mask(a)] = np.nan
+        scales = np.nanstd(self._transform(a), axis=0)
+        
+        return torch.as_tensor(scales)
+
+    @abstractmethod
+    def _transform(self, W: torch.Tensor, inverse: bool=False) -> torch.Tensor:
+        """
+        Transform the weights into the space where their loss is calculated. If
+        `inverse`, perform the opposite transformation.
+        """
+
+class BulkLoss(AbstractLoss):
+    _threshold: torch.Tensor
+
+    def __init__(self, trial: Trial, W: torch.Tensor) -> None:
+        """Before regular initialization, the threshold is set."""
+
+        threshold = self._get_threshold(W.cpu().numpy())
+        self.register_buffer('_threshold', threshold)
+        super().__init__(trial, W)
+
+    def _get_mask(self, W: torch.Tensor) -> torch.Tensor:
+        """The active weights are simply those greater than the threshold."""
+
+        return W > self._threshold
+
+    def _get_threshold(self, W: np.ndarray) -> torch.Tensor:
+        """
+        The threshold is defined as a quarter of the minimum of the nonzero
+        scale parameters in the training data.
+        """
+
+        W[W == 0] = np.nan
+        threshold = 0.25 * np.nanmin(W, axis=0)
+        threshold = np.maximum(threshold, 0.0001)
+        W[np.isnan(W)] = 0
+
+        return torch.as_tensor(threshold)
+
+    def _transform(self, W: torch.Tensor, inverse: bool=False) -> torch.Tensor:
+        """
+        The transformation is just the natural log, with clipping.
+        """
+
+        if inverse:
+            return torch.exp(W)
+        
+        W = torch.clip(W, min=self._threshold)
+        return torch.log(W)
+
+class DeltaLoss(AbstractLoss):
+    def _get_mask(self, W: torch.Tensor) -> torch.Tensor:
+        """Any nonzero weight counts as active when predicting deltas."""
+
+        return W != 0
     
-def _get_W_buffers(W: np.ndarray) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Get the buffers needed to calculate `W` errors.
+    def _transform(self, W: torch.Tensor, inverse: bool=False) -> torch.Tensor:
+        """We use `signed_log` to allow for negative scale parameters."""
 
-    Parameters
-    ----------
-    W
-        Values of `W` in the training set.
-
-    Returns
-    -------
-    np.ndarray
-        Threshold for each phase speed bin and the sink.
-    np.ndarray
-        Standard deviation (in log space) for each bin and the sink.
-
-    """
-
-    W[W == 0] = np.nan
-    threshold = 0.25 * np.nanmin(W, axis=0)
-    threshold = np.maximum(threshold, 0.0001)
-    sigma = np.nanstd(np.log(W), axis=0)
-    W[np.isnan(W)] = 0
-
-    return torch.as_tensor(threshold), torch.as_tensor(sigma)
-
-def _get_Y_scales(Y: torch.Tensor) -> torch.Tensor:
-    """
-    Get a scale for each shape profile in the batch.
-
-    Parameters
-    ----------
-    Y
-        Batch of training targets.
-
-    Returns
-    -------
-    torch.Tensor
-        Scale value for each profile in `Y`.
-
-    """
-
-    a = Y.clone()
-    ubound, _ = a.max(dim=-1, keepdim=True)
-    a[a < 0.01 * ubound] = torch.nan
-
-    out = torch.nanmean(a, dim=-1, keepdim=True)
-    out = torch.nan_to_num(out)
-    out[out == 0] = 1
-
-    return out
+        return signed_log(W, inverse)

@@ -19,7 +19,7 @@ from ... import hyperparameters as hp
 from ..architectures import BulkNet
 
 from .io import CMYW, parse_integrations, prepare_data, trace
-from .losses import BulkLoss
+from .losses import AbstractLoss, BulkLoss, DeltaLoss
 
 _DEVICE = torch.device('cpu')
 if torch.cuda.is_available():
@@ -134,7 +134,11 @@ def _iter_loaders(
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
 
-def _train(trial: Trial, arrays: CMYW) -> float:
+def _train(
+    trial: Trial,
+    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
+    n_print: int=1
+) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
     It is assumed that the data has been read in from the netCDF files already,
@@ -149,6 +153,8 @@ def _train(trial: Trial, arrays: CMYW) -> float:
         is assumed that we are in hyperparameter search.
     arrays
         Tuple of unprocessed input and output data.
+    n_print
+        How frequently to print loss reports.
 
     Returns
     -------
@@ -165,7 +171,8 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     arrays, idxs, transforms = prepare_data(*args)
 
     loader_tr, loader_ev = _iter_loaders(arrays, idxs)
-    loss_func = BulkLoss(loader_tr.dataset.tensors[-1])
+    loss_cls = DeltaLoss if hp.architectures.learn_deltas else BulkLoss
+    loss_func = loss_cls(trial, loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -176,26 +183,23 @@ def _train(trial: Trial, arrays: CMYW) -> float:
     max_epochs = max_epochs * (1 + (eval_type == 'te'))
     patience = -1 if eval_type == 'te' else hp.training.patience
 
-    bias_Y = trial.suggest_float('bias_Y', 10, 100, log=True)
-    frac_Y = bias_Y / (bias_Y + 1)
-
     while n_epoch <= max_epochs:
         epoch_start = time()
-        losses_tr = _run_epoch(model, loader_tr, loss_func, frac_Y, optimizer)
-        losses_ev = _run_epoch(model, loader_ev, loss_func, 0.5)
+        losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        losses_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
-        (loss_Y, loss_W, _), (*_, loss_ev) = losses_tr, losses_ev
+        *_, loss_ev = losses_ev
         improved = loss_ev < best_score - hp.training.min_delta
-        frac_Y = bias_Y * loss_Y / (bias_Y * loss_Y + loss_W)
 
-        print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
-        for losses, tag in zip([losses_tr, losses_ev], ['tr', 'ev']):
-            suffix = ' (new best)' if improved and tag == 'ev' else ''
+        if n_epoch % n_print == 0:
+            print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
+            for losses, tag in zip([losses_tr, losses_ev], ['tr', 'ev']):
+                suffix = ' (new best)' if improved and tag == 'ev' else ''
 
-            print(f'      loss_{tag}  = {losses[2]:.6f}{suffix}')
-            print(f'        loss_Y = {losses[0]:.6f}')
-            print(f'        loss_W = {losses[1]:.6f}')
+                print(f'      loss_{tag}  = {losses[-1]:.6f}{suffix}')
+                print(f'        loss_Y = {losses[0]:.6f}')
+                print(f'        loss_W = {losses[1]:.6f}')
 
         trial.report(loss_ev, n_epoch)
         if trial.should_prune():
@@ -228,10 +232,9 @@ def _train(trial: Trial, arrays: CMYW) -> float:
 def _run_epoch(
     model: BulkNet,
     loader: DataLoader,
-    loss_func: BulkLoss,
-    frac_Y: float,
+    loss_func: AbstractLoss,
     optimizer: Optional[torch.optim.Adam]=None
-) -> tuple[float, float, float]:
+) -> list[float]:
     """
     Run a training or evaluation epoch, calculating the total loss over all
     batches in the provided loader.
@@ -244,17 +247,14 @@ def _run_epoch(
         Loader containing training or evaluation samples.
     loss_func
         Module to compute the appropriate loss function.
-    frac_Y
-        Weight to assign to the `Y` loss. The weight assigned to the `W` loss
-        will be one minus this value.
     optimizer
         Optimizer to use for gradient descent. If `None`, then this is an
         evaluation step and the weights are not updated.
 
     Returns
     -------
-    float
-        Root-mean-square loss over all samples in the loader.
+    list[float]
+        Losses for `Y`, `W`, and aggregated.
 
     """
 
@@ -267,34 +267,32 @@ def _run_epoch(
         loss_func.train()
 
     weight_sum = 0
-    total_Y, total_W, total = 0, 0, 0
-    
+    totals = None
+
     for tensors in loader:
-        *inputs, Y, W = [a.to(_DEVICE) for a in tensors]
+        M, C, *targets = [a.to(_DEVICE) for a in tensors]
 
         if optimizer is None:
             with torch.no_grad():
-                Y_hat, W_hat = model(*inputs)
+                outputs = model(M, C)
 
         else:
             optimizer.zero_grad()
-            Y_hat, W_hat = model(*inputs)
+            outputs = model(M, C)
 
-        loss_Y, loss_W = loss_func(Y, W, Y_hat, W_hat)
-        loss = frac_Y * loss_Y + (1 - frac_Y) * loss_W
-
-        weight = Y.shape[0]
+        weight = M.shape[0]
         weight_sum = weight_sum + weight
+        losses = loss_func(*targets, *outputs)
 
-        total_Y = total_Y + weight * loss_Y
-        total_W = total_W + weight * loss_W
-        total = total + weight * loss
+        if totals is None:
+            totals = [0] * len(losses)
+
+        for i, v in enumerate(losses):
+            totals[i] += weight * v
 
         if optimizer is not None:
-            loss.backward()
+            losses[-1].backward()
             optimizer.step()
 
-    totals = [total_Y, total_W, total]
     rms = lambda a: (a / weight_sum).item() ** 0.5
-
-    return tuple(map(rms, totals))
+    return list(map(rms, totals))

@@ -19,7 +19,7 @@ dt_output = 1200
 n_bins = 10
 
 [architectures]
-beta_final = 6500
+learn_deltas = true
 max_sink = 0.1
 max_params = 4000000
 

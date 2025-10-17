@@ -16,7 +16,8 @@ from .transforms import (
     Transform,
     apply_smoothing,
     make_transform,
-    reshape_data
+    reshape_data,
+    signed_log
 )
 
 CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
@@ -126,8 +127,14 @@ def parse_integrations(
     
     """
 
-    base = f'data/ml-accel/cached/{hp.generation.dt_output}'
-    make_path = lambda c: f'{base}/{c}.npy'
+    def make_path(c: str) -> str:
+        """Make a path for cached arrays."""
+
+        dt_output = hp.generation.dt_output
+        is_delta = hp.architectures.learn_deltas and (c == 'Y')
+        suffix = '-deltas' if is_delta else ''
+
+        return f'data/ml-accel/cached/{dt_output}/{c}{suffix}.npy'
 
     if cached:
         return tuple(map(np.load, map(make_path, 'CMY')))
@@ -223,7 +230,8 @@ def prepare_data(
     M, Y = reshape_data(n_bins, M, Y)
     Y = np.concatenate((Y, D), axis=1)
 
-    residual = abs(Y.sum(axis=(1, 2)) - 1).max()
+    target = int(not hp.architectures.learn_deltas)
+    residual = abs(Y.sum(axis=(1, 2)) - target).max()
     print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
     print(f'Maximum residual is {residual:.4e}.')
 
@@ -234,9 +242,10 @@ def prepare_data(
         C = C_trans(C)
         M = M_trans(M)
 
-    W = Y.sum(axis=-1, keepdims=True)
-    keep = (W > 0)[..., 0]
-    Y[keep] /= W[keep]
+    W = Y.sum(axis=2, keepdims=True)
+    den = abs(Y).max(axis=2, keepdims=True)
+    keep = (den > 0)[..., 0]
+    Y[keep] /= den[keep]
 
     return (C, M, Y, W), (idx_tr, idx_ev), (C_trans, M_trans)
 
@@ -283,13 +292,23 @@ def trace(
 
         M, = reshape_data(model._n_bins, M)
         Y, W = model(C_trans(C), M_trans(M))
-        W = torch.softmax(W, dim=1)
-    
-        totals = Y.sum(dim=2, keepdim=True)
-        totals[totals == 0] = 1
-        Y = W * (Y / totals)
+        norm = Y.sum(dim=2, keepdim=True)
 
-        return Y[:, :-1], Y[:, -1]
+        if hp.architectures.learn_deltas:
+            W = signed_log(W, inverse=True)
+            W = W - W.mean(dim=1, keepdim=True)
+
+        else:
+            W = torch.softmax(W, dim=1)
+        
+        norm[norm == 0] = 1
+        Y = W * (Y / norm)
+
+        Y, D = Y[:, :-1], Y[:, -1]
+        if hp.architectures.learn_deltas:
+            Y = Y + M
+
+        return Y, D
 
     with torch.no_grad():
         return torch.jit.trace(trace_func, (C, M))
@@ -370,5 +389,8 @@ def _parse_momentum(
     residual = abs(1 - Y.sum(axis=(1, 2)))
     keep = keep & (sink_frac < hp.architectures.max_sink)
     keep = keep & (residual < 1e-14)
+
+    if hp.architectures.learn_deltas:
+        Y[:, :-1] = Y[:, :-1] - M
 
     return M, Y, keep

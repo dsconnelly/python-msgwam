@@ -5,6 +5,8 @@ import torch, torch.nn as nn
 
 from msgwam import config
 
+from ...hyperparameters import architectures as hp
+
 from .unet import UNet
 from .utils import allocate_layers, apply_blocks, get_block, xavier_init
 
@@ -78,7 +80,13 @@ class BulkNet(nn.Module):
         out = apply_blocks(self._blocks, X, self._skip_mode)
         Y, W = out[:, :-self._n_weights], out[:, -self._n_weights:, None]
         Y = Y.reshape(-1, self._n_weights, config.n_grid - 1)
-        Y = _SOFTPLUS(Y)
+
+        if hp.learn_deltas:
+            Y, D = Y[:, :-1], Y[:, -1:]
+            Y = torch.cat((Y, _SOFTPLUS(D)), dim=1)
+
+        else:
+            Y = _SOFTPLUS(Y)
 
         return Y, W
 

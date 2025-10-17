@@ -1,5 +1,3 @@
-beta_final: float
+learn_deltas: bool
 max_sink: float
 max_params: int
-ramp_length: int
-ramp_p: float
