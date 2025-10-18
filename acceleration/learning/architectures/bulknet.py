@@ -163,7 +163,7 @@ class BulkNet(nn.Module):
         self._n_bins = options[i]
 
         self._has_unet = trial.suggest_categorical('has_unet', [True])
-        n_hidden = trial.suggest_int('n_hidden', 4, 5 if self._has_unet else 10)
+        n_hidden = trial.suggest_int('n_hidden', 4, 6 if self._has_unet else 10)
 
         if self._has_unet:
             self._unet = UNet(self._n_bins, trial)
@@ -173,7 +173,7 @@ class BulkNet(nn.Module):
             n_blocks = trial.suggest_int('n_blocks', 1, min(4, n_hidden))
 
         self._n_hiddens = allocate_layers(n_hidden, n_blocks)
-        self._width = trial.suggest_int('width', 128, 1024)
+        self._width = trial.suggest_int('width', 128, 2048)
 
         if n_blocks > 1:
             args_sm = ('skip_mode', [-1, 1])
@@ -186,4 +186,4 @@ class BulkNet(nn.Module):
 
         self._activation = trial.suggest_categorical(*args_act)
         self._batch_norm_pos = trial.suggest_categorical(*args_bn)
-        self._dropout_rate = trial.suggest_float('dropout_rate', 0, 0.5)
+        self._dropout_rate = trial.suggest_float('dropout_rate', 0.5, 0.5)

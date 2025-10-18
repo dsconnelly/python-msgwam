@@ -52,7 +52,7 @@ def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
 
     with open('data/ml-accel/models/hyperparameters.json') as f:
-        trial = FixedTrial(json.load(f))
+        trial = FixedTrial(json.load(f), -1)
 
     _train(trial, parse_integrations(cached=True))
 
@@ -166,8 +166,8 @@ def _train(
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     model, optimizer = _get_model(trial)
 
-    n_samples = 800000 if eval_type == 'va' else None
-    args = (model._n_bins, eval_type, arrays, n_samples)
+    n_samples = 500000 if eval_type == 'va' else None
+    args = (model._n_bins, eval_type, arrays, n_samples, trial.number)
     arrays, idxs, transforms = prepare_data(*args)
 
     loader_tr, loader_ev = _iter_loaders(arrays, idxs)

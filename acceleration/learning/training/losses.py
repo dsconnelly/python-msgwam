@@ -28,8 +28,8 @@ class AbstractLoss(nn.Module, ABC):
         """
 
         super().__init__()
-        self._scale_Y = trial.suggest_float('scale_Y', 0.1, 0.1)
-        self._bias_Y = trial.suggest_float('bias_Y', 0.9, 0.9)
+        self._scale_Y = trial.suggest_float('scale_Y', 0.2, 0.2)
+        self._bias_Y = trial.suggest_float('bias_Y', 0.5, 0.98)
 
         scales_W = self._get_scales_W(W.cpu().numpy())
         self.register_buffer('_scales_W', scales_W)
@@ -109,6 +109,7 @@ class AbstractLoss(nn.Module, ABC):
         Get a mask indicating which scale parameters are active (that is, which
         shape profiles should be graded and not ignored).
         """
+        ...
 
     def _get_scales_W(self, W: np.ndarray) -> torch.Tensor:
         """
@@ -135,6 +136,7 @@ class AbstractLoss(nn.Module, ABC):
         Transform the weights into the space where their loss is calculated. If
         `inverse`, perform the opposite transformation.
         """
+        ...
 
 class BulkLoss(AbstractLoss):
     _threshold: torch.Tensor

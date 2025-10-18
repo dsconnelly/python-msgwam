@@ -25,7 +25,8 @@ CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 def get_split(
     C: np.ndarray,
     eval_type: Literal['va', 'te'],
-    n_samples: Optional[int]=None
+    n_samples: Optional[int]=None,
+    seed: int=1234
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Get index arrays that can be used to split the data into subsets for
@@ -42,6 +43,8 @@ def get_split(
         Whether the evaluation data should be validation or test data.
     n_samples
         How many samples to return. If `None`, all samples are returned.
+    seed
+        Seed to use if retaining fewer than all samples.
 
     Returns
     -------
@@ -59,7 +62,7 @@ def get_split(
         n_tr = int(f * n_samples)
         n_ev = n_samples - n_tr
 
-        gen = np.random.default_rng(1234)
+        gen = np.random.default_rng(seed)
         idx_tr = idx_tr[np.argsort(gen.random(len(idx_tr)))[:n_tr]]
         idx_ev = idx_ev[np.argsort(gen.random(len(idx_ev)))[:n_ev]]
 
@@ -179,7 +182,8 @@ def prepare_data(
     eval_type: Literal['va', 'te'],
     arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
     n_samples: Optional[int]=None,
-    transform_inputs: bool=True
+    transform_inputs: bool=True,
+    seed: int=1234
 ) -> tuple[
     CMYW,
     tuple[np.ndarray, np.ndarray],
@@ -202,6 +206,8 @@ def prepare_data(
     transform_inputs
         Whether to actually apply the transforms to the inputs or just return
         them. Defaults to applying them, but can be skipped in plotting.
+    seed
+        Seed to use if subsetting from the available data.
 
     Returns
     --------
@@ -218,7 +224,7 @@ def prepare_data(
     """
 
     C, M, Y = arrays
-    idx_tr, idx_ev = get_split(C, eval_type, n_samples)
+    idx_tr, idx_ev = get_split(C, eval_type, n_samples, seed)
     keep = np.concatenate((idx_tr, idx_ev))
     n_tr, n_ev = len(idx_tr), len(idx_ev)
     
