@@ -79,14 +79,16 @@ class BulkNet(nn.Module):
 
         out = apply_blocks(self._blocks, X, self._skip_mode)
         Y, W = out[:, :-self._n_weights], out[:, -self._n_weights:, None]
-        Y = Y.reshape(-1, self._n_weights, config.n_grid - 1)
+        Y = _SOFTPLUS(Y)
 
         if hp.learn_deltas:
-            Y, D = Y[:, :-1], Y[:, -1:]
-            Y = torch.cat((Y, _SOFTPLUS(D)), dim=1)
+            F, D = Y[:, :-(config.n_grid - 1)], Y[:, -(config.n_grid - 1):]
+            F = F.reshape(-1, self._n_bins, config.n_grid - 2)
+            F = nn.functional.pad(F, (0, 1), value=0)
+            Y = torch.cat((F, D[:, None]), dim=1)
 
         else:
-            Y = _SOFTPLUS(Y)
+            Y = Y.reshape(-1, self._n_weights, config.n_grid - 1)
 
         return Y, W
 
@@ -135,6 +137,9 @@ class BulkNet(nn.Module):
         for each phase speed bin, as well as a prediction of the dissipative
         momentum loss at each level. Then there is a weight for each profile.
         """
+
+        if hp.learn_deltas:
+            return self._n_weights * (config.n_grid - 1) + 1
 
         return config.n_grid * self._n_weights
     

@@ -19,7 +19,7 @@ from ... import hyperparameters as hp
 from ..architectures import BulkNet
 
 from .io import CMYW, parse_integrations, prepare_data, trace
-from .losses import AbstractLoss, BulkLoss, DeltaLoss
+from .losses import BulkLoss
 
 _DEVICE = torch.device('cpu')
 if torch.cuda.is_available():
@@ -52,7 +52,7 @@ def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
 
     with open('data/ml-accel/models/hyperparameters.json') as f:
-        trial = FixedTrial(json.load(f), -1)
+        trial = FixedTrial(json.load(f), number=-1)
 
     _train(trial, parse_integrations(cached=True))
 
@@ -164,15 +164,19 @@ def _train(
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
+    n_samples = 500000 if eval_type == 'va' else None
     model, optimizer = _get_model(trial)
 
-    n_samples = 500000 if eval_type == 'va' else None
-    args = (model._n_bins, eval_type, arrays, n_samples, trial.number)
-    arrays, idxs, transforms = prepare_data(*args)
+    arrays, idxs, transforms = prepare_data(
+        n_bins=model._n_bins,
+        eval_type=eval_type,
+        arrays=arrays,
+        n_samples=n_samples,
+        seed=(trial.number + 1)
+    )
 
     loader_tr, loader_ev = _iter_loaders(arrays, idxs)
-    loss_cls = DeltaLoss if hp.architectures.learn_deltas else BulkLoss
-    loss_func = loss_cls(trial, loader_tr.dataset.tensors[-1])
+    loss_func = BulkLoss(trial, loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -232,7 +236,7 @@ def _train(
 def _run_epoch(
     model: BulkNet,
     loader: DataLoader,
-    loss_func: AbstractLoss,
+    loss_func: BulkLoss,
     optimizer: Optional[torch.optim.Adam]=None
 ) -> list[float]:
     """

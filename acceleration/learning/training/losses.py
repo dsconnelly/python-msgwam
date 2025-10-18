@@ -6,8 +6,6 @@ import torch, torch.nn as nn
 
 from optuna.trial import Trial
 
-from .transforms import signed_log
-
 class AbstractLoss(nn.Module, ABC):
     _scales_W: torch.Tensor
 
@@ -31,7 +29,8 @@ class AbstractLoss(nn.Module, ABC):
         self._scale_Y = trial.suggest_float('scale_Y', 0.2, 0.2)
         self._bias_Y = trial.suggest_float('bias_Y', 0.5, 0.98)
 
-        scales_W = self._get_scales_W(W.cpu().numpy())
+        self._set_buffers(W.cpu().numpy())
+        scales_W = self._get_scales_W(W.cpu())
         self.register_buffer('_scales_W', scales_W)
 
     def forward(
@@ -111,7 +110,7 @@ class AbstractLoss(nn.Module, ABC):
         """
         ...
 
-    def _get_scales_W(self, W: np.ndarray) -> torch.Tensor:
+    def _get_scales_W(self, W: torch.Tensor) -> torch.Tensor:
         """
         Given the `W` data from the training set, calculate and set any buffers
         that will be needed to compute losses later.
@@ -124,11 +123,16 @@ class AbstractLoss(nn.Module, ABC):
 
         """
 
-        a = W.copy()
-        a[~self._get_mask(a)] = np.nan
-        scales = np.nanstd(self._transform(a), axis=0)
-        
+        a = W.clone()
+        a[~self._get_mask(a)] = torch.nan
+        a = self._transform(a).numpy()
+
+        scales = np.nanstd(a, axis=0)        
         return torch.as_tensor(scales)
+
+    @abstractmethod
+    def _set_buffers(self, W: np.ndarray) -> None:
+        """Set any additional buffers needed before calculating scales."""
 
     @abstractmethod
     def _transform(self, W: torch.Tensor, inverse: bool=False) -> torch.Tensor:
@@ -141,22 +145,15 @@ class AbstractLoss(nn.Module, ABC):
 class BulkLoss(AbstractLoss):
     _threshold: torch.Tensor
 
-    def __init__(self, trial: Trial, W: torch.Tensor) -> None:
-        """Before regular initialization, the threshold is set."""
-
-        threshold = self._get_threshold(W.cpu().numpy())
-        self.register_buffer('_threshold', threshold)
-        super().__init__(trial, W)
-
     def _get_mask(self, W: torch.Tensor) -> torch.Tensor:
         """The active weights are simply those greater than the threshold."""
 
         return W > self._threshold
 
-    def _get_threshold(self, W: np.ndarray) -> torch.Tensor:
+    def _set_buffers(self, W: np.ndarray) -> None:
         """
-        The threshold is defined as a quarter of the minimum of the nonzero
-        scale parameters in the training data.
+        The threshold is set as a quarter of the smallest nonzero scale
+        parameter found in the training data.
         """
 
         W[W == 0] = np.nan
@@ -164,7 +161,7 @@ class BulkLoss(AbstractLoss):
         threshold = np.maximum(threshold, 0.0001)
         W[np.isnan(W)] = 0
 
-        return torch.as_tensor(threshold)
+        self.register_buffer('_threshold', torch.as_tensor(threshold))
 
     def _transform(self, W: torch.Tensor, inverse: bool=False) -> torch.Tensor:
         """
@@ -176,14 +173,3 @@ class BulkLoss(AbstractLoss):
         
         W = torch.clip(W, min=self._threshold)
         return torch.log(W)
-
-class DeltaLoss(AbstractLoss):
-    def _get_mask(self, W: torch.Tensor) -> torch.Tensor:
-        """Any nonzero weight counts as active when predicting deltas."""
-
-        return W != 0
-    
-    def _transform(self, W: torch.Tensor, inverse: bool=False) -> torch.Tensor:
-        """We use `signed_log` to allow for negative scale parameters."""
-
-        return signed_log(W, inverse)

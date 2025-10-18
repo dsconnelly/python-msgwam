@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import xarray as xr
 
+from torch.nn.functional import pad as _PAD
+
 from msgwam import config
 
 from ... import hyperparameters as hp
@@ -16,8 +18,7 @@ from .transforms import (
     Transform,
     apply_smoothing,
     make_transform,
-    reshape_data,
-    signed_log
+    reshape_data
 )
 
 CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
@@ -223,23 +224,31 @@ def prepare_data(
     
     """
 
+    if n_bins > 1 and hp.architectures.learn_deltas:
+        raise ValueError('Cannot learn deltas with multiple bins yet')
+
     C, M, Y = arrays
     idx_tr, idx_ev = get_split(C, eval_type, n_samples, seed)
     keep = np.concatenate((idx_tr, idx_ev))
     n_tr, n_ev = len(idx_tr), len(idx_ev)
-    
+
     idx = np.arange(n_tr + n_ev)
     C, M, Y = C[keep, 1:], M[keep], Y[keep]
     idx_tr, idx_ev = idx[:n_tr], idx[n_tr:]
 
     Y, D = Y[:, :-1], Y[:, -1:]
     M, Y = reshape_data(n_bins, M, Y)
-    Y = np.concatenate((Y, D), axis=1)
 
-    target = int(not hp.architectures.learn_deltas)
-    residual = abs(Y.sum(axis=(1, 2)) - target).max()
+    if hp.architectures.learn_deltas:
+        Y = -np.cumsum(Y, axis=-1) - np.cumsum(D, axis=-1)
+        Y[..., -1] = 0
+
+    Y = np.concatenate((Y, D), axis=1)
     print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
-    print(f'Maximum residual is {residual:.4e}.')
+
+    if not hp.architectures.learn_deltas:
+        residual = abs(Y.sum(axis=(1, 2)) - 1).max()
+        print(f'Maximum residual is {residual:.4e}.')
 
     C_trans = make_transform(C[idx_tr], mode='z')
     M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
@@ -249,9 +258,9 @@ def prepare_data(
         M = M_trans(M)
 
     W = Y.sum(axis=2, keepdims=True)
-    den = abs(Y).max(axis=2, keepdims=True)
-    keep = (den > 0)[..., 0]
-    Y[keep] /= den[keep]
+    norm = abs(Y).max(axis=2, keepdims=True)
+    keep = (norm > 0)[..., 0]
+    Y[keep] /= norm[keep]
 
     return (C, M, Y, W), (idx_tr, idx_ev), (C_trans, M_trans)
 
@@ -299,25 +308,76 @@ def trace(
         M, = reshape_data(model._n_bins, M)
         Y, W = model(C_trans(C), M_trans(M))
         norm = Y.sum(dim=2, keepdim=True)
-
-        if hp.architectures.learn_deltas:
-            W = signed_log(W, inverse=True)
-            W = W - W.mean(dim=1, keepdim=True)
-
-        else:
-            W = torch.softmax(W, dim=1)
-        
         norm[norm == 0] = 1
-        Y = W * (Y / norm)
 
+        W = torch.exp(W)
+        if not hp.architectures.learn_deltas:
+            W = W / W.sum(dim=1, keepdim=True)
+
+        Y = W * (Y / norm)
         Y, D = Y[:, :-1], Y[:, -1]
+
         if hp.architectures.learn_deltas:
-            Y = Y + M
+            F, D = _clip_fluxes(M, _PAD(Y, (1, 0), value=0), D)
+            Y = M - torch.diff(F, dim=-1) - D[:, None]
 
         return Y, D
 
     with torch.no_grad():
         return torch.jit.trace(trace_func, (C, M))
+
+@torch.jit.script
+def _clip_fluxes(
+    M: torch.Tensor,
+    F: torch.Tensor,
+    D: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    When predicting fluxes, the outputs may need to be adjusted to ensure no
+    grid cell loses more momentum than it is. If the sinks at a cell outweigh
+    the sources, the strategy here is to first reduce the amount of dissipation,
+    and if that does not suffice, to reduce the flux out the upper boundary.
+
+    Parameters
+    ----------
+    M
+        Current momentum profile.
+    F
+        Predicted fluxes at each edge.
+    D
+        Predicted sinks at each cell.
+
+    Returns
+    -------
+    torch.Tensor, torch.Tensor
+        Possibly clipped flux and sink profiles.
+    
+    """
+
+    F_out = torch.zeros_like(F)
+    D_out = torch.zeros_like(D)
+
+    for i in range(M.shape[0]):
+        for k in range(M.shape[2]):
+            incoming = F_out[i, 0, k]
+            outgoing = F[i, 0, k + 1] + D[i, k]
+            overshoot = outgoing - incoming - M[i, 0, k]
+
+            if overshoot < 0:
+                F_out[i, 0, k + 1] = F[i, 0, k + 1]
+                D_out[i, k] = D[i, k]
+                continue
+
+            D_out[i, k] = torch.clip(D[i, k] - overshoot, 0)
+            overshoot = overshoot - D[i, k] + D_out[i, k]
+
+            if overshoot < 0:
+                F_out[i, 0, k + 1] = F[i, 0, k + 1]
+                continue
+
+            F_out[i, 0, k + 1] = F[i, 0, k + 1] - overshoot
+
+    return F_out, D_out
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
