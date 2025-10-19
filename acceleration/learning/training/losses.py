@@ -157,8 +157,8 @@ class BulkLoss(AbstractLoss):
         """
 
         W[W == 0] = np.nan
-        threshold = 0.25 * np.nanmin(W, axis=0)
-        threshold = np.maximum(threshold, 0.0001)
+        threshold = 0.9 * np.nanmin(W, axis=0)
+        threshold = np.maximum(threshold, 0.00001)
         W[np.isnan(W)] = 0
 
         self.register_buffer('_threshold', torch.as_tensor(threshold))

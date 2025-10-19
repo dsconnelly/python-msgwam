@@ -163,19 +163,24 @@ class BulkNet(nn.Module):
 
         """
 
-        options = [1, 2, 5]
-        i = trial.suggest_int('n_bin_idx', 0, len(options) - 1)
-        self._n_bins = options[i]
+        if hp.learn_deltas:
+            self._n_bins = 1
 
-        self._has_unet = trial.suggest_categorical('has_unet', [True])
+        else:
+            options = [1, 2, 5]
+            i = trial.suggest_int('n_bin_idx', 0, len(options) - 1)
+            self._n_bins = options[i]
+
+        self._dropout_rate = trial.suggest_float('dropout_rate', 0.2, 0.5)
+        self._has_unet = trial.suggest_categorical('has_unet', [True, False])
         n_hidden = trial.suggest_int('n_hidden', 4, 6 if self._has_unet else 10)
 
         if self._has_unet:
-            self._unet = UNet(self._n_bins, trial)
-            n_blocks = 1
+            self._unet = UNet(trial, self._n_bins, self._dropout_rate)
+            n_blocks = trial.suggest_int('n_blocks', 1, n_hidden)
 
         else:    
-            n_blocks = trial.suggest_int('n_blocks', 1, min(4, n_hidden))
+            n_blocks = trial.suggest_int('n_blocks', 1, min(6, n_hidden))
 
         self._n_hiddens = allocate_layers(n_hidden, n_blocks)
         self._width = trial.suggest_int('width', 128, 2048)
@@ -188,7 +193,5 @@ class BulkNet(nn.Module):
 
         args_bn = ('batch_norm_pos', [-1, 0, 1])
         args_act = ('activation', ['relu', 'leaky', 'tanh'])
-
         self._activation = trial.suggest_categorical(*args_act)
         self._batch_norm_pos = trial.suggest_categorical(*args_bn)
-        self._dropout_rate = trial.suggest_float('dropout_rate', 0.5, 0.5)

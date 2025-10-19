@@ -5,21 +5,24 @@ from optuna.trial import Trial
 from .utils import iter_pairs, maybe_interp, xavier_init
 
 class UNet(nn.Module):
-    def __init__(self, n_bins: int, trial: Trial) -> None:
+    def __init__(self, trial: Trial, n_bins: int, dropout_rate: float) -> None:
         """
         Initialize a UNet with a specific number of phase speed bins.
 
         Parameters
         ----------
-        n_bins
-            Number of phase speed bins into which the bulk momentum is split.
         trial
             Current trial, used to sample parameters for the UNet.
+        n_bins
+            Number of phase speed bins into which the bulk momentum is split.
+        dropout_rate
+            Rate for the dropout layer after the bottleneck.
 
         """
 
         super().__init__()
         self._n_bins = n_bins
+        self._dropout = nn.Dropout(dropout_rate)
 
         self._init_layers(trial)
         self.apply(xavier_init)
@@ -48,6 +51,8 @@ class UNet(nn.Module):
             out = self._down(skips[0])
 
         out = self._encs[-1](out)
+        out = self._dropout(out)
+
         for (up, skip, dec) in zip(self._ups, skips, self._decs):
             out = maybe_interp(up(out), skip.shape[-1])
             out = dec(torch.cat((out, skip), dim=1))

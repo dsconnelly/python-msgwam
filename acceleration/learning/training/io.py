@@ -1,5 +1,6 @@
 from os import listdir
 from typing import Literal, Iterator, Optional
+from warnings import warn
 
 import numpy as np
 import torch
@@ -225,7 +226,9 @@ def prepare_data(
     """
 
     if n_bins > 1 and hp.architectures.learn_deltas:
-        raise ValueError('Cannot learn deltas with multiple bins yet')
+        message = 'learn_deltas is True and n_bins > 1,'
+        message = message + ' which likely will not work as expected.'
+        warn(message)
 
     C, M, Y = arrays
     idx_tr, idx_ev = get_split(C, eval_type, n_samples, seed)

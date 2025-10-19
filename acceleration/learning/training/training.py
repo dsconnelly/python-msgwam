@@ -12,6 +12,7 @@ from optuna.exceptions import TrialPruned
 from optuna.pruners import MedianPruner
 from optuna.trial import FixedTrial, Trial
 
+from torch.optim.lr_scheduler import ReduceLROnPlateau, LRScheduler
 from torch.utils.data import DataLoader, TensorDataset
 
 from ... import hyperparameters as hp
@@ -40,9 +41,9 @@ def search_hyperparameters() -> None:
     arrays = parse_integrations(cached=True)
     objective = lambda t: _train(t, arrays)
 
-    pruner = MedianPruner(5, hp.training.min_epochs)
+    pruner = MedianPruner(5, hp.training.patience)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=(6 * 3600), gc_after_trial=True)
+    study.optimize(objective, timeout=(10 * 3600), gc_after_trial=True)
 
     params = study.best_trial.params
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -59,7 +60,7 @@ def train_network() -> None:
 def _get_model(
     trial: Trial,
     state_path: Optional[str]=None
-) -> tuple[BulkNet, torch.optim.Adam]:
+) -> tuple[BulkNet, torch.optim.Adam, Optional[LRScheduler]]:
     """
     Instantiate a `BulkNet` and an associated optimizer, possibly loading
     state from a previous training run.
@@ -85,11 +86,31 @@ def _get_model(
     optim_name = trial.suggest_categorical('optimizer', ['Adam', 'SGD'])
     lr_bounds = {'Adam' : (1e-5, 1e-2), 'SGD' : (5e-2, 1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
-    kwargs = dict(momentum=0.9) if optim_name == 'SGD' else {}
+
+    weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
+    kwargs = {'weight_decay' : weight_decay}
+
+    if optim_name == 'SGD':
+        momentum = trial.suggest_float('momentum', 0.85, 0.99)
+        kwargs['momentum'] = momentum
     
     model = BulkNet(trial)
     optim_cls = getattr(torch.optim, optim_name)
     optimizer = optim_cls(model.parameters(), lr=lr, **kwargs)
+
+    if trial.suggest_categorical('has_scheduler', [True, False]):
+        factor = trial.suggest_float('plateau_factor', 0.1, 0.5)
+        patience = trial.suggest_int('plateau_patience', 5, 10)
+
+        scheduler = ReduceLROnPlateau(
+            optimizer,
+            mode='min',
+            factor=factor,
+            patience=patience
+        )
+
+    else:
+        scheduler = None
 
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Loaded model has {n_params} trainable parameters.')
@@ -104,7 +125,7 @@ def _get_model(
         model.load_state_dict(state['model'])
         optimizer.load_state_dict(state['optimizer'])
 
-    return model.to(_DEVICE), optimizer
+    return model.to(_DEVICE), optimizer, scheduler
 
 def _iter_loaders(
     arrays: CMYW,
@@ -165,7 +186,7 @@ def _train(
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     n_samples = 500000 if eval_type == 'va' else None
-    model, optimizer = _get_model(trial)
+    model, optimizer, scheduler = _get_model(trial)
 
     arrays, idxs, transforms = prepare_data(
         n_bins=model._n_bins,
@@ -182,12 +203,17 @@ def _train(
     state = {}
     best_score = torch.inf
     n_epoch, waited = 1, 0
+    patience = hp.training.patience
 
-    max_epochs = hp.training.max_epochs
-    max_epochs = max_epochs * (1 + (eval_type == 'te'))
-    patience = -1 if eval_type == 'te' else hp.training.patience
+    if hp.training.max_epochs > 0:
+        keep_going = lambda n, _: n <= hp.training.max_epochs
 
-    while n_epoch <= max_epochs:
+    else:
+        start = time()
+        max_hours = abs(hp.training.max_epochs)
+        keep_going = lambda _, t: (t - start) / 3600 < max_hours
+
+    while keep_going(n_epoch, time()):
         epoch_start = time()
         losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
         losses_ev = _run_epoch(model, loader_ev, loss_func)
@@ -206,7 +232,7 @@ def _train(
                 print(f'        loss_W = {losses[1]:.6f}')
 
         trial.report(loss_ev, n_epoch)
-        if trial.should_prune():
+        if trial.should_prune() or np.isnan(loss_ev):
             raise TrialPruned()
 
         if improved:
@@ -214,13 +240,16 @@ def _train(
             state['optimizer'] = deepcopy(optimizer.state_dict())
             best_score, waited = loss_ev, 0
 
-        elif n_epoch > hp.training.min_epochs - patience:
+        else:
             waited = waited + 1
 
             if waited == patience:
                 print('Stopping early due to lack of improvement.')
                 break
 
+        if scheduler is not None:
+            scheduler.step(loss_ev)
+        
         n_epoch = n_epoch + 1
 
     if eval_type == 'te':

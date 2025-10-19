@@ -13,6 +13,7 @@ from msgwam.propagators import Propagator
 from .. import hyperparameters as hp
 
 from .generation import get_pdx, project
+from .training.transforms import apply_smoothing
 
 if TYPE_CHECKING:
     from msgwam.means import MeanState
@@ -61,6 +62,7 @@ class NetworkPropagator(Propagator):
         C = self._make_C(mean)
         M = self._M + self._check_source(mean, n_step)
         budget = M.sum(axis=(1, 2), keepdims=True)
+        M = apply_smoothing(M)
 
         inputs = map(torch.as_tensor, [C, M / budget])
         Y, D = [out.numpy() for out in self._model(*inputs)]
