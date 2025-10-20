@@ -150,11 +150,11 @@ def parse_integrations(
 
     Cs, Ms, Ys = None, None, None
     for i, (path, flag) in enumerate(iter_paths()):
-        print(path, flag)
         with xr.open_dataset(path) as ds:
-            M, Y, keep = _parse_momentum(ds)
+            M, Y, budget, keep = _parse_momentum(ds)
+            
             col = flag * np.ones((M.shape[0], 1))
-            C = np.hstack((col, _parse_column(ds)))
+            C = np.hstack((col, _parse_column(ds), budget))
 
             if Cs is None:
                 Cs = np.nan * np.zeros((n_paths, *C.shape))
@@ -447,8 +447,9 @@ def _parse_momentum(
     Y = np.concatenate((Y, D), axis=1)
 
     budget = M.sum(axis=(1, 2))
-    keep, budget = budget > 0, budget[budget > 0, None, None]
-    M[keep], Y[keep] = M[keep] / budget, Y[keep] / budget
+    keep, budget = budget > 0, budget[:, None, None]
+    M[keep], Y[keep] = M[keep] / budget[keep], Y[keep] / budget[keep]
+    budget[keep] = np.log(budget[keep])
 
     for _ in range(hp.training.n_smoothing):
         M = apply_smoothing(M)
@@ -462,4 +463,4 @@ def _parse_momentum(
     if hp.architectures.learn_deltas:
         Y[:, :-1] = Y[:, :-1] - M
 
-    return M, Y, keep
+    return M, Y, budget[:, 0], keep

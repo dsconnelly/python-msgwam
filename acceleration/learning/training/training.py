@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from ... import hyperparameters as hp
 
-from ..architectures import BulkNet
+from ..architectures import BulkNet, SimpleNet
 
 from .io import CMYW, parse_integrations, prepare_data, trace
 from .losses import BulkLoss
@@ -94,7 +94,8 @@ def _get_model(
         momentum = trial.suggest_float('momentum', 0.85, 0.99)
         kwargs['momentum'] = momentum
     
-    model = BulkNet(trial)
+    # model = BulkNet(trial)
+    model = SimpleNet(trial)
     optim_cls = getattr(torch.optim, optim_name)
     optimizer = optim_cls(model.parameters(), lr=lr, **kwargs)
 
@@ -185,7 +186,7 @@ def _train(
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 500000 if eval_type == 'va' else None
+    n_samples = 500000 if eval_type == 'va' else 5000
     model, optimizer, scheduler = _get_model(trial)
 
     arrays, idxs, transforms = prepare_data(
@@ -216,7 +217,7 @@ def _train(
     while keep_going(n_epoch, time()):
         epoch_start = time()
         losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        losses_ev = _run_epoch(model, loader_ev, loss_func)
+        losses_ev = _run_epoch(model, loader_tr, loss_func)
         runtime = time() - epoch_start
 
         *_, loss_ev = losses_ev
@@ -303,15 +304,15 @@ def _run_epoch(
     totals = None
 
     for tensors in loader:
-        M, C, *targets = [a.to(_DEVICE) for a in tensors]
+        C, M, *targets = [a.to(_DEVICE) for a in tensors]
 
         if optimizer is None:
             with torch.no_grad():
-                outputs = model(M, C)
+                outputs = model(C, M)
 
         else:
             optimizer.zero_grad()
-            outputs = model(M, C)
+            outputs = model(C, M)
 
         weight = M.shape[0]
         weight_sum = weight_sum + weight

@@ -15,6 +15,77 @@ if TYPE_CHECKING:
 
 _SOFTPLUS = nn.functional.softplus
 
+class SimpleNet(nn.Module):
+    def __init__(self, trial: Trial) -> None:
+        """
+        At initialization, the `SimpleNet` just creates a bunch of fully-
+        connected layers based on the current `Trial`.
+        """
+
+        if not hp.learn_deltas:
+            raise ValueError('SimpleNet can only learn deltas')
+        
+        super().__init__()
+        self._init_layers(trial)
+        self.apply(xavier_init)
+        self.to(torch.double)
+
+    def forward(
+        self,
+        C: torch.Tensor,
+        M: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pass the inputs through the network, and postprocess the outputs (flux
+        scale and shape parameters) accordingly.
+        """
+
+        out = self._layers(torch.hstack((C, M.flatten(1))))        
+        Y, W = out[:, :-(self._n_bins + 1)], out[:, -(self._n_bins + 1):, None]
+        Y = _SOFTPLUS(Y)
+
+        F, D = Y[:, :-(config.n_grid - 1)], Y[:, -(config.n_grid - 1):]
+        F = F.reshape(-1, self._n_bins, config.n_grid - 2)
+        F = nn.functional.pad(F, (0, 1), value=0)
+        Y = torch.cat((F, D[:, None]), dim=1)
+
+        return Y, W
+
+    def _init_layers(self, trial: Trial) -> None:
+        """Initialize a chain of fully-connected layers."""
+
+        self._n_bins = 1
+        n_hidden = trial.suggest_int('n_hidden', 5, 10)
+        width = trial.suggest_int('width', 1024, 4096)
+
+        choices = ['relu', 'leaky', 'tanh']
+        activation = trial.suggest_categorical('activation', choices)
+
+        dropout_rate = trial.suggest_float('dropout_rate', 0, 0.5)
+        batch_norm_pos = trial.suggest_categorical('batch_norm_pos', [-1, 0, 1])
+
+        sizes = [self._n_inputs] + [width] * n_hidden + [self._n_outputs]
+        args = (batch_norm_pos, activation, dropout_rate)
+        self._layers = get_block(sizes, *args, True)
+
+    @property
+    def _n_inputs(self) -> int:
+        """
+        Inputs for each of the column profiles, and the bulk momentum data in
+        each phase speed bin.
+        """
+
+        return (self._n_bins + 2) * (config.n_grid - 1) + 2
+    
+    @property
+    def _n_outputs(self) -> int:
+        """
+        Scale and shape parameters for each output flux profile as well as for
+        the sink profile.
+        """
+        
+        return (self._n_bins + 1) * (config.n_grid - 1) + 1
+
 class BulkNet(nn.Module):
     def __init__(self, trial: Trial) -> None:
         """
@@ -67,7 +138,7 @@ class BulkNet(nn.Module):
         """
 
         if self._has_unet:
-            C, lat = C[:, :-1], C[:, -1:, None]
+            C, lat = C[:, :-2], C[:, -2:-1, None]
             C = C.reshape(-1, 2, config.n_grid - 1)
             lat = lat * torch.ones_like(C[:, :1])
 
@@ -75,7 +146,7 @@ class BulkNet(nn.Module):
             X = self._unet(X).flatten(1, 2)
 
         else:
-            X = torch.hstack((C, M.flatten(1, 2)))
+            X = torch.hstack((C[:, :-1], M.flatten(1, 2)))
 
         out = apply_blocks(self._blocks, X, self._skip_mode)
         Y, W = out[:, :-self._n_weights], out[:, -self._n_weights:, None]
