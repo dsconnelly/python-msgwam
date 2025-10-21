@@ -64,6 +64,7 @@ class NetworkPropagator(Propagator):
         budget = M.sum(axis=(1, 2), keepdims=True)
         M = apply_smoothing(M)
 
+        C = np.hstack((C, budget[:, 0]))
         inputs = map(torch.as_tensor, [C, M / budget])
         Y, D = [out.numpy() for out in self._model(*inputs)]
         Y, D = Y * budget, D * budget[:, 0]

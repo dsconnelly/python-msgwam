@@ -28,7 +28,6 @@ class SimpleNet(nn.Module):
         super().__init__()
         self._init_layers(trial)
         self.apply(xavier_init)
-        self.to(torch.double)
 
     def forward(
         self,
@@ -47,7 +46,9 @@ class SimpleNet(nn.Module):
         F, D = Y[:, :-(config.n_grid - 1)], Y[:, -(config.n_grid - 1):]
         F = F.reshape(-1, self._n_bins, config.n_grid - 2)
         F = nn.functional.pad(F, (0, 1), value=0)
+        
         Y = torch.cat((F, D[:, None]), dim=1)
+        Y = Y / Y.sum(axis=-1, keepdim=True)
 
         return Y, W
 
@@ -105,7 +106,6 @@ class BulkNet(nn.Module):
         
         self._blocks = self._init_blocks()
         self.apply(xavier_init)
-        self.to(torch.double)
         
     def forward(
         self,

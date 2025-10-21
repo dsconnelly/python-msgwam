@@ -261,7 +261,7 @@ def prepare_data(
         M = M_trans(M)
 
     W = Y.sum(axis=2, keepdims=True)
-    norm = abs(Y).max(axis=2, keepdims=True)
+    norm = Y.sum(axis=-1, keepdims=True)
     keep = (norm > 0)[..., 0]
     Y[keep] /= norm[keep]
 
@@ -291,7 +291,7 @@ def trace(
     """
 
     cpu = torch.device('cpu')
-    model.eval().to(cpu)
+    model.eval().to(device=cpu, dtype=torch.double)
 
     for p in model.parameters():
         p.requires_grad = False

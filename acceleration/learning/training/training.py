@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from ... import hyperparameters as hp
 
-from ..architectures import BulkNet, SimpleNet
+from ..architectures import BulkNet, ConvNet
 
 from .io import CMYW, parse_integrations, prepare_data, trace
 from .losses import BulkLoss
@@ -26,6 +26,8 @@ _DEVICE = torch.device('cpu')
 if torch.cuda.is_available():
     _DEVICE = torch.device('cuda')
     print('Training will occur on the GPU.')
+
+torch.set_flush_denormal(True)
 
 def cache_arrays() -> None:
     """
@@ -43,7 +45,7 @@ def search_hyperparameters() -> None:
 
     pruner = MedianPruner(5, hp.training.patience)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=(10 * 3600), gc_after_trial=True)
+    study.optimize(objective, timeout=(5 * 3600), gc_after_trial=True)
 
     params = study.best_trial.params
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -93,9 +95,8 @@ def _get_model(
     if optim_name == 'SGD':
         momentum = trial.suggest_float('momentum', 0.85, 0.99)
         kwargs['momentum'] = momentum
-    
-    # model = BulkNet(trial)
-    model = SimpleNet(trial)
+
+    model = ConvNet(trial)
     optim_cls = getattr(torch.optim, optim_name)
     optimizer = optim_cls(model.parameters(), lr=lr, **kwargs)
 
@@ -115,9 +116,6 @@ def _get_model(
 
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Loaded model has {n_params} trainable parameters.')
-
-    if n_params > hp.architectures.max_params:
-        raise TrialPruned()
     
     if state_path is not None:
         print(f'Loading previous state from {state_path}')
@@ -150,7 +148,7 @@ def _iter_loaders(
     """
 
     batch_sizes = [hp.training.batch_size, 4096]
-    tensors = [torch.as_tensor(a) for a in arrays]
+    tensors = [torch.as_tensor(a).float() for a in arrays]
 
     for i, (idx, batch_size) in enumerate(zip(idxs, batch_sizes)):
         ds = TensorDataset(*[a[idx] for a in tensors])
@@ -186,7 +184,7 @@ def _train(
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 500000 if eval_type == 'va' else 5000
+    n_samples = 500000 if eval_type == 'va' else None
     model, optimizer, scheduler = _get_model(trial)
 
     arrays, idxs, transforms = prepare_data(
@@ -217,7 +215,7 @@ def _train(
     while keep_going(n_epoch, time()):
         epoch_start = time()
         losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        losses_ev = _run_epoch(model, loader_tr, loss_func)
+        losses_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
         *_, loss_ev = losses_ev

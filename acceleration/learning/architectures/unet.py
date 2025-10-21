@@ -26,7 +26,6 @@ class UNet(nn.Module):
 
         self._init_layers(trial)
         self.apply(xavier_init)
-        self.to(torch.double)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         """
