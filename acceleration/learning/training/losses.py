@@ -26,7 +26,7 @@ class AbstractLoss(nn.Module, ABC):
         """
 
         super().__init__()
-        self._scale_Y = trial.suggest_float('scale_Y', 0.2, 0.2)
+        self._scale_Y = 0.2
         self._bias_Y = trial.suggest_float('bias_Y', 0.5, 0.98)
 
         self._set_buffers(W.cpu().numpy())
@@ -66,14 +66,14 @@ class AbstractLoss(nn.Module, ABC):
 
         mask = self._get_mask(W)
         mask_hat = self._get_mask(self._transform(W_hat, inverse=True))
-        W = self._transform(W)
-
-        scales_Y = Y.max(axis=-1, keepdim=True)[0] * self._scale_Y
-        scales_Y[scales_Y < 0.01] = self._scale_Y
-
-        loss_Y = mask * ((Y - Y_hat) / scales_Y) ** 2
-        loss_W = ((W - W_hat) / self._scales_W) ** 2
+        loss_W = ((self._transform(W) - W_hat) / self._scales_W) ** 2
         loss_W = loss_W * (mask | mask_hat).int()
+
+        maxes, _ = Y.max(dim=-1, keepdim=True)
+        maxes[maxes < 1e-6] = 1
+        
+        scales_Y = self._scale_Y * maxes
+        loss_Y = mask * ((Y - Y_hat) / scales_Y) ** 2
 
         if reduce:
             loss_Y, loss_W = loss_Y.mean(), loss_W.mean()
@@ -160,7 +160,7 @@ class BulkLoss(AbstractLoss):
         """
 
         W[W == 0] = np.nan
-        threshold = 0.9 * np.nanmin(W, axis=0)
+        threshold = np.nanquantile(W, q=0.02, axis=0)
         threshold = np.maximum(threshold, 0.00001)
         W[np.isnan(W)] = 0
 

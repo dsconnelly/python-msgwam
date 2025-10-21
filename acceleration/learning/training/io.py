@@ -246,7 +246,7 @@ def prepare_data(
         Y = -np.cumsum(Y, axis=-1) - np.cumsum(D, axis=-1)
         Y[..., -1] = 0
 
-    Y = np.concatenate((Y, D), axis=1)
+    Y = np.maximum(0, np.concatenate((Y, D), axis=1))
     print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
 
     if not hp.architectures.learn_deltas:
@@ -310,14 +310,12 @@ def trace(
 
         M, = reshape_data(model._n_bins, M)
         Y, W = model(C_trans(C), M_trans(M))
-        norm = Y.sum(dim=2, keepdim=True)
-        norm[norm == 0] = 1
-
-        W = torch.exp(W)
+        
+        W = torch.exp(W)        
         if not hp.architectures.learn_deltas:
             W = W / W.sum(dim=1, keepdim=True)
 
-        Y = W * (Y / norm)
+        Y = W * Y
         Y, D = Y[:, :-1], Y[:, -1]
 
         if hp.architectures.learn_deltas:
