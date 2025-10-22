@@ -84,7 +84,7 @@ def _get_network_overrides() -> dict[str, Any]:
     """Use a neural network to advance the wave momentum state."""
 
     with open('data/ml-accel/models/hyperparameters.json') as f:
-        n_bins = [1, 2, 5][json.load(f)['n_bin_idx']]
+        n_bins = [1, 2, 3, 4, 6][json.load(f)['n_bin_idx']]
 
     return {
         'model_path' : 'data/ml-accel/models/model-best.jit',

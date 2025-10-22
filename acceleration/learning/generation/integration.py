@@ -13,9 +13,9 @@ from ...hyperparameters import generation as hp
 
 from .utils import (
     get_bin_edges,
+    get_info,
     get_overrides,
     get_pdx,
-    get_site_and_lat,
     project
 )
 
@@ -48,13 +48,12 @@ def save_training_data(n_str: Optional[str]=None) -> None:
         z_faces, z_centers = get_vertical_grids()
 
         windN = np.zeros((n_samples, 3, config.n_grid - 1))
-        M, S = np.zeros((2, n_samples, 4 * hp.n_bins, config.n_grid - 1))
+        M, S, D = np.zeros((3, n_samples, 4 * hp.n_bins, config.n_grid - 1))
         F = np.zeros((n_samples, 4 * hp.n_bins, config.n_grid))
-        D = np.zeros((n_samples, 4, config.n_grid - 1))
 
         _ = integrate(_make_callback(windN, M, D, S, F))
         args = (n_samples, 4, hp.n_bins, config.n_grid - 1)
-        M, S = M.reshape(*args), S.reshape(*args)
+        M, S, D = M.reshape(*args), S.reshape(*args), D.reshape(*args)
         F = F.reshape(*args[:-1], config.n_grid)
 
     data = {
@@ -71,16 +70,16 @@ def save_training_data(n_str: Optional[str]=None) -> None:
 
     data['M_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), M)
     data['source'] = (('time', 'quadrant', 'bin', 'z_centers'), S)
+    data['sink'] = (('time', 'quadrant', 'bin', 'z_centers'), D)
     data['F_bulk'] = (('time', 'quadrant', 'bin', 'z_faces'), F)
-    data['sink'] = (('time', 'quadrant', 'z_centers'), D)
 
     for i, name in enumerate(['u', 'v', 'N']):
         data[name] = (('time', 'z_centers'), windN[:, i])
 
-    site, lat = get_site_and_lat(n // 12)
+    year, month, site, lat = get_info(n)
     ds = xr.Dataset(data).assign_attrs(latitude=lat)
-    dir_name = f'data/ml-accel/integrations/{hp.dt_output}/25'
-    ds.to_netcdf(f'{dir_name}/{site}-{(n % 12) + 1}.nc')
+    dir_name = f'data/ml-accel/integrations/{year}'
+    ds.to_netcdf(f'{dir_name}/{site}-{month}.nc')
 
 def _make_callback(
     windN: np.ndarray,
@@ -128,16 +127,15 @@ def _make_callback(
 
         cp_hat = prop._get_omega_hat(mean) / wvn
         bdx = get_pdx(prop.k, prop.l, cp_hat)
-        pdx = bdx // hp.n_bins
 
         since_last = n_seconds - (i - 1) * config.dt_output
         attr = prop.attrition * (abs(prop.age) >= since_last)   
         cg = prop._get_cg_r(mean) / (hp.dt_output // hp.dt)
         cg = cg * (abs(prop.age) >= since_last)
 
-        project(prop.r, prop.dr, mean.z_faces, attr, pdx, D[i])
+        project(prop.r, prop.dr, mean.z_faces, attr, bdx, D[i])
         project(prop.r, prop.dr, prop._z_padded, mom * cg, bdx, F[i])
-        _break_oob_rays(prop, mean, mom + attr, pdx, D[i, :, -config.n_sponge:])
+        _break_oob_rays(prop, mean, mom + attr, bdx, D[i, :, -config.n_sponge:])
         
         if n_seconds % hp.dt_output:
             return

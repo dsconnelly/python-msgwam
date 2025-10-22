@@ -12,14 +12,30 @@ from ..shared.constants import MIMA_MONTHS
 
 _N_MIN = 2 * np.pi / (2 * 3600)
 
-def get_mima_scenario(month: Optional[int]=None) -> xr.Dataset:
-    """Generate a mean wind from MiMA outputs."""
+def get_mima_scenario(year: int=25, month: Optional[int]=None) -> xr.Dataset:
+    """
+    Generate a mean wind from MiMA outputs.
+    
+    Parameters
+    ----------
+    year
+        Year to pull data from, indicated in the filename of the MiMA output.
+    month
+        Month within that year (1-12). If not provided, uses the month from the
+        shared dictionary `MIMA_MONTHS`.
+
+    Returns
+    -------
+    xr.Dataset
+        Dataset containing the data needed to drive MS-GWaM.
+
+    """
 
     _, z = get_vertical_grids()
     kwargs = {'fill_value' : 'extrapolate'}
     data = {}
 
-    with xr.open_dataset('data/mima-scenarios.nc') as ds:
+    with xr.open_dataset(f'data/mima-scenarios-{year}.nc') as ds:
         name = '-'.join(config.name.split('-')[1:])
         ds = ds.sel(site=name)
 

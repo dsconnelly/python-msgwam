@@ -48,7 +48,7 @@ class ConvNet(nn.Module):
     def _init_layers(self, trial: Trial) -> None:
         """Initiate various blocks of convolutional and dense layers."""
 
-        options = [1, 2, 5]
+        options = [1, 2, 3, 4, 6]
         i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
         self._n_bins = options[i]
 

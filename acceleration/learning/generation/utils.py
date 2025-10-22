@@ -18,7 +18,7 @@ def get_bin_edges(n_bins: Optional[int]=None) -> np.ndarray:
 
     """
 
-    edges = np.linspace(0, 54, hp.generation.n_bins)
+    edges = np.linspace(0, 55, hp.generation.n_bins)
     edges = np.concatenate((edges, [100]))
 
     if n_bins is not None:
@@ -43,10 +43,8 @@ def get_overrides(n: int) -> dict[str, Any]:
 
     """
 
-    n_site = n // 12
-    month = (n % 12) + 1
-    site, lat = get_site_and_lat(n_site)
-    path = f'data/ml-accel/context/{site}-{month}.nc'
+    year, month, site, lat = get_info(n)
+    path = f'data/ml-accel/context/{year}/{site}-{month}.nc'
 
     return {
         'prescribed_mean_file' : path,
@@ -113,29 +111,37 @@ def get_pdx(
 
     return out.astype(np.int32)
 
-def get_site_and_lat(n: int) -> tuple[str, float]:
+def get_info(n: int) -> tuple[int, int, str, float]:
     """
-    Get the MiMA site name and latitude associated with a task ID.
+    Given an integer (should be the SLURM task ID) get information relevant to
+    setting up or integrating a particular month of training data.
 
     Parameters
     ----------
-    n
+    int
         Current task ID.
 
     Returns
     -------
+    int, int
+        Year and month to pull MiMA data from.
     str
-        Associated MiMA site name.
+        Site name.
     float
-        Latitude of that site.
+        Latitude of the site.
 
     """
 
-    with xr.open_dataset('data/mima-scenarios.nc') as ds:
-        site = ds['site'].values[n]
-        lat = ds['lat'].values[n]
+    n_site, month = divmod(n, 24)
+    year, month = divmod(month, 12)
+    month = month + 1
+    year = 25 - year
 
-    return site, lat
+    with xr.open_dataset('data/mima-scenarios-25.nc') as ds:
+        site = ds['site'].values[n_site]
+        lat = ds['lat'].values[n_site]
+
+    return year, month, site, lat
 
 @nb.njit
 def project(

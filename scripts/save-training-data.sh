@@ -7,8 +7,8 @@ job_id=$(sbatch \
     --parsable \
     --ntasks=1 \
     --mem=32G \
-    --time=12:00:00 \
-    -a 0-143 \
+    --time=5:00:00 \
+    -a 0-287 \
     -J ml-accel-training-data \
     -o logs/$name/save-training-data-%a.out \
     $dep_arg \

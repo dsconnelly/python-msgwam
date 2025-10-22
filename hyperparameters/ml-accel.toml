@@ -16,18 +16,16 @@ n_source_max = 40
 [generation]
 dt = 60
 dt_output = 1200
-n_bins = 10
+n_bins = 12
 
 [architectures]
 learn_deltas = true
 max_sink = 0.1
-max_params = 6000000
 
 [training]
 batch_size = 256
 M_transform = 'constant'
-max_epochs = 100
+max_epochs = 70
 min_delta = 0.001
-min_epochs = 10
-n_smoothing = 8
-patience = 5
+n_smoothing = 5
+patience = 15
