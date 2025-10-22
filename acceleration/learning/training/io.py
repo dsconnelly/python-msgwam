@@ -2,10 +2,12 @@ from os import listdir
 from typing import Literal, Iterator, Optional
 from warnings import warn
 
+import numba as nb
 import numpy as np
 import torch
 import xarray as xr
 
+from torch.linalg import vector_norm
 from torch.nn.functional import pad as _PAD
 
 from msgwam import config
@@ -136,22 +138,21 @@ def parse_integrations(
         """Make a path for cached arrays."""
 
         dt_output = hp.generation.dt_output
-        is_delta = hp.architectures.learn_deltas and (c == 'Y')
-        suffix = '-deltas' if is_delta else ''
-
-        return f'data/ml-accel/cached/{dt_output}/{c}{suffix}.npy'
+        return f'data/ml-accel/cached/{dt_output}/{c}.npy'
 
     if cached:
-        return tuple(map(np.load, map(make_path, 'CMY')))
+        return tuple(map(np.load, map(make_path, 'CMF')))
 
     n_paths = 0
     for _ in iter_paths():
         n_paths = n_paths + 1
 
-    Cs, Ms, Ys = None, None, None
+    Cs, Ms, Fs = None, None, None
     for i, (path, flag) in enumerate(iter_paths()):
         with xr.open_dataset(path) as ds:
-            M, Y, budget, keep = _parse_momentum(ds)
+            print(path, flag)
+
+            M, F, budget, keep = _parse_momentum(ds)
             
             col = flag * np.ones((M.shape[0], 1))
             C = np.hstack((col, _parse_column(ds), budget))
@@ -159,25 +160,25 @@ def parse_integrations(
             if Cs is None:
                 Cs = np.nan * np.zeros((n_paths, *C.shape))
                 Ms = np.nan * np.zeros((n_paths, *M.shape))
-                Ys = np.nan * np.zeros((n_paths, *Y.shape))
+                Fs = np.nan * np.zeros((n_paths, *F.shape))
 
             n_valid = keep.sum()
             Cs[i, :n_valid] = C[keep]
             Ms[i, :n_valid] = M[keep]
-            Ys[i, :n_valid] = Y[keep]
+            Fs[i, :n_valid] = F[keep]
 
     flatten = lambda a: a.reshape(a.shape[0] * a.shape[1], *a.shape[2:])
-    Cs, Ms, Ys = flatten(Cs), flatten(Ms), flatten(Ys)    
+    Cs, Ms, Fs = flatten(Cs), flatten(Ms), flatten(Fs)    
     keep = ~np.isnan(Cs[:, 0])
 
     Cs = Cs[keep]
     Ms = Ms[keep]
-    Ys = Ys[keep]
+    Fs = Fs[keep]
 
-    for data, name in zip([Cs, Ms, Ys], 'CMY'):
+    for data, name in zip([Cs, Ms, Fs], 'CMF'):
         np.save(make_path(name), data)
 
-    return Cs, Ms, Ys
+    return Cs, Ms, Fs
 
 def prepare_data(
     n_bins: int,
@@ -225,33 +226,22 @@ def prepare_data(
     
     """
 
-    if n_bins > 1 and hp.architectures.learn_deltas:
-        message = 'learn_deltas is True and n_bins > 1,'
-        message = message + ' which likely will not work as expected.'
-        warn(message)
-
-    C, M, Y = arrays
+    C, M, F = arrays
     idx_tr, idx_ev = get_split(C, eval_type, n_samples, seed)
     keep = np.concatenate((idx_tr, idx_ev))
+
     n_tr, n_ev = len(idx_tr), len(idx_ev)
+    print(f'Found {n_tr} training and {n_ev} evaluation samples.')
 
     idx = np.arange(n_tr + n_ev)
-    C, M, Y = C[keep, 1:], M[keep], Y[keep]
+    C, M, F = C[keep, 1:], M[keep], F[keep]
     idx_tr, idx_ev = idx[:n_tr], idx[n_tr:]
 
-    Y, D = Y[:, :-1], Y[:, -1:]
-    M, Y = reshape_data(n_bins, M, Y)
-
-    if hp.architectures.learn_deltas:
-        Y = -np.cumsum(Y, axis=-1) - np.cumsum(D, axis=-1)
-        Y[..., -1] = 0
-
-    Y = np.maximum(0, np.concatenate((Y, D), axis=1))
-    print(f'Loaded {n_tr} training and {n_ev} evaluation samples.')
-
-    if not hp.architectures.learn_deltas:
-        residual = abs(Y.sum(axis=(1, 2)) - 1).max()
-        print(f'Maximum residual is {residual:.4e}.')
+    M = reshape_data(M, n_bins, 'sum')
+    F = np.stack((
+        reshape_data(F[:, 0], n_bins, 'sum'),
+        reshape_data(F[:, 1], n_bins, 'skip')
+    ), axis=1)
 
     C_trans = make_transform(C[idx_tr], mode='z')
     M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
@@ -260,12 +250,12 @@ def prepare_data(
         C = C_trans(C)
         M = M_trans(M)
 
-    W = Y.sum(axis=2, keepdims=True)
-    norm = Y.sum(axis=-1, keepdims=True)
-    keep = (norm > 0)[..., 0]
-    Y[keep] /= norm[keep]
+    W = np.linalg.norm(F, axis=-1, keepdims=True)
+    keep = (W > 1e-12)[..., 0]
+    F[keep] /= W[keep]
+    W[~keep] = 0
 
-    return (C, M, Y, W), (idx_tr, idx_ev), (C_trans, M_trans)
+    return (C, M, F, W), (idx_tr, idx_ev), (C_trans, M_trans)
 
 def trace(
     model: BulkNet,
@@ -308,77 +298,143 @@ def trace(
         integration time) but including input transformations.
         """
 
-        M, = reshape_data(model._n_bins, M)
+        M = reshape_data(M, model._n_bins, 'sum')
         Y, W = model(C_trans(C), M_trans(M))
-        
-        W = torch.exp(W)        
-        if not hp.architectures.learn_deltas:
-            W = W / W.sum(dim=1, keepdim=True)
+        dM, F = _get_dM_and_F(M, torch.exp(W) * Y)
 
-        Y = W * Y
-        Y, D = Y[:, :-1], Y[:, -1]
-
-        if hp.architectures.learn_deltas:
-            F, D = _clip_fluxes(M, _PAD(Y, (1, 0), value=0), D)
-            Y = M - torch.diff(F, dim=-1) - D[:, None]
-
-        return Y, D
+        return M + dM, F
 
     with torch.no_grad():
         return torch.jit.trace(trace_func, (C, M))
 
 @torch.jit.script
-def _clip_fluxes(
+def _get_dM_and_F(
     M: torch.Tensor,
-    F: torch.Tensor,
-    D: torch.Tensor
+    F: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
-    When predicting fluxes, the outputs may need to be adjusted to ensure no
-    grid cell loses more momentum than it is. If the sinks at a cell outweigh
-    the sources, the strategy here is to first reduce the amount of dissipation,
-    and if that does not suffice, to reduce the flux out the upper boundary.
+    Get appropriately clipped values for the momentum update `dM` and the bin-
+    summed momentum flux to return to the propagator.
 
     Parameters
     ----------
     M
-        Current momentum profile.
+        Current bulk momentum state, as passed to the neural network.
     F
-        Predicted fluxes at each edge.
-    D
-        Predicted sinks at each cell.
+        Provisional fluxes as returned by the neural network (shape profiles
+        scaled by amplitudes) to be possibly clipped.
 
     Returns
     -------
-    torch.Tensor, torch.Tensor
-        Possibly clipped flux and sink profiles.
-    
+    torch.Tensor
+        Tensor of changes in momentum in each cell.
+    torch.Tensor
+        Vertical momentum fluxes summed over all bins.
+
     """
 
-    F_out = torch.zeros_like(F)
-    D_out = torch.zeros_like(D)
+    F_v = _PAD(F[:, 0], (1, 0))
+    F_h = _PAD(F[:, 1], (0, 0, 0, 1))
+    dM = torch.zeros_like(M)
 
     for i in range(M.shape[0]):
         for k in range(M.shape[2]):
-            incoming = F_out[i, 0, k]
-            outgoing = F[i, 0, k + 1] + D[i, k]
-            overshoot = outgoing - incoming - M[i, 0, k]
+            F_bot = F_v[i, :, k].sum()
+            F_top = F_v[i, :, k + 1].sum()
+            deficit = F_top - F_h[i, 0, k] - (M[i, :, k].sum() + F_bot)
 
-            if overshoot < 0:
-                F_out[i, 0, k + 1] = F[i, 0, k + 1]
-                D_out[i, k] = D[i, k]
-                continue
+            if deficit > 0:
+                sink = torch.clip(F_h[i, 0, k] + deficit, max=0)
+                deficit = deficit + F_h[i, 0, k] - sink
+                F_h[i, 0, k] = sink
 
-            D_out[i, k] = torch.clip(D[i, k] - overshoot, 0)
-            overshoot = overshoot - D[i, k] + D_out[i, k]
+            if deficit > 0:
+                factor = (F_top - deficit) / F_top
+                F_v[i, :, k + 1] = factor * F_v[i, :, k + 1]
 
-            if overshoot < 0:
-                F_out[i, 0, k + 1] = F[i, 0, k + 1]
-                continue
+            for j in range(M.shape[1]):
+                F_in = F_h[i, j, k] + F_v[i, j, k]
+                F_out = F_h[i, j + 1, k] + F_v[i, j, k + 1]
+                deficit = F_out - (M[i, j, k] + F_in)
 
-            F_out[i, 0, k + 1] = F[i, 0, k + 1] - overshoot
+                if deficit > 0:
+                    sink = F_h[i, j + 1, k] - deficit
+                    F_out = F_out - F_h[i, j + 1, k] + sink
+                    F_h[i, j + 1, k] = sink
 
-    return F_out, D_out
+                dM[i, j, k] = F_in - F_out
+
+    return dM, F_v.sum(dim=-2)
+
+@nb.njit
+def _fix_vertical_fluxes(
+    deltas: np.ndarray,
+    F_v: np.ndarray
+) -> None:
+    """
+    The projected group velocities give some idea of the vertical fluxes, but
+    they are not always accurate with respect to the observed changes in `M`.
+    Here we enforce vertical level-wise balance by scaling the vertical fluxes.
+
+    Parameters
+    ----------
+    deltas
+        Effective change at each grid cell, equal to `dM + D` summed over the
+        phase speed bins.
+    F_v
+        Vertical fluxes from group velocity projection. Will be overwritten.
+
+    """
+
+    for i in range(F_v.shape[0]):
+        for k in range(F_v.shape[2]):
+            F_b = 0 if k == 0 else F_v[i, :, k - 1].sum()
+            F_needed = F_b - deltas[i, k]
+            F_out = F_v[i, :, k].sum()
+
+            if abs(F_needed) < 1e-16:
+                F_needed = 0
+
+            if F_out != 0:
+                F_v[i, :, k] *= F_needed / F_out
+                
+            elif F_needed != 0:
+                F_v[i, :, k] = F_needed / F_v.shape[1]
+
+@nb.njit
+def _get_horizontal_fluxes(
+    dM: np.ndarray,
+    F_v: np.ndarray,
+) -> np.ndarray:
+    """
+    Infer the horizontal (bin-to-bin) fluxes. Just as `F_v` is defined positive
+    out the top of each cell, we define `F_h` to be positive in from the left of
+    each cell, so that we can cast the sink profile as the flux out the left of
+    the lowest phase speed bin.
+
+    Parameters
+    ----------
+    dM
+        The change in M in each grid cell.
+    F_v
+        Vertical fluxes, estimated by the ray tracer and adjusted as above.
+
+    Returns
+    -------
+    np.ndarray
+        Array of horizontal fluxes calculated to conserve `M`.
+
+    """
+
+    F_h = np.zeros_like(F_v)
+    for i in range(dM.shape[0]):
+        for j in range(dM.shape[1] - 1, -1, -1):
+            for k in range(dM.shape[2]):
+                F_b = 0 if k == 0 else F_v[i, j, k - 1]
+                F_r = 0 if j == dM.shape[1] - 1 else F_h[i, j + 1, k]   
+                F_h[i, j, k] = dM[i, j, k] + F_v[i, j,k] - F_b + F_r
+
+    return F_h
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
@@ -439,26 +495,34 @@ def _parse_momentum(
     S = ds['source'].values
     D = ds['sink'].values
 
-    Y = (M - S)[1:].reshape(-1, M.shape[2], M.shape[3])
-    M = M[:-1].reshape(-1, M.shape[2], M.shape[3])
-    D = D[1:].reshape(-1, 1, D.shape[2])
-    Y = np.concatenate((Y, D), axis=1)
+    F_v = ds['F_bulk'].values[..., 1:]
+    dz = np.diff(ds['z_faces'].values)[0]
+    F_v = F_v * hp.generation.dt_output / dz
+    F_v = F_v[1:].reshape(-1, *M.shape[2:])
 
-    budget = M.sum(axis=(1, 2))
-    keep, budget = budget > 0, budget[:, None, None]
-    M[keep], Y[keep] = M[keep] / budget[keep], Y[keep] / budget[keep]
-    budget[keep] = np.log(budget[keep])
+    M_in = M[:-1].reshape(-1, *M.shape[2:])
+    M_out = (M - S)[1:].reshape(-1, *M.shape[2:])
+    D = D[1:].reshape(-1, *D.shape[2:])
+    dM = M_out - M_in
+
+    _fix_vertical_fluxes((dM + D).sum(1), F_v)
+    F_h = _get_horizontal_fluxes(dM, F_v)
+    F = np.stack((F_v, F_h), axis=1)
 
     for _ in range(hp.training.n_smoothing):
-        M = apply_smoothing(M)
-        Y = apply_smoothing(Y)
+        M_in = apply_smoothing(M_in)
+        F = apply_smoothing(F)
 
-    sink_frac = Y[:, -1].sum(axis=-1)
-    residual = abs(1 - Y.sum(axis=(1, 2)))
-    keep = keep & (sink_frac < hp.architectures.max_sink)
-    keep = keep & (residual < 1e-14)
+    F[abs(F) < 1e-14] = 0
+    budget = M_in.sum(axis=(1, 2))
+    keep, budget = budget > 0, budget[:, None, None]
 
-    if hp.architectures.learn_deltas:
-        Y[:, :-1] = Y[:, :-1] - M
+    M_in[keep] = M_in[keep] / budget[keep]
+    M_out[keep] = M_out[keep] / budget[keep]
+    F[keep] = F[keep] / budget[keep, None]
+    budget[keep] = np.log(budget[keep])
 
-    return M, Y, budget[:, 0], keep
+    res = M_out.sum(axis=(1, 2)) - F[:, 1, 0].sum(-1) - 1
+    keep = keep & (abs(res) < 1e-14)
+
+    return M_in, F, budget[:, 0], keep

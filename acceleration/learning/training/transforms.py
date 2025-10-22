@@ -131,57 +131,39 @@ def nonzero_stat(a: np.ndarray, mode=Literal['mean', 'std']) -> np.ndarray:
 
     return out
 
-def reshape_data(n_bins: int, *arrays: _Array) -> Iterator[_Array]:
-    """
-    Reshape arrays to have the appropriate number of phase speed bins. Designed
-    to support both `numpy` arrays and `torch` tensors.
-
-    Parameters
-    ----------
-    n_bins
-        How many bins the output arrays should have.
-    tensors
-        Arrays to reshape, with first dimensions ranging over samples, second
-        dimensions ranging over phase speed bins, and third dimensions ranging
-        over vertical grid points. `n_bins` must divide the existing number of
-        phase speed bins.
-    
-    """
-
-    a, *_ = arrays
-    shape = (a.shape[0], n_bins, -1, a.shape[2])
-    func = lambda a: a.reshape(*shape).sum(2)
-
-    return map(func, arrays)
-
-def signed_log(
+def reshape_data(
     a: _Array,
-    inverse: bool=False,
-    prefactor: float=100
+    n_bins: int,
+    mode: Literal['sum', 'skip']
 ) -> _Array:
     """
-    Take a log-like transform that allows non-positive values.
+    Reshape arrays to have the appropriate number of phase speed bins. Supports
+    both `numpy` arrays and `torch` tensors.
 
     Parameters
     ----------
     a
-        Data to transform
-    inverse
-        Whether to instead apply the inverse transformation.
-    prefactor
-        Scalar to multiply before applying. Can be used to get small values into
-        the range where this transformation acts like a logarithm.
-
-    Parameters
-    ----------
-    _Array
-        Transformed data, of the same type as `a`.
+        Array to reshape, with phase speed bins as the second to last dimension.
+    n_bins
+        Desired number of phase speed bins in the output.
+    mode
+        Whether to combine bins by summing (for momentum or vertical fluxes) or
+        by taking boundary values (for horizonal fluxes).
     
+    Returns
+    -------
+    _Array
+        Array of the appropriate shape.
+
     """
 
-    lib = np if isinstance(a, np.ndarray) else torch
+    if a.shape[-2] == n_bins:
+        return a
 
-    if inverse:
-        return lib.sign(a) * (lib.exp(abs(a)) - 1) / prefactor
+    if mode == 'sum':
+        shape = (*a.shape[:-2], n_bins, -1, a.shape[-1])
+        return a.reshape(*shape).sum(-2)
     
-    return lib.sign(a) * lib.log(1 + prefactor * abs(a))
+    elif mode == 'skip':
+        n_skip = a.shape[-2] // n_bins
+        return a[..., ::n_skip, :]

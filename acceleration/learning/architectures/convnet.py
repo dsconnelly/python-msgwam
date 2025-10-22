@@ -4,17 +4,19 @@ from optuna.trial import Trial
 
 from msgwam import config
 
-from ...hyperparameters import architectures as hp
+from torch.linalg import vector_norm
 
 from .utils import get_block, xavier_init
+
+_ACTIVATIONS = {
+    'relu' : nn.ReLU,
+    'leaky' : nn.LeakyReLU,
+    'tanh' : nn.Tanh
+}
 
 class ConvNet(nn.Module):
     def __init__(self, trial: Trial) -> None:
         """Instantiate the network layers."""
-
-        self._n_bins = 1
-        if not hp.learn_deltas:
-            raise ValueError('ConvNet can only learn deltas')
 
         super().__init__()
         self._init_layers(trial)
@@ -38,18 +40,24 @@ class ConvNet(nn.Module):
         W = self._amp_block(self._pool(X).squeeze())[..., None]
         Y = self._shape_block(X)
 
-        return self._postprocess(Y), W
+        Y = self._postprocess(Y)
+        W = W.reshape(-1, 2, self._n_bins, 1)
+
+        return Y, W
 
     def _init_layers(self, trial: Trial) -> None:
         """Initiate various blocks of convolutional and dense layers."""
 
-        activations = ['relu', 'leaky', 'tanh']
-        conv_act = trial.suggest_categorical('conv_act', activations)
-        fc_act = trial.suggest_categorical('fc_act', activations)
+        options = [1, 2, 5]
+        i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
+        self._n_bins = options[i]
+
+        conv_act = trial.suggest_categorical('conv_act', _ACTIVATIONS.keys())
+        fc_act = trial.suggest_categorical('fc_act', _ACTIVATIONS.keys())
         
         meta_width = trial.suggest_int('meta_width', 32, 64, step=32)
         self._meta_block = nn.Sequential(
-            nn.Linear(self._n_meta, meta_width), fc_act(),
+            nn.Linear(self._n_meta, meta_width), _ACTIVATIONS[fc_act](),
             nn.Linear(meta_width, config.n_grid - 1)
         )
 
@@ -87,12 +95,12 @@ class ConvNet(nn.Module):
         self._amp_block = get_block(*args, final=True)
 
         n_shape_convs = trial.suggest_int('n_shape_convs', 2, 6)
-        sizes = [n_split] * n_shape_convs + self._n_channels_out
+        sizes = [n_split] * n_shape_convs + [self._n_channels_out]
 
         convs = []
         for a, b in zip(sizes[:-1], sizes[1:]):
             is_final = b == self._n_channels_out
-            convs = convs + [_ConvBlock(*conv_args, is_final)]
+            convs = convs + [_ConvBlock(a, b, *conv_args, is_final)]
 
         self._shape_block = nn.Sequential(*convs)
 
@@ -119,7 +127,7 @@ class ConvNet(nn.Module):
     def _n_channels_out(self) -> int:
         """One channel for momentum plus one for the sink."""
 
-        return self._n_bins + 1
+        return 2 * self._n_bins
 
     @property
     def _n_meta(self) -> int:
@@ -129,21 +137,24 @@ class ConvNet(nn.Module):
 
     def _postprocess(self, Y: torch.Tensor) -> torch.Tensor:
         """
-        Zero out the uppermost component of the flux, and make sure each shape
-        profile sums to unity.
+        The vertical fluxes are constrained to be non-negative, and the sink
+        (encoded as the horizontal flux in the lowest phase speed bin) must be
+        non-positive. The vertical flux in each bin at the top of the domain
+        must vanish. Normalization to sum to plus/minus 1 may also occur.
         """
 
-        Y = self._pos_func(Y)
-        mask = torch.ones_like(Y)
-        mask[:, :-1, -1] = 0
-        Y = Y * mask
+        Y = Y.reshape(-1, 2, self._n_bins, config.n_grid - 1)
+        Y_v, Y_h = self._pos_func(Y[:, 0]), Y[:, 1]
 
-        if self._normalize or (not self.training):
-            norms = Y.sum(dim=-1, keepdim=True)
-            norms[norms == 0] = 1
-            Y = Y / norms
+        mask = torch.ones_like(Y_v)
+        mask[..., -1] = 0
+        Y_v = Y_v * mask
 
-        return Y
+        Y_h = torch.cat((-self._pos_func(Y_h[:, :1]), Y_h[:, 1:]), dim=1)
+        Y = torch.stack((Y_v, Y_h), dim=1)
+
+        norms = vector_norm(Y, dim=-1, keepdim=True)
+        return Y / torch.where(norms > 1e-12, norms, torch.ones(1))
 
 class _ConvBlock(nn.Module):
     def __init__(self, n_in: int, n_out: int, kernel: int, use_bn: bool,
@@ -157,16 +168,15 @@ class _ConvBlock(nn.Module):
         super().__init__()
 
         args = [nn.Conv1d(n_in, n_out, kernel, padding='same')]
-        act_cls = {'relu' : nn.ReLU, 'leaky' : nn.LeakyReLU, 'tanh' : nn.Tanh}
 
         if use_bn:
             args = args + [nn.BatchNorm1d(n_out)]
 
-        args = args + [act_cls[activation]()]
+        args = args + [_ACTIVATIONS[activation]()]
         args = args + [nn.Dropout(dropout)]
         
         if final:
-            while args[-1] != nn.Conv1d:
+            while not isinstance(args[-1], nn.Conv1d):
                 args = args[:-1]
         
         self._layers = nn.Sequential(*args)

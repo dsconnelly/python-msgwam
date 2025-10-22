@@ -62,16 +62,13 @@ class NetworkPropagator(Propagator):
         C = self._make_C(mean)
         M = self._M + self._check_source(mean, n_step)
         budget = M.sum(axis=(1, 2), keepdims=True)
-        M = apply_smoothing(M)
 
-        C = np.hstack((C, budget[:, 0]))
-        inputs = map(torch.as_tensor, [C, M / budget])
-        Y, D = [out.numpy() for out in self._model(*inputs)]
-        Y, D = Y * budget, D * budget[:, 0]
-
-        delta = ((Y - M).sum(axis=1) + D) / hp.generation.dt_output
-        self._F[:, 1:] = np.cumsum(-delta, axis=-1) * mean.dz
-        self._M = Y
+        C = np.hstack((C, np.log(budget[:, 0])))
+        inputs = map(torch.as_tensor, [C, apply_smoothing(M / budget)])
+        
+        M, F = [out.numpy() for out in self._model(*inputs)]
+        self._F = F * budget[:, 0] * mean.dz / hp.generation.dt_output
+        self._M = M * budget
 
         return self
 

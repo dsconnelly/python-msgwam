@@ -86,15 +86,16 @@ def _get_model(
     """
 
     optim_name = trial.suggest_categorical('optimizer', ['Adam', 'SGD'])
-    lr_bounds = {'Adam' : (1e-5, 1e-2), 'SGD' : (5e-2, 1)}[optim_name]
+    lr_bounds = {'Adam' : (1e-5, 1e-2), 'SGD' : (1e-2, 5e-1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
 
     weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
     kwargs = {'weight_decay' : weight_decay}
 
     if optim_name == 'SGD':
-        momentum = trial.suggest_float('momentum', 0.85, 0.99)
+        momentum = trial.suggest_float('momentum', 0.8, 0.99)
         kwargs['momentum'] = momentum
+        kwargs['use_nesterov'] = True
 
     model = ConvNet(trial)
     optim_cls = getattr(torch.optim, optim_name)
@@ -230,8 +231,15 @@ def _train(
                 print(f'        loss_Y = {losses[0]:.6f}')
                 print(f'        loss_W = {losses[1]:.6f}')
 
+        if np.isnan(loss_ev):
+            print('NaN detected with parameters')
+            for key, value in trial.params.items():
+                print(f'    {key}: {value}')
+
+            raise TrialPruned()
+
         trial.report(loss_ev, n_epoch)
-        if trial.should_prune() or np.isnan(loss_ev):
+        if trial.should_prune():
             raise TrialPruned()
 
         if improved:
