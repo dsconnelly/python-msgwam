@@ -15,11 +15,14 @@ _ACTIVATIONS = {
 }
 
 class ConvNet(nn.Module):
+    _one: torch.Tensor
+
     def __init__(self, trial: Trial) -> None:
         """Instantiate the network layers."""
 
         super().__init__()
         self._init_layers(trial)
+        self.register_buffer('_one', torch.ones(1))
         self.apply(xavier_init)
 
     def forward(
@@ -69,9 +72,9 @@ class ConvNet(nn.Module):
         use_res = trial.suggest_categorical('use_res', [False, True])
         conv_args = (kernel, use_bn, use_res, conv_dropout, conv_act)
         
-        min_channels = trial.suggest_int('min_channels', 32, 96)
+        min_channels = trial.suggest_int('min_channels', 32, 64)
         max_channels = 2 ** trial.suggest_int('max_channels', 6, 8)
-        n_joint_convs = trial.suggest_int('n_joint_convs', 2, 6)
+        n_joint_convs = trial.suggest_int('n_joint_convs', 2, 5)
 
         sizes = [min_channels]
         for _ in range(n_joint_convs):
@@ -94,7 +97,7 @@ class ConvNet(nn.Module):
         args = (sizes, -1 if use_bn else 0, fc_act, fc_dropout)
         self._amp_block = get_block(*args, final=True)
 
-        n_shape_convs = trial.suggest_int('n_shape_convs', 2, 6)
+        n_shape_convs = trial.suggest_int('n_shape_convs', 2, 5)
         sizes = [n_split] * n_shape_convs + [self._n_channels_out]
 
         convs = []
@@ -110,7 +113,6 @@ class ConvNet(nn.Module):
             'exp' : torch.exp
         }
 
-        self._normalize = trial.suggest_categorical('normalize', [True, False])
         func_name = trial.suggest_categorical('pos_func', options.keys())
         self._pos_func = options[func_name]
 
@@ -146,15 +148,11 @@ class ConvNet(nn.Module):
         Y = Y.reshape(-1, 2, self._n_bins, config.n_grid - 1)
         Y_v, Y_h = self._pos_func(Y[:, 0]), Y[:, 1]
 
-        mask = torch.ones_like(Y_v)
-        mask[..., -1] = 0
-        Y_v = Y_v * mask
-
         Y_h = torch.cat((-self._pos_func(Y_h[:, :1]), Y_h[:, 1:]), dim=1)
         Y = torch.stack((Y_v, Y_h), dim=1)
 
         norms = vector_norm(Y, dim=-1, keepdim=True)
-        return Y / torch.where(norms > 1e-12, norms, torch.ones(1))
+        return Y / torch.where(norms > 1e-12, norms, self._one)
 
 class _ConvBlock(nn.Module):
     def __init__(self, n_in: int, n_out: int, kernel: int, use_bn: bool,

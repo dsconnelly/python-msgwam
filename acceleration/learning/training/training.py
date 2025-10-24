@@ -19,7 +19,7 @@ from ... import hyperparameters as hp
 
 from ..architectures import BulkNet, ConvNet
 
-from .io import CMYW, parse_integrations, prepare_data, trace
+from .io import CMYW, prepare_data, trace
 from .losses import BulkLoss
 
 _DEVICE = torch.device('cpu')
@@ -29,23 +29,12 @@ if torch.cuda.is_available():
 
 torch.set_flush_denormal(True)
 
-def cache_arrays() -> None:
-    """
-    Convenience function to cache training arrays with the current settings, to
-    be called e.g. before submitting a job to a GPU node.
-    """
-
-    _ = parse_integrations(cached=False)
-
 def search_hyperparameters() -> None:
     """Search hyperparameter space for the best set."""
 
-    arrays = parse_integrations(cached=True)
-    objective = lambda t: _train(t, arrays)
-
     pruner = MedianPruner(5, hp.training.patience)
     study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(objective, timeout=(5 * 3600), gc_after_trial=True)
+    study.optimize(_train, timeout=(10 * 3600), gc_after_trial=True)
 
     params = study.best_trial.params
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -55,14 +44,12 @@ def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
 
     with open('data/ml-accel/models/hyperparameters.json') as f:
-        trial = FixedTrial(json.load(f), number=-1)
-
-    _train(trial, parse_integrations(cached=True))
+        _train(FixedTrial(json.load(f), number=-1))
 
 def _get_model(
     trial: Trial,
     state_path: Optional[str]=None
-) -> tuple[BulkNet, torch.optim.Adam, Optional[LRScheduler]]:
+) -> tuple[BulkNet, torch.optim.Optimizer, Optional[LRScheduler]]:
     """
     Instantiate a `BulkNet` and an associated optimizer, possibly loading
     state from a previous training run.
@@ -85,25 +72,28 @@ def _get_model(
 
     """
 
-    optim_name = trial.suggest_categorical('optimizer', ['Adam', 'SGD'])
-    lr_bounds = {'Adam' : (1e-5, 1e-2), 'SGD' : (1e-2, 5e-1)}[optim_name]
+    optim_name = trial.suggest_categorical('optimizer', ['AdamW', 'SGD'])
+    lr_bounds = {'AdamW' : (1e-5, 1e-2), 'SGD' : (1e-2, 5e-1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
+    kwargs = {'lr' : lr}
 
-    weight_decay = trial.suggest_float('weight_decay', 1e-6, 1e-3, log=True)
-    kwargs = {'weight_decay' : weight_decay}
+    if trial.suggest_categorical('use_wd', [True, False]):
+        wd_bounds = {'AdamW' : (1e-3, 1e-1), 'SGD' : (1e-5, 1e-1)}[optim_name]
+        weight_decay = trial.suggest_float('weight_decay', *wd_bounds, log=True)
+        kwargs['weight_decay'] = weight_decay
 
     if optim_name == 'SGD':
         momentum = trial.suggest_float('momentum', 0.8, 0.99)
         kwargs['momentum'] = momentum
-        kwargs['use_nesterov'] = True
+        kwargs['nesterov'] = True
 
     model = ConvNet(trial)
     optim_cls = getattr(torch.optim, optim_name)
-    optimizer = optim_cls(model.parameters(), lr=lr, **kwargs)
+    optimizer = optim_cls(model.parameters(), **kwargs)
 
     if trial.suggest_categorical('has_scheduler', [True, False]):
         factor = trial.suggest_float('plateau_factor', 0.1, 0.5)
-        patience = trial.suggest_int('plateau_patience', 5, 10)
+        patience = trial.suggest_int('plateau_patience', 3, 8)
 
         scheduler = ReduceLROnPlateau(
             optimizer,
@@ -155,11 +145,7 @@ def _iter_loaders(
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
 
-def _train(
-    trial: Trial,
-    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
-    n_print: int=1
-) -> float:
+def _train(trial: Trial, n_print: int=1) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
     It is assumed that the data has been read in from the netCDF files already,
@@ -185,13 +171,12 @@ def _train(
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 500000 if eval_type == 'va' else None
+    n_samples = 450000 if eval_type == 'va' else None
     model, optimizer, scheduler = _get_model(trial)
 
     arrays, idxs, transforms = prepare_data(
         n_bins=model._n_bins,
         eval_type=eval_type,
-        arrays=arrays,
         n_samples=n_samples,
         seed=(trial.number + 1)
     )
@@ -203,15 +188,20 @@ def _train(
     state = {}
     best_score = torch.inf
     n_epoch, waited = 1, 0
-    patience = hp.training.patience
 
-    if hp.training.max_epochs > 0:
-        keep_going = lambda n, _: n <= hp.training.max_epochs
+    patience = hp.training.patience if eval_type == 'va' else -1
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else -1
+
+    if max_epochs > 0:
+        keep_going = lambda n, _: n <= max_epochs
 
     else:
         start = time()
-        max_hours = abs(hp.training.max_epochs)
+        max_hours = abs(max_epochs)
         keep_going = lambda _, t: (t - start) / 3600 < max_hours
+
+    units = 'epochs' if max_epochs > 0 else 'hours'
+    print(f'Training will continue for {abs(max_epochs)} {units}.\n')
 
     while keep_going(n_epoch, time()):
         epoch_start = time()
@@ -231,15 +221,16 @@ def _train(
                 print(f'        loss_Y = {losses[0]:.6f}')
                 print(f'        loss_W = {losses[1]:.6f}')
 
-        if np.isnan(loss_ev):
-            print('NaN detected with parameters')
-            for key, value in trial.params.items():
-                print(f'    {key}: {value}')
-
-            raise TrialPruned()
-
         trial.report(loss_ev, n_epoch)
-        if trial.should_prune():
+        too_slow = eval_type == 'va' and n_epoch == 2 and runtime > 30
+        should_prune = trial.should_prune() or np.isnan(loss_ev) or too_slow
+
+        if should_prune:
+            if np.isnan(loss_ev):
+                print('NaN detected with parameters')
+                for key, value in trial.params.items():
+                    print(f'    {key}: {value}')
+
             raise TrialPruned()
 
         if improved:
@@ -273,7 +264,7 @@ def _run_epoch(
     model: BulkNet,
     loader: DataLoader,
     loss_func: BulkLoss,
-    optimizer: Optional[torch.optim.Adam]=None
+    optimizer: Optional[torch.optim.Optimizer]=None
 ) -> list[float]:
     """
     Run a training or evaluation epoch, calculating the total loss over all

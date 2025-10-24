@@ -1,13 +1,11 @@
 from os import listdir
 from typing import Literal, Iterator, Optional
-from warnings import warn
 
 import numba as nb
 import numpy as np
 import torch
 import xarray as xr
 
-from torch.linalg import vector_norm
 from torch.nn.functional import pad as _PAD
 
 from msgwam import config
@@ -27,7 +25,7 @@ from .transforms import (
 CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
 
 def get_split(
-    C: np.ndarray,
+    flag: np.ndarray,
     eval_type: Literal['va', 'te'],
     n_samples: Optional[int]=None,
     seed: int=1234
@@ -57,9 +55,9 @@ def get_split(
 
     """
 
-    flag = 1 + (eval_type == 'te')
-    idx_tr, = np.where(C[:, 0] < flag)
-    idx_ev, = np.where(C[:, 0] == flag)
+    target = 1 + (eval_type == 'te')
+    idx_tr, = np.where(flag < target)
+    idx_ev, = np.where(flag == target)
 
     if n_samples is not None:
         f = len(idx_tr) / (len(idx_tr) + len(idx_ev))
@@ -89,8 +87,7 @@ def iter_paths() -> Iterator[tuple[str, int]]:
 
     """
 
-    dt_output = hp.generation.dt_output
-    base = f'data/ml-accel/integrations/{dt_output}'
+    base = f'data/ml-accel/integrations'
     n_years = len(listdir(base))
 
     n_va = 1 + (n_years > 1)
@@ -109,39 +106,19 @@ def iter_paths() -> Iterator[tuple[str, int]]:
                 flag = 2 if d < 2 else (1 if d < 2 + n_va else 0)
                 yield f'{base}/{year}/{site}-{m}.nc', flag
 
-def parse_integrations(
-    cached: bool=False
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def cache_arrays(n_bins_str: str) -> None:
     """
     Load input and target data from the MS-GWaM integrations saved to disk.
 
     Parameters
     ----------
-    cached
-        Whether to read the already-concatenated data from disk instead of
-        opening the netCDF files. This function must have been called previously
-        with `cached` set to `False`, and `path` must be `'va'` or `'te'`.
+    n_bins
+        How many bins include in the returned data.
 
-    Returns
-    -------
-    ndarray, ndarray, ndarray, ndarray
-        Concatenated training and evaluation inputs and targets. The arrays are
-        `C` (column information including the mean wind, buoyancy frequency, and
-        latitude); `M` (the bulk momentum profile in each phase speed bin); and
-        `Y` (the next momentum profile in each phase speed bin along with the
-        sink profile). Reshaping and transforming is deferred to trial time,
-        except for smoothing, since the Shapiro filter is linear.
-    
     """
 
-    def make_path(c: str) -> str:
-        """Make a path for cached arrays."""
-
-        dt_output = hp.generation.dt_output
-        return f'data/ml-accel/cached/{dt_output}/{c}.npy'
-
-    if cached:
-        return tuple(map(np.load, map(make_path, 'CMF')))
+    n_bins = int(n_bins_str)
+    make_path = lambda c: f'data/ml-accel/cached/{c}-{n_bins}.npy'
 
     n_paths = 0
     for _ in iter_paths():
@@ -152,8 +129,7 @@ def parse_integrations(
         with xr.open_dataset(path) as ds:
             print(path, flag)
 
-            M, F, budget, keep = _parse_momentum(ds)
-            
+            M, F, budget, keep = _parse_momentum(ds, n_bins)
             col = flag * np.ones((M.shape[0], 1))
             C = np.hstack((col, _parse_column(ds), budget))
 
@@ -178,12 +154,9 @@ def parse_integrations(
     for data, name in zip([Cs, Ms, Fs], 'CMF'):
         np.save(make_path(name), data)
 
-    return Cs, Ms, Fs
-
 def prepare_data(
     n_bins: int,
     eval_type: Literal['va', 'te'],
-    arrays: tuple[np.ndarray, np.ndarray, np.ndarray],
     n_samples: Optional[int]=None,
     transform_inputs: bool=True,
     seed: int=1234
@@ -226,22 +199,24 @@ def prepare_data(
     
     """
 
-    C, M, F = arrays
-    idx_tr, idx_ev = get_split(C, eval_type, n_samples, seed)
+    memmaps = []
+    for name in 'CMF':
+        path = f'data/ml-accel/cached/{name}-{n_bins}.npy'
+        memmaps = memmaps + [np.load(path, mmap_mode='r')]
+
+    C_mm, M_mm, F_mm = memmaps
+    idx_tr, idx_ev = get_split(C_mm[:, 0], eval_type, n_samples, seed)
     keep = np.concatenate((idx_tr, idx_ev))
-
     n_tr, n_ev = len(idx_tr), len(idx_ev)
+
+    sdx = np.argsort(keep)
+    idx_tr, = np.where(sdx < n_tr)
+    idx_ev, = np.where(sdx >= n_tr)
+    keep = keep[sdx]
+
+    C, M, F = C_mm[keep, 1:], M_mm[keep], F_mm[keep]
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
-
-    idx = np.arange(n_tr + n_ev)
-    C, M, F = C[keep, 1:], M[keep], F[keep]
-    idx_tr, idx_ev = idx[:n_tr], idx[n_tr:]
-
-    M = reshape_data(M, n_bins, 'sum')
-    F = np.stack((
-        reshape_data(F[:, 0], n_bins, 'sum'),
-        reshape_data(F[:, 1], n_bins, 'skip')
-    ), axis=1)
+    del C_mm, M_mm, F_mm
 
     C_trans = make_transform(C[idx_tr], mode='z')
     M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
@@ -286,8 +261,8 @@ def trace(
     for p in model.parameters():
         p.requires_grad = False
 
-    C, M, *_ = parse_integrations(cached=True)
-    C, M = torch.as_tensor(C[:10, 1:]), torch.as_tensor(M[:10])
+    (C, M, *_), _, _ = prepare_data(model._n_bins, 'va', 20, False)
+    C, M = torch.as_tensor(C), torch.as_tensor(M)
 
     def trace_func(
         C: torch.Tensor,
@@ -298,13 +273,12 @@ def trace(
         integration time) but including input transformations.
         """
 
-        M = reshape_data(M, model._n_bins, 'sum')
         Y, W = model(C_trans(C), M_trans(M))
         dM, F = _get_dM_and_F(M, torch.exp(W) * Y)
 
         return M + dM, F
 
-    with torch.no_grad():
+    with torch.inference_mode():
         return torch.jit.trace(trace_func, (C, M))
 
 @torch.jit.script
@@ -471,7 +445,8 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
     return np.hstack((wind, N, lat))
 
 def _parse_momentum(
-    ds: xr.Dataset
+    ds: xr.Dataset,
+    n_bins: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Parse a `Dataset` for relevant information about the bulk momentum.
@@ -508,6 +483,12 @@ def _parse_momentum(
     _fix_vertical_fluxes((dM + D).sum(1), F_v)
     F_h = _get_horizontal_fluxes(dM, F_v)
     F = np.stack((F_v, F_h), axis=1)
+
+    M_in = reshape_data(M_in, n_bins, 'sum')
+    F = np.stack((
+        reshape_data(F[:, 0], n_bins, 'sum'),
+        reshape_data(F[:, 1], n_bins, 'skip')
+    ), axis=1)
 
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)

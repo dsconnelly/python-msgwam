@@ -69,10 +69,11 @@ class AbstractLoss(nn.Module, ABC):
         loss_W = ((self._transform(W) - W_hat) / self._scales_W) ** 2
         loss_W = loss_W * (mask | mask_hat).int()
 
-        maxes, _ = abs(Y).max(dim=-1, keepdim=True)
-        maxes[maxes < 1e-6] = 1
-        
-        scales_Y = self._scale_Y * maxes
+        maxes, _ = Y.max(dim=-1, keepdim=True)
+        mins, _ = Y.min(dim=-1, keepdim=True)
+
+        scales_Y = (maxes - mins) / 2
+        scales_Y[scales_Y < 1e-6] = 1        
         loss_Y = mask * ((Y - Y_hat) / scales_Y) ** 2
 
         if reduce:

@@ -5,9 +5,9 @@
 
 python ()
 {
-    cmd="python -u $@";
-    singularity exec \
-        --overlay ${overlay}:ro ${image} \
+    cmd="/ext3/miniforge3/envs/msgwam/bin/python -u $@";
+    singularity exec --nv \
+        --overlay ~/singularity/cuda-overlay.ext3:ro ${image} \
         /bin/bash -c "source /ext3/env.sh; $cmd"
 }
 
