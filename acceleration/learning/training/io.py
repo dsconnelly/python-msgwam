@@ -154,6 +154,8 @@ def cache_arrays(n_bins_str: str) -> None:
     for data, name in zip([Cs, Ms, Fs], 'CMF'):
         np.save(make_path(name), data)
 
+    print(f'Cached {keep.sum()} total samples')
+
 def prepare_data(
     n_bins: int,
     eval_type: Literal['va', 'te'],
@@ -225,10 +227,8 @@ def prepare_data(
         C = C_trans(C)
         M = M_trans(M)
 
-    W = np.linalg.norm(F, axis=-1, keepdims=True)
-    keep = (W > 1e-12)[..., 0]
-    F[keep] /= W[keep]
-    W[~keep] = 0
+    W = np.linalg.norm(F, axis=(-2, -1), keepdims=True)
+    F = F / W
 
     return (C, M, F, W), (idx_tr, idx_ev), (C_trans, M_trans)
 
@@ -504,6 +504,7 @@ def _parse_momentum(
     budget[keep] = np.log(budget[keep])
 
     res = M_out.sum(axis=(1, 2)) - F[:, 1, 0].sum(-1) - 1
-    keep = keep & (abs(res) < 1e-14)
+    n_active = (np.linalg.norm(F, axis=(-2, -1)) > 5e-6).sum(-1)
+    keep = keep & (abs(res) < 1e-14) & (n_active == 2)
 
     return M_in, F, budget[:, 0], keep

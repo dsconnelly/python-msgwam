@@ -23,9 +23,10 @@ learn_deltas = true
 max_sink = 0.1
 
 [training]
-batch_size = 256
+batch_size = 512
 M_transform = 'constant'
-max_epochs = 70
+loss_scale_Y = 0.1
+max_epochs = 65
 min_delta = 0.001
 n_smoothing = 5
 patience = 15

@@ -12,15 +12,20 @@ from optuna.exceptions import TrialPruned
 from optuna.pruners import MedianPruner
 from optuna.trial import FixedTrial, Trial
 
-from torch.optim.lr_scheduler import ReduceLROnPlateau, LRScheduler
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import (
+    CosineAnnealingWarmRestarts,
+    ReduceLROnPlateau,
+    LRScheduler
+)
 from torch.utils.data import DataLoader, TensorDataset
 
 from ... import hyperparameters as hp
 
-from ..architectures import BulkNet, ConvNet
+from ..architectures import ConvNet
 
 from .io import CMYW, prepare_data, trace
-from .losses import BulkLoss
+from .losses import FluxLoss
 
 _DEVICE = torch.device('cpu')
 if torch.cuda.is_available():
@@ -29,12 +34,29 @@ if torch.cuda.is_available():
 
 torch.set_flush_denormal(True)
 
-def search_hyperparameters() -> None:
-    """Search hyperparameter space for the best set."""
+def search_hyperparameters(n_hours_str: str) -> None:
+    """
+    Search hyperparameter space for the best configuration.
 
-    pruner = MedianPruner(5, hp.training.patience)
-    study = create_study(direction='minimize', pruner=pruner)
-    study.optimize(_train, timeout=(10 * 3600), gc_after_trial=True)
+    Parameters
+    ----------
+    n_hours_str
+        How many hours to conduct the search for, passed as a string so that
+        this function may be invoked from the command line.
+    
+    """
+
+    study = create_study(
+        direction='minimize',
+        study_name='msgwam-convnet',
+        pruner=MedianPruner(5, hp.training.patience),
+        storage='sqlite:///data/ml-accel/models/study.db',
+        load_if_exists=False
+    )
+
+    n_hours = float(n_hours_str)
+    kwargs = {'gc_after_trial' : True, 'catch' : (RuntimeError,)}
+    study.optimize(_train, timeout=(n_hours * 3600), **kwargs)
 
     params = study.best_trial.params
     with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
@@ -46,29 +68,57 @@ def train_network() -> None:
     with open('data/ml-accel/models/hyperparameters.json') as f:
         _train(FixedTrial(json.load(f), number=-1))
 
-def _get_model(
-    trial: Trial,
-    state_path: Optional[str]=None
-) -> tuple[BulkNet, torch.optim.Optimizer, Optional[LRScheduler]]:
+def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
     """
-    Instantiate a `BulkNet` and an associated optimizer, possibly loading
-    state from a previous training run.
+    Instantiate a model to train, potentially loading state from a previous run.
 
     Parameters
     ----------
     trial
-        Current trial, used to instantiate the neural network architecture and
-        to sample a learning rate.
-    eval_type
-        Evaluation data type specifier, used to set `model._relax_beta`.
-    state_path
-        If provided, a path to existing model state. Will only work if `trial`
-        is a `FixedTrial`. If not provided, a new model is returned.
+        Current trial, used to define the model architecture.
+    state
+        If not `None`, should be a dictionary with key `'model'` pointing to a
+        state dictionary matching the current model architecture.
 
     Returns
     -------
-    BulkNet, Adam
-        Model and optimizer ready for training.
+    ConvNet
+        Initialized model.
+    
+    """
+
+    model = ConvNet(trial)
+    n_params = sum(param.numel() for param in model.parameters())
+    print(f'Initialized model with {n_params} trainable parameters.')
+
+    if state is not None:
+        model.load_state_dict(state['model'])
+        print('Previous model state loaded successfullly.')
+
+    return model.to(_DEVICE)
+
+def _get_optimizer(
+    trial: Trial,
+    model: ConvNet,
+    state: Optional[dict]=None
+) -> tuple[Optimizer]:
+    """
+    Initialize an optimizer to use during training.
+
+    Parameters
+    ----------
+    trial
+        Current trial, used to select and configure the optimizer.
+    model
+        Model to train.
+    state
+        If not `None`, should contain a key `'optimizer'` pointing to a state
+        dictionary matching the current optimizer class and configuration.
+
+    Returns
+    -------
+    Optimizer
+        Optimizer bound to model to be trained.
 
     """
 
@@ -77,45 +127,63 @@ def _get_model(
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
     kwargs = {'lr' : lr}
 
-    if trial.suggest_categorical('use_wd', [True, False]):
-        wd_bounds = {'AdamW' : (1e-3, 1e-1), 'SGD' : (1e-5, 1e-1)}[optim_name]
-        weight_decay = trial.suggest_float('weight_decay', *wd_bounds, log=True)
-        kwargs['weight_decay'] = weight_decay
-
     if optim_name == 'SGD':
         momentum = trial.suggest_float('momentum', 0.8, 0.99)
         kwargs['momentum'] = momentum
         kwargs['nesterov'] = True
 
-    model = ConvNet(trial)
+    if trial.suggest_categorical('use_wd', [True, False]):
+        wd_bounds = {'AdamW' : (1e-3, 1e-1), 'SGD' : (1e-5, 1e-1)}[optim_name]
+        weight_decay = trial.suggest_float('weight_decay', *wd_bounds, log=True)
+        kwargs['weight_decay'] = weight_decay
+
     optim_cls = getattr(torch.optim, optim_name)
     optimizer = optim_cls(model.parameters(), **kwargs)
 
-    if trial.suggest_categorical('has_scheduler', [True, False]):
-        factor = trial.suggest_float('plateau_factor', 0.1, 0.5)
-        patience = trial.suggest_int('plateau_patience', 3, 8)
-
-        scheduler = ReduceLROnPlateau(
-            optimizer,
-            mode='min',
-            factor=factor,
-            patience=patience
-        )
-
-    else:
-        scheduler = None
-
-    n_params = sum(param.numel() for param in model.parameters())
-    print(f'Loaded model has {n_params} trainable parameters.')
-    
-    if state_path is not None:
-        print(f'Loading previous state from {state_path}')
-        state = torch.load(state_path, weights_only=True)
-
-        model.load_state_dict(state['model'])
+    if state is not None:
         optimizer.load_state_dict(state['optimizer'])
+        print(f'Previous optimizer state loaded successfully.')
 
-    return model.to(_DEVICE), optimizer, scheduler
+    return optimizer
+
+def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
+    """
+    Create a learning rate scheduler for the optimizer.
+
+    Parameters
+    ----------
+    trial
+        Current trial, used to select and configure the scheduler.
+    optimizer
+        Configured optimizer to be used during training.
+
+    Returns
+    -------
+    Optional[LRScheduler]
+        Scheduler to use to update the learning rate, or `None` if no scheduler
+        is to be used this trial.
+    
+    """
+
+    schedulers = {
+        'none' : lambda *_: None,
+        'plateau' : ReduceLROnPlateau,
+        'cosine' : CosineAnnealingWarmRestarts
+    }
+
+    scheduler_name = trial.suggest_categorical('scheduler', schedulers.keys())
+    kwargs = {}
+
+    if scheduler_name == 'plateau':
+        kwargs['factor'] = trial.suggest_float('plateau_factor', 0.1, 0.5)
+        kwargs['patience'] = trial.suggest_int('plateau_patience', 3, 8)
+        kwargs['mode'] = 'min'
+
+    elif scheduler_name == 'cosine':
+        kwargs['T_0'] = trial.suggest_int('cosine_T_0', 10, 20)
+        kwargs['T_mult'] = trial.suggest_int('cosine_T_mult', 1, 3)
+
+    return schedulers[scheduler_name](optimizer, **kwargs)
 
 def _iter_loaders(
     arrays: CMYW,
@@ -145,7 +213,7 @@ def _iter_loaders(
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
 
-def _train(trial: Trial, n_print: int=1) -> float:
+def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
     It is assumed that the data has been read in from the netCDF files already,
@@ -172,7 +240,15 @@ def _train(trial: Trial, n_print: int=1) -> float:
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
     n_samples = 450000 if eval_type == 'va' else None
-    model, optimizer, scheduler = _get_model(trial)
+
+    state = None
+    if restart and eval_type == 'te':
+        kwargs = dict(weights_only=True, map_location=torch.device('cpu'))
+        state = torch.load('data/ml-accel/models/state-best.pkl', **kwargs)
+
+    model = _get_model(trial, state)
+    optimizer = _get_optimizer(trial, model, state)
+    scheduler = _get_scheduler(trial, optimizer)
 
     arrays, idxs, transforms = prepare_data(
         n_bins=model._n_bins,
@@ -182,7 +258,7 @@ def _train(trial: Trial, n_print: int=1) -> float:
     )
 
     loader_tr, loader_ev = _iter_loaders(arrays, idxs)
-    loss_func = BulkLoss(trial, loader_tr.dataset.tensors[-1])
+    loss_func = FluxLoss(trial, loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -190,17 +266,17 @@ def _train(trial: Trial, n_print: int=1) -> float:
     n_epoch, waited = 1, 0
 
     patience = hp.training.patience if eval_type == 'va' else -1
-    max_epochs = hp.training.max_epochs if eval_type == 'va' else -1
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else -60
 
     if max_epochs > 0:
         keep_going = lambda n, _: n <= max_epochs
 
     else:
         start = time()
-        max_hours = abs(max_epochs)
-        keep_going = lambda _, t: (t - start) / 3600 < max_hours
+        max_minutes = abs(max_epochs)
+        keep_going = lambda _, t: (t - start) / 60 < max_minutes
 
-    units = 'epochs' if max_epochs > 0 else 'hours'
+    units = 'epochs' if max_epochs > 0 else 'minutes'
     print(f'Training will continue for {abs(max_epochs)} {units}.\n')
 
     while keep_going(n_epoch, time()):
@@ -221,16 +297,16 @@ def _train(trial: Trial, n_print: int=1) -> float:
                 print(f'        loss_Y = {losses[0]:.6f}')
                 print(f'        loss_W = {losses[1]:.6f}')
 
+        if np.isnan(loss_ev):
+            print('NaN detected with parameters')
+            for key, value in trial.params.items():
+                print(f'    {key}: {value}')
+
+            raise TrialPruned()
+
         trial.report(loss_ev, n_epoch)
-        too_slow = eval_type == 'va' and n_epoch == 2 and runtime > 30
-        should_prune = trial.should_prune() or np.isnan(loss_ev) or too_slow
-
-        if should_prune:
-            if np.isnan(loss_ev):
-                print('NaN detected with parameters')
-                for key, value in trial.params.items():
-                    print(f'    {key}: {value}')
-
+        too_slow = (eval_type == 'va') and (n_epoch == 2) and (runtime > 45)
+        if trial.should_prune() or too_slow:
             raise TrialPruned()
 
         if improved:
@@ -246,7 +322,8 @@ def _train(trial: Trial, n_print: int=1) -> float:
                 break
 
         if scheduler is not None:
-            scheduler.step(loss_ev)
+            needs_loss = isinstance(scheduler, ReduceLROnPlateau)
+            scheduler.step(*([loss_ev] if needs_loss else []))
         
         n_epoch = n_epoch + 1
 
@@ -261,9 +338,9 @@ def _train(trial: Trial, n_print: int=1) -> float:
     return best_score
 
 def _run_epoch(
-    model: BulkNet,
+    model: ConvNet,
     loader: DataLoader,
-    loss_func: BulkLoss,
+    loss_func: FluxLoss,
     optimizer: Optional[torch.optim.Optimizer]=None
 ) -> list[float]:
     """
