@@ -1,8 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
-import json
-
+import numba as nb
 import numpy as np
 import torch
 
@@ -65,10 +64,11 @@ class NetworkPropagator(Propagator):
 
         C = np.hstack((C, np.log(budget[:, 0])))
         inputs = map(torch.as_tensor, [C, apply_smoothing(M / budget)])
-        
-        M, F = [out.numpy() for out in self._model(*inputs)]
+        F_v, F_h = [out.numpy() for out in self._model(*inputs)]
+        dM, F = _get_dM_and_F(M / budget, F_v, F_h)
+
+        self._M = (M + dM) * budget
         self._F = F * budget[:, 0] * mean.dz / hp.generation.dt_output
-        self._M = M * budget
 
         return self
 
@@ -123,3 +123,60 @@ class NetworkPropagator(Propagator):
         lat = config.latitude * np.ones((4, 1))
 
         return torch.as_tensor(np.hstack((wind, N, lat)))
+
+@nb.njit
+def _get_dM_and_F(
+    M: np.ndarray,
+    F_v: np.ndarray,
+    F_h: np.ndarray,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Get appropriately clipped values for the momentum update `dM` and the bin-
+    summed momentum flux to return to the propagator.
+
+    Parameters
+    ----------
+    M
+        Current bulk momentum state, as passed to the neural network.
+    F
+        Provisional fluxes as returned by the neural network (shape profiles
+        scaled by amplitudes) to be possibly clipped.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of changes in momentum in each cell.
+    torch.Tensor
+        Vertical momentum fluxes summed over all bins.
+
+    """
+
+    dM = np.zeros_like(M)
+    for i in range(M.shape[0]):
+        for k in range(M.shape[2]):
+            F_bot = F_v[i, :, k].sum()
+            F_top = F_v[i, :, k + 1].sum()
+            deficit = F_top - F_h[i, 0, k] - (M[i, :, k].sum() + F_bot)
+
+            if deficit > 0:
+                sink = min(F_h[i, 0, k] + deficit, 0)
+                deficit = deficit + F_h[i, 0, k] - sink
+                F_h[i, 0, k] = sink
+
+            if deficit > 0:
+                factor = (F_top - deficit) / F_top
+                F_v[i, :, k + 1] = factor * F_v[i, :, k + 1]
+
+            for j in range(M.shape[1]):
+                F_in = F_h[i, j, k] + F_v[i, j, k]
+                F_out = F_h[i, j + 1, k] + F_v[i, j, k + 1]
+                deficit = F_out - (M[i, j, k] + F_in)
+
+                if deficit > 0:
+                    sink = F_h[i, j + 1, k] - deficit
+                    F_out = F_out - F_h[i, j + 1, k] + sink
+                    F_h[i, j + 1, k] = sink
+
+                dM[i, j, k] = F_in - F_out
+
+    return dM, F_v.sum(axis=-2)

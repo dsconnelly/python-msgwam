@@ -24,7 +24,8 @@ from ... import hyperparameters as hp
 
 from ..architectures import ConvNet
 
-from .io import CMYW, prepare_data, trace
+from .inference import serialize_model
+from .io import CMYW, prepare_data
 from .losses import FluxLoss
 
 _DEVICE = torch.device('cpu')
@@ -51,7 +52,7 @@ def search_hyperparameters(n_hours_str: str) -> None:
         study_name='msgwam-convnet',
         pruner=MedianPruner(5, hp.training.patience),
         storage='sqlite:///data/ml-accel/models/study.db',
-        load_if_exists=False
+        load_if_exists=True
     )
 
     n_hours = float(n_hours_str)
@@ -186,7 +187,7 @@ def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
     return schedulers[scheduler_name](optimizer, **kwargs)
 
 def _iter_loaders(
-    arrays: CMYW,
+    tensors: CMYW,
     idxs: tuple[np.ndarray, np.ndarray],
 ) -> Iterator[DataLoader]:
     """
@@ -207,8 +208,6 @@ def _iter_loaders(
     """
 
     batch_sizes = [hp.training.batch_size, 4096]
-    tensors = [torch.as_tensor(a).float() for a in arrays]
-
     for i, (idx, batch_size) in enumerate(zip(idxs, batch_sizes)):
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
@@ -250,14 +249,14 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     optimizer = _get_optimizer(trial, model, state)
     scheduler = _get_scheduler(trial, optimizer)
 
-    arrays, idxs, transforms = prepare_data(
+    tensors, idxs, transforms = prepare_data(
         n_bins=model._n_bins,
         eval_type=eval_type,
         n_samples=n_samples,
         seed=(trial.number + 1)
     )
 
-    loader_tr, loader_ev = _iter_loaders(arrays, idxs)
+    loader_tr, loader_ev = _iter_loaders(tensors, idxs)
     loss_func = FluxLoss(trial, loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
@@ -266,7 +265,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     n_epoch, waited = 1, 0
 
     patience = hp.training.patience if eval_type == 'va' else -1
-    max_epochs = hp.training.max_epochs if eval_type == 'va' else -60
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else -120
 
     if max_epochs > 0:
         keep_going = lambda n, _: n <= max_epochs
@@ -328,12 +327,9 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
         n_epoch = n_epoch + 1
 
     if eval_type == 'te':
-        del arrays, loader_tr, loader_ev
         model.load_state_dict(state['model'])
-        traced = trace(model, *transforms)
-
+        serialize_model((model, *transforms))
         torch.save(state, 'data/ml-accel/models/state-best.pkl')
-        torch.jit.save(traced, 'data/ml-accel/models/model-best.jit')
 
     return best_score
 

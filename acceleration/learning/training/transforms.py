@@ -1,11 +1,68 @@
-from typing import Callable, Iterator, Literal
+from typing import Literal
 
 import numba as nb
 import numpy as np
-import torch
+import torch, torch.nn as nn
 
 _Array = np.ndarray | torch.Tensor
-Transform = Callable[[_Array], _Array]
+
+class Transform(nn.Module):
+    _shift: torch.Tensor
+    _scale: torch.Tensor
+
+    def __init__(self, a: torch.Tensor, mode: str) -> None:
+        """
+        Initialize a module that transforms neural network input data.
+
+        Parameters
+        ----------
+        a
+            Tensor from which to derive transform statistics.
+        mode
+            What kind of transform to perform. Must be `'constant'` or `'z'`.
+
+        """
+
+        if mode == 'constant':
+            b = a.transpose(1, 2).flatten(0, 1)
+            sigma = nonzero_stat(b.numpy(), mode='std')[:, None]
+            sigma = torch.as_tensor(sigma)
+
+            shift = sigma * torch.ones(a.shape[1:])
+            scale = sigma * torch.ones(a.shape[1:])
+
+        elif mode == 'z':
+            shift = a.mean(dim=0)
+            scale = a.std(dim=0)
+
+        else:
+            raise ValueError(f'Unknown transform mode: {mode}')
+
+        super().__init__()
+        self.register_buffer('_shift', shift)
+        self.register_buffer('_scale', scale)
+
+    def forward(self, a: torch.Tensor) -> torch.Tensor:
+        """
+        Transform the input along the first dimension.
+
+        Parameters
+        ----------
+        a
+            Data to transform.
+        
+        Returns
+        -------
+        torch.Tensor
+            Transformed data.
+
+        """
+
+        sdx = self._scale > 0
+        out = torch.zeros_like(a)
+        out[:, sdx] = (a - self._shift)[:, sdx] / self._scale[sdx]
+        
+        return out
 
 @nb.njit
 def apply_smoothing(a: np.ndarray) -> np.ndarray:
@@ -35,72 +92,6 @@ def apply_smoothing(a: np.ndarray) -> np.ndarray:
             out[*idx, k] += 2 * a[*idx, k]
 
     return out / 4
-
-def make_transform(a: np.ndarray, mode: str) -> Transform:
-    """
-    Make a function that transforms an array. Simply calculates the shift and
-    scale and returns a reusable function that applies them.
-
-    Parameters
-    ----------
-    a
-        Array to transform.
-    mode
-        What kind of transform to prepare.
-
-    Returns
-    -------
-    _Transform
-        Function that applies the appropriate shift and scale.
-    
-    """
-
-    if mode == 'constant':
-        b = a.transpose(0, 2, 1).reshape(-1, a.shape[1])
-        sigma = nonzero_stat(b, mode='std')[:, None]
-
-        shift = sigma * np.ones(a.shape[1:])
-        scale = sigma * np.ones(a.shape[1:])
-
-    elif mode == 'nonzero':
-        shift = nonzero_stat(a, 'mean')
-        scale = nonzero_stat(a, 'std')
-    
-    elif mode == 'robust':
-        q25 = np.quantile(a, 0.25, axis=0)
-        q75 = np.quantile(a, 0.75, axis=0)
-
-        shift = np.quantile(a, 0.5, axis=0)
-        scale = q75 - q25
-
-    elif mode == 'z':
-        shift = a.mean(axis=0)
-        scale = a.std(axis=0)
-
-    else:
-        raise ValueError(f'Unknown transform mode: {mode}')      
-
-    shift = torch.as_tensor(shift)
-    scale = torch.as_tensor(scale)
-    valid = scale > 0
-
-    def transform(b: _Array) -> _Array:
-        """
-        Apply the shift and scale. Written with several precautions so as to
-        both work on `numpy` arrays and be comptabible with `torch.jit`.
-        """
-
-        p, q = shift, scale
-        if isinstance(b, np.ndarray):
-            p = p.numpy()
-            q = q.numpy()
-
-        out = 0 * b
-        out[:, valid] = (b - p)[:, valid] / q[valid]
-
-        return out
-
-    return transform
 
 def nonzero_stat(a: np.ndarray, mode=Literal['mean', 'std']) -> np.ndarray:
     """

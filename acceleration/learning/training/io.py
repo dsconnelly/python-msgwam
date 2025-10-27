@@ -6,23 +6,18 @@ import numpy as np
 import torch
 import xarray as xr
 
-from torch.nn.functional import pad as _PAD
-
 from msgwam import config
 
 from ... import hyperparameters as hp
 from ...shared.constants import MIMA_MONTHS
 
-from ..architectures import BulkNet
-
 from .transforms import (
     Transform,
     apply_smoothing,
-    make_transform,
     reshape_data
 )
 
-CMYW = tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
+CMYW = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
 def get_split(
     flag: np.ndarray,
@@ -177,8 +172,6 @@ def prepare_data(
     eval_type
         Whether the evaluation data is validation or test. Used here to
         generate training and evaluation index arrays.
-    arrays
-        Tuple of arrays as returned by `parse_integrations`.
     n_samples
         How many samples to return. By default, returns everything.
     transform_inputs
@@ -189,15 +182,15 @@ def prepare_data(
 
     Returns
     --------
-    ndarray, ndarray, ndarray, ndarray
+    Tensor, Tensor, Tensor, Tensor
         Reshaped, filtered, and transformed `C`, `M`, `Y`, and `W` arrays. The
         first column of `C`, containing flags indicating the provenance of each
         sample, will be discarded.
     ndarray, ndarray
         Index arrays splitting the data into training and evaluation sets.
     Transform, Transform
-        Transforms for the input arrays. Note that these transforms have already
-        been applied to the returned `C` and `M` arrays.
+        Transforms for the input arrays. Note that these transforms may have
+        already been applied to the returned `C` and `M` arrays.
     
     """
 
@@ -220,8 +213,12 @@ def prepare_data(
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
     del C_mm, M_mm, F_mm
 
-    C_trans = make_transform(C[idx_tr], mode='z')
-    M_trans = make_transform(M[idx_tr], mode=hp.training.M_transform)
+    C = torch.as_tensor(C).float()
+    M = torch.as_tensor(M).float()
+    F = torch.as_tensor(F).float()
+
+    C_trans = Transform(C[idx_tr], mode='z')
+    M_trans = Transform(M[idx_tr], mode=hp.training.M_transform)
 
     if transform_inputs:
         C = C_trans(C)
@@ -231,114 +228,6 @@ def prepare_data(
     F = F / W
 
     return (C, M, F, W), (idx_tr, idx_ev), (C_trans, M_trans)
-
-def trace(
-    model: BulkNet,
-    C_trans: Transform,
-    M_trans: Transform
-) -> torch.jit.ScriptFunction:
-    """
-    Trace the model pipeline and return a JITted object that can be evaluated in
-    MS-GWaM without having the `BulkNet` class definition available.
-
-    Parameters
-    ----------
-    model
-        Trained `BulkNet` instance.
-    C_trans, M_trans
-        Transforms used during training on the model inputs.
-
-    Returns
-    -------
-    ScriptFunction
-        Traced model pipeline.
-
-    """
-
-    cpu = torch.device('cpu')
-    model.eval().to(device=cpu, dtype=torch.double)
-
-    for p in model.parameters():
-        p.requires_grad = False
-
-    (C, M, *_), _, _ = prepare_data(model._n_bins, 'va', 20, False)
-    C, M = torch.as_tensor(C), torch.as_tensor(M)
-
-    def trace_func(
-        C: torch.Tensor,
-        M: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """
-        Execute pipeline, excluding momentum budgeting (which can be done at
-        integration time) but including input transformations.
-        """
-
-        Y, W = model(C_trans(C), M_trans(M))
-        dM, F = _get_dM_and_F(M, torch.exp(W) * Y)
-
-        return M + dM, F
-
-    with torch.inference_mode():
-        return torch.jit.trace(trace_func, (C, M))
-
-@torch.jit.script
-def _get_dM_and_F(
-    M: torch.Tensor,
-    F: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Get appropriately clipped values for the momentum update `dM` and the bin-
-    summed momentum flux to return to the propagator.
-
-    Parameters
-    ----------
-    M
-        Current bulk momentum state, as passed to the neural network.
-    F
-        Provisional fluxes as returned by the neural network (shape profiles
-        scaled by amplitudes) to be possibly clipped.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of changes in momentum in each cell.
-    torch.Tensor
-        Vertical momentum fluxes summed over all bins.
-
-    """
-
-    F_v = _PAD(F[:, 0], (1, 0))
-    F_h = _PAD(F[:, 1], (0, 0, 0, 1))
-    dM = torch.zeros_like(M)
-
-    for i in range(M.shape[0]):
-        for k in range(M.shape[2]):
-            F_bot = F_v[i, :, k].sum()
-            F_top = F_v[i, :, k + 1].sum()
-            deficit = F_top - F_h[i, 0, k] - (M[i, :, k].sum() + F_bot)
-
-            if deficit > 0:
-                sink = torch.clip(F_h[i, 0, k] + deficit, max=0)
-                deficit = deficit + F_h[i, 0, k] - sink
-                F_h[i, 0, k] = sink
-
-            if deficit > 0:
-                factor = (F_top - deficit) / F_top
-                F_v[i, :, k + 1] = factor * F_v[i, :, k + 1]
-
-            for j in range(M.shape[1]):
-                F_in = F_h[i, j, k] + F_v[i, j, k]
-                F_out = F_h[i, j + 1, k] + F_v[i, j, k + 1]
-                deficit = F_out - (M[i, j, k] + F_in)
-
-                if deficit > 0:
-                    sink = F_h[i, j + 1, k] - deficit
-                    F_out = F_out - F_h[i, j + 1, k] + sink
-                    F_h[i, j + 1, k] = sink
-
-                dM[i, j, k] = F_in - F_out
-
-    return dM, F_v.sum(dim=-2)
 
 @nb.njit
 def _fix_vertical_fluxes(

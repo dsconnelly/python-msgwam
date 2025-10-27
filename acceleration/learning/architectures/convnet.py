@@ -1,10 +1,9 @@
 import torch, torch.nn as nn
 
 from optuna.trial import Trial
+from torch.linalg import vector_norm
 
 from msgwam import config
-
-from torch.linalg import vector_norm
 
 from .utils import get_block, xavier_init
 
@@ -15,15 +14,15 @@ _ACTIVATIONS = {
 }
 
 class ConvNet(nn.Module):
-    _one: torch.Tensor
-
     def __init__(self, trial: Trial) -> None:
         """Instantiate the network layers."""
 
         super().__init__()
         self._init_layers(trial)
-        self.register_buffer('_one', torch.ones(1))
         self.apply(xavier_init)
+
+        one = torch.ones(1)
+        self.register_buffer('_one', one)
 
     def forward(
         self,
@@ -44,7 +43,7 @@ class ConvNet(nn.Module):
         Y = self._shape_block(X)
 
         return self._postprocess(Y), W[..., None, None]
-
+    
     def _init_layers(self, trial: Trial) -> None:
         """
         Initialize the convolutional and dense layers of the network, along with
@@ -98,39 +97,52 @@ class ConvNet(nn.Module):
         dropout = trial.suggest_float('conv_dropout', 0, 0.2)
         use_res = trial.suggest_categorical('use_res', [True, False])
         act_str = trial.suggest_categorical('conv_act', _ACTIVATIONS.keys())
-        
+
         min_channels = trial.suggest_int('min_channels', 32, 64)
         max_channels = 2 ** trial.suggest_int('max_channels', 7, 9)
 
-        pool_options = [2, 5, 2]
+        pool_options = [5, 2, 2]
         n_joint_convs = trial.suggest_int('n_joint_convs', 3, 6)
-        n_pools = trial.suggest_int('n_pools', 0, len(pool_options))
+        n_pools = min(n_joint_convs, len(pool_options))
+
+        sizes = [self._n_channels_in, min_channels]
         pools = pool_options[:n_pools] + [0] * (n_joint_convs - n_pools)
         
-        sizes = [self._n_channels_in, min_channels]
-        args = (kernel, use_bn, use_res, dropout, act_str)
-        convs = []
-        
         while len(sizes) < n_joint_convs + 1:
-            sizes = sizes + [min(2 * sizes[-1], max_channels)]
+            sizes.append(min(2 * sizes[-1], max_channels))
 
+        joint_convs = []
         for a, b, pool in zip(sizes[:-1], sizes[1:], pools):
-            convs.append(_ConvBlock(a, b, pool, *args))
+            joint_convs.append(_ConvBlock(
+                a, b,
+                kernel, pool,
+                use_bn, use_res,
+                act_str, dropout
+            ))
 
-        self._joint_block = nn.Sequential(*convs)
-
-        n_shape_convs = trial.suggest_int('n_shape_convs', max(n_pools, 2), 6)
+        n_shape_convs = trial.suggest_int('n_shape_convs', 2, 6)
         pools = [0] * (n_shape_convs - n_pools) + pools[::-1][-n_pools:]
         sizes = [sizes[-1]] * n_shape_convs + [self._n_channels_out]
 
-        convs = []
-        for i, (a, b, pool) in enumerate(zip(sizes[:-1], sizes[1:], pools)):
-            convs.append(_ConvBlock(a, b, -pool, *args, i == n_shape_convs - 1))
+        while len(pools) > n_shape_convs:
+            pools[1] = pools[0] * pools[1]
+            pools = pools[1:]
 
-        self._shape_block = nn.Sequential(*convs)
+        shape_convs = []
+        for i, (a, b, pool) in enumerate(zip(sizes[:-1], sizes[1:], pools)):
+            shape_convs.append(_ConvBlock(
+                a, b,
+                kernel, -pool,
+                use_bn, use_res,
+                act_str, dropout,
+                final=(i == n_shape_convs - 1)
+            ))
+
+        self._joint_block = nn.Sequential(*joint_convs)
+        self._shape_block = nn.Sequential(*shape_convs)
 
         return sizes[0]
-
+    
     def _init_dense_blocks(
         self,
         trial: Trial,
@@ -186,7 +198,7 @@ class ConvNet(nn.Module):
         """
 
         return 2 * self._n_bins
-
+    
     @property
     def _n_meta(self) -> int:
         """
@@ -195,7 +207,7 @@ class ConvNet(nn.Module):
         """
 
         return 2
-
+    
     def _postprocess(self, Y: torch.Tensor) -> torch.Tensor:
         """
         Postprocess the outputs of the shape block.
@@ -215,9 +227,9 @@ class ConvNet(nn.Module):
 
         """
 
-        Y_v, Y_h = Y.reshape(-1, 2, self._n_bins, Y.shape[-1]).transpose(0, 1)
-        Y_h = torch.cat((-self._pos_func(Y_h[:, :1]), Y_h[:, 1:]), dim=1)
-        Y = torch.stack((self._pos_func(Y_v), Y_h), dim=1)
+        Y = Y.reshape(-1, 2, self._n_bins, Y.shape[-1])
+        Y_h = torch.cat((-self._pos_func(Y[:, 1, :1]), Y[:, 1, 1:]), dim=1)
+        Y = torch.stack((self._pos_func(Y[:, 0]), Y_h), dim=1)
 
         norms = vector_norm(Y, dim=(-2, -1), keepdim=True)
         return Y / torch.where(norms > 1e-12, norms, self._one)
@@ -226,62 +238,66 @@ class _ConvBlock(nn.Module):
     def __init__(
         self,
         n_in: int, n_out: int,
-        pool: int, kernel: int,
+        kernel: int, pool: int,
         use_bn: bool, use_res: bool,
-        dropout: float, activation: str,
+        activation: str,
+        dropout: float,
         final: bool=False
     ) -> None:
         """
-        Initialize a block containing a convolution and auxiliary modules.
+        Initialize a block containing a convolution and auxiliary modules. The
+        convolutional block uses depthwise separable convolutions for speed.
 
         Parameters
         ----------
         n_in, n_out
             Number of input and output channels.
+        kernel
+            Kernel size. Padding will be set to `'same'`.
         pool
             If positive, the block will be followed by a max pooling operation
             with kernel `pool`. If negative, the block will be preceded by an
             upsampling operation with scale factor `pool`. If zero, the sequence
             length is not changed by this block.
-        kernel
-            Kernel size. Padding will be set to `'same'`.
         use_bn
             Whether to use batch normalization.
         use_res
             Whether to include an additive residual connection. Only has an
             effect if `n_in == n_out`.
-        dropout
-            Dropout rate.
         activation
             Key to `_ACTIVATIONS` specifying what activation function to use.
+        dropout
+            Dropout rate.
         final
             Whether this is an output layer of the overall network, in which
-            case the last operation will be the convolution itself.
+            case the last operation must be a convolution.
 
         """
 
         super().__init__()
-
-        args = [nn.Conv1d(n_in, n_out, kernel, padding='same')]
+        
+        args = [
+            nn.Conv1d(n_in, n_in, kernel, padding='same', groups=n_in),
+            _ACTIVATIONS[activation](),
+            nn.Conv1d(n_in, n_out, 1),
+            nn.Dropout(dropout)
+        ]
 
         if use_bn:
-            args = args + [nn.BatchNorm1d(n_out)]
+            args.insert(1, nn.BatchNorm1d(n_in))
 
-        args = args + [_ACTIVATIONS[activation]()]
-        args = args + [nn.Dropout(dropout)]
-        
         if final:
             while not isinstance(args[-1], nn.Conv1d):
                 args = args[:-1]
-        
+
         if pool > 0:
             self._resample = nn.MaxPool1d(pool)
-            args = args + [self._resample]
+            args.append(self._resample)
 
         elif pool < 0:
             kwargs = {'scale_factor' : abs(pool), 'mode' : 'nearest'}
             self._resample = nn.Upsample(**kwargs)
-            args = [self._resample] + args
+            args.insert(0, self._resample)
 
         else:
             self._resample = nn.Identity()
