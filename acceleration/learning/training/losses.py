@@ -7,6 +7,7 @@ from optuna.trial import Trial
 from ...hyperparameters import training as hp
 
 class FluxLoss(nn.Module):
+    _scales_Y: torch.Tensor
     _scales_W: torch.Tensor
     
     def __init__(self, trial: Trial, W: torch.Tensor) -> None:
@@ -59,7 +60,10 @@ class FluxLoss(nn.Module):
         """
 
         W = torch.log(W)
-        loss_Y = ((Y - Y_hat) / hp.loss_scale_Y) ** 2
+        scales_Y, _ = abs(Y).max(dim=-1, keepdim=True)
+        scales_Y = hp.loss_scale_Y * scales_Y
+
+        loss_Y = ((Y - Y_hat) / scales_Y) ** 2
         loss_W = ((W - W_hat) / self._scales_W) ** 2
 
         if reduce:

@@ -209,25 +209,25 @@ def prepare_data(
     idx_ev, = np.where(sdx >= n_tr)
     keep = keep[sdx]
 
-    C, M, F = C_mm[keep, 1:], M_mm[keep], F_mm[keep]
+    C = torch.as_tensor(C_mm[keep, 1:])
+    M = torch.as_tensor(M_mm[keep])
+    F = torch.as_tensor(F_mm[keep])
+
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
     del C_mm, M_mm, F_mm
 
-    C = torch.as_tensor(C).float()
-    M = torch.as_tensor(M).float()
-    F = torch.as_tensor(F).float()
-
-    C_trans = Transform(C[idx_tr], mode='z').float()
-    M_trans = Transform(M[idx_tr], mode=hp.training.M_transform).float()
+    C_trans = Transform(C[idx_tr], mode='z')
+    M_trans = Transform(M[idx_tr], mode=hp.training.M_transform)
 
     if transform_inputs:
         C = C_trans(C)
         M = M_trans(M)
 
-    W = torch.linalg.vector_norm(F, axis=(-2, -1), keepdims=True)
-    F = F / W
+    W = abs(F.sum(dim=-1, keepdim=True))
+    tensors = [C, M, F / W, hp.training.W_scale * W]
+    tensors = tuple([a.float() for a in tensors])
 
-    return (C, M, F, W), (idx_tr, idx_ev), (C_trans, M_trans)
+    return tensors, (idx_tr, idx_ev), (C_trans, M_trans)
 
 @nb.njit
 def _fix_vertical_fluxes(
@@ -263,41 +263,6 @@ def _fix_vertical_fluxes(
                 
             elif F_needed != 0:
                 F_v[i, :, k] = F_needed / F_v.shape[1]
-
-@nb.njit
-def _get_horizontal_fluxes(
-    dM: np.ndarray,
-    F_v: np.ndarray,
-) -> np.ndarray:
-    """
-    Infer the horizontal (bin-to-bin) fluxes. Just as `F_v` is defined positive
-    out the top of each cell, we define `F_h` to be positive in from the left of
-    each cell, so that we can cast the sink profile as the flux out the left of
-    the lowest phase speed bin.
-
-    Parameters
-    ----------
-    dM
-        The change in M in each grid cell.
-    F_v
-        Vertical fluxes, estimated by the ray tracer and adjusted as above.
-
-    Returns
-    -------
-    np.ndarray
-        Array of horizontal fluxes calculated to conserve `M`.
-
-    """
-
-    F_h = np.zeros_like(F_v)
-    for i in range(dM.shape[0]):
-        for j in range(dM.shape[1] - 1, -1, -1):
-            for k in range(dM.shape[2]):
-                F_b = 0 if k == 0 else F_v[i, j, k - 1]
-                F_r = 0 if j == dM.shape[1] - 1 else F_h[i, j + 1, k]   
-                F_h[i, j, k] = dM[i, j, k] + F_v[i, j,k] - F_b + F_r
-
-    return F_h
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
@@ -369,21 +334,14 @@ def _parse_momentum(
     D = D[1:].reshape(-1, *D.shape[2:])
     dM = M_out - M_in
 
-    _fix_vertical_fluxes((dM + D).sum(1), F_v)
-    F_h = _get_horizontal_fluxes(dM, F_v)
-    F = np.stack((F_v, F_h), axis=1)
-
     M_in = reshape_data(M_in, n_bins, 'sum')
-    F = np.stack((
-        reshape_data(F[:, 0], n_bins, 'sum'),
-        reshape_data(F[:, 1], n_bins, 'skip')
-    ), axis=1)
+    _fix_vertical_fluxes((dM + D).sum(1), F_v)
+    F = reshape_data(np.stack((F_v, -D), axis=1), n_bins, 'sum')
 
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)
         F = apply_smoothing(F)
 
-    F[abs(F) < 1e-14] = 0
     budget = M_in.sum(axis=(1, 2))
     keep, budget = budget > 0, budget[:, None, None]
 
@@ -392,8 +350,9 @@ def _parse_momentum(
     F[keep] = F[keep] / budget[keep, None]
     budget[keep] = np.log(budget[keep])
 
-    res = M_out.sum(axis=(1, 2)) - F[:, 1, 0].sum(-1) - 1
-    n_active = (np.linalg.norm(F, axis=(-2, -1)) > 5e-6).sum(-1)
-    keep = keep & (abs(res) < 1e-14) & (n_active == 2)
+    res = M_out.sum(axis=(1, 2)) - F[:, -1].sum((1, 2)) - 1
+    n_active = (abs(F.sum(axis=-1)) > 1e-8).sum(axis=(-2, -1))
+    keep = keep & (abs(res) < 1e-14) & (n_active == 2 * n_bins)
+    F[abs(F) < 1e-14] = 0
 
     return M_in, F, budget[:, 0], keep

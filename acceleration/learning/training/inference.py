@@ -7,6 +7,7 @@ import torch, torch.nn as nn
 from optuna.trial import FixedTrial
 from torch.nn.functional import pad as _PAD
 
+from ...hyperparameters import training as hp
 from ..architectures import ConvNet
 
 from .io import prepare_data
@@ -37,7 +38,7 @@ def serialize_model(
         state = torch.load('data/ml-accel/models/state-best.pkl', **kwargs)
         model.load_state_dict(state['model'])
 
-        _, _, (C_trans, M_trans) = prepare_data(n_bins, 'te', 2500, False, 0)
+        _, _, (C_trans, M_trans) = prepare_data(n_bins, 'te', None, False, 0)
 
     else:
         model, C_trans, M_trans = inputs
@@ -107,11 +108,12 @@ class Inferer(nn.Module):
         while i < M.shape[0]:
             j = min(M.shape[0], i + self._batch_size)
             Y, W = self._model(C[i:j], M[i:j])
-            out[i:j] = torch.exp(W) * Y
+            W = torch.exp(W) / hp.W_scale
+            out[i:j] = W * Y
 
             i = j
 
         F_v = _PAD(out[:, 0], (1, 0))
-        F_h = _PAD(out[:, 1], (0, 0, 0, 1))
+        D = out[:, 1]
 
-        return F_v.double(), F_h.double()
+        return F_v.double(), D.double()

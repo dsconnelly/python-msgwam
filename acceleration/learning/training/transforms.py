@@ -157,4 +157,4 @@ def reshape_data(
     
     elif mode == 'skip':
         n_skip = a.shape[-2] // n_bins
-        return a[..., ::n_skip, :]
+        return a[..., (n_skip - 1)::n_skip, :]

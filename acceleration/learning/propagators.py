@@ -65,8 +65,8 @@ class NetworkPropagator(Propagator):
 
         C = np.hstack((C, np.log(budget[:, 0])))
         inputs = map(torch.as_tensor, [C, apply_smoothing(M)])
-        F_v, F_h = [out.numpy() for out in self._model(*inputs)]
-        dM, F = _get_dM_and_F(M, F_v, F_h)
+        F_v, D = [out.numpy() for out in self._model(*inputs)]
+        dM, F = _get_dM_and_F(M, F_v, D)
 
         self._M = (M + dM) * budget
         self._F = F * budget[:, 0] * mean.dz / hp.generation.dt_output
@@ -129,55 +129,40 @@ class NetworkPropagator(Propagator):
 def _get_dM_and_F(
     M: np.ndarray,
     F_v: np.ndarray,
-    F_h: np.ndarray,
-) -> tuple[torch.Tensor, torch.Tensor]:
+    D: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """
-    Get appropriately clipped values for the momentum update `dM` and the bin-
-    summed momentum flux to return to the propagator.
-
-    Parameters
-    ----------
-    M
-        Current bulk momentum state, as passed to the neural network.
-    F
-        Provisional fluxes as returned by the neural network (shape profiles
-        scaled by amplitudes) to be possibly clipped.
-
-    Returns
-    -------
-    torch.Tensor
-        Tensor of changes in momentum in each cell.
-    torch.Tensor
-        Vertical momentum fluxes summed over all bins.
-
+    A : source at each point to do with flux div
+    D : sink at each point to do with sinks (e.g. positive always)
     """
 
-    dM = np.zeros_like(M)
     for i in range(M.shape[0]):
         for k in range(M.shape[2]):
+            M_tot = M[i, :, k].sum()
             F_bot = F_v[i, :, k].sum()
             F_top = F_v[i, :, k + 1].sum()
-            deficit = F_top - F_h[i, 0, k] - (M[i, :, k].sum() + F_bot)
+            D_tot = D[i, :, k].sum()
 
-            if deficit > 1e-14:
-                sink = min(F_h[i, 0, k] + deficit, 0)
-                deficit = deficit + F_h[i, 0, k] - sink
-                F_h[i, 0, k] = sink
+            deficit = F_top - (M_tot + F_bot + D_tot)
 
+            if (deficit > 1e-14) and (D_tot < 0):
+                sink = min(D_tot + deficit, 0)
+                deficit = deficit + D_tot - sink
+                D[i, :, k] = sink * D[i, :, k] / D_tot
+                
             if deficit > 1e-14:
                 factor = (F_top - deficit) / F_top
                 F_v[i, :, k + 1] = factor * F_v[i, :, k + 1]
 
-            for j in range(M.shape[1]):
-                F_in = F_h[i, j, k] + F_v[i, j, k]
-                F_out = F_h[i, j + 1, k] + F_v[i, j, k + 1]
-                deficit = F_out - (M[i, j, k] + F_in)
+    dM = F_v[..., :-1] - F_v[..., 1:] + D
+    
+    for i in range(dM.shape[0]):
+        for j in range(dM.shape[1] - 1):
+            for k in range(dM.shape[2]):
+                deficit = -(M[i, j, k] + dM[i, j, k])
 
-                if deficit > 0:
-                    sink = F_h[i, j + 1, k] - deficit
-                    F_out = F_out - F_h[i, j + 1, k] + sink
-                    F_h[i, j + 1, k] = sink
+                if deficit > 1e-14:
+                    dM[i, j, k] = dM[i, j, k] + deficit
+                    dM[i, j + 1, k] = dM[i, j + 1, k] - deficit
 
-                dM[i, j, k] = F_in - F_out
-
-    return dM, F_v.sum(axis=-2)
+    return dM, F_v.sum(axis=1)

@@ -1,7 +1,6 @@
 import torch, torch.nn as nn
 
 from optuna.trial import Trial
-from torch.linalg import vector_norm
 
 from msgwam import config
 
@@ -14,6 +13,8 @@ _ACTIVATIONS = {
 }
 
 class ConvNet(nn.Module):
+    _one: torch.Tensor
+
     def __init__(self, trial: Trial) -> None:
         """Instantiate the network layers."""
 
@@ -42,7 +43,7 @@ class ConvNet(nn.Module):
         W = self._amp_block(self._pool(X).squeeze())
         Y = self._shape_block(X)
 
-        return self._postprocess(Y), W[..., None, None]
+        return self._postprocess(Y), W.reshape(-1, 2, self._n_bins, 1)
     
     def _init_layers(self, trial: Trial) -> None:
         """
@@ -102,7 +103,7 @@ class ConvNet(nn.Module):
         max_channels = 2 ** trial.suggest_int('max_channels', 7, 9)
 
         pool_options = [5, 2, 2]
-        n_joint_convs = trial.suggest_int('n_joint_convs', 3, 6)
+        n_joint_convs = trial.suggest_int('n_joint_convs', 2, 6)
         n_pools = min(n_joint_convs, len(pool_options))
 
         sizes = [self._n_channels_in, min_channels]
@@ -175,7 +176,7 @@ class ConvNet(nn.Module):
 
         depth = trial.suggest_int('amp_depth', 2, 5)
         width = trial.suggest_int('amp_width', 128, 512)
-        sizes = [n_split] + [width] * depth + [2]
+        sizes = [n_split] + [width] * depth + [self._n_channels_out]
 
         args = (sizes, -1 if use_bn else 0, act_str, dropout)
         self._amp_block = get_block(*args, final=True)
@@ -228,10 +229,14 @@ class ConvNet(nn.Module):
         """
 
         Y = Y.reshape(-1, 2, self._n_bins, Y.shape[-1])
-        Y_h = torch.cat((-self._pos_func(Y[:, 1, :1]), Y[:, 1, 1:]), dim=1)
-        Y = torch.stack((self._pos_func(Y[:, 0]), Y_h), dim=1)
 
-        norms = vector_norm(Y, dim=(-2, -1), keepdim=True)
+        mask = torch.ones_like(Y)
+        mask[:, 0, :, -1] = 0
+        mask[:, 1] = -1
+        
+        Y = mask * self._pos_func(Y)
+        norms = abs(Y.sum(dim=-1, keepdim=True))
+        
         return Y / torch.where(norms > 1e-12, norms, self._one)
 
 class _ConvBlock(nn.Module):
