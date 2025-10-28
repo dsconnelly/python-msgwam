@@ -87,7 +87,7 @@ def _get_network_overrides() -> dict[str, Any]:
         n_bins = [1, 2, 3, 4, 6][json.load(f)['n_bin_idx']]
 
     return {
-        'model_path' : 'data/ml-accel/models/model-best.jit',
+        'model_path' : 'data/ml-accel/models/scripted.jit',
         'propagator_type' : 'network',
         'n_bins' : n_bins,
         'dr_source' : -1200,

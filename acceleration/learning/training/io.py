@@ -217,14 +217,14 @@ def prepare_data(
     M = torch.as_tensor(M).float()
     F = torch.as_tensor(F).float()
 
-    C_trans = Transform(C[idx_tr], mode='z')
-    M_trans = Transform(M[idx_tr], mode=hp.training.M_transform)
+    C_trans = Transform(C[idx_tr], mode='z').float()
+    M_trans = Transform(M[idx_tr], mode=hp.training.M_transform).float()
 
     if transform_inputs:
         C = C_trans(C)
         M = M_trans(M)
 
-    W = np.linalg.norm(F, axis=(-2, -1), keepdims=True)
+    W = torch.linalg.vector_norm(F, axis=(-2, -1), keepdims=True)
     F = F / W
 
     return (C, M, F, W), (idx_tr, idx_ev), (C_trans, M_trans)

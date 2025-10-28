@@ -44,7 +44,7 @@ def serialize_model(
 
     with torch.inference_mode():
         wrapper = Inferer(model, C_trans, M_trans)
-        scripted = torch.jit.script(wrapper.float())
+        scripted = torch.jit.script(wrapper.float().cpu())
         scripted = torch.jit.optimize_for_inference(scripted)
 
     torch.jit.save(scripted, 'data/ml-accel/models/scripted.jit')

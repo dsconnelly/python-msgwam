@@ -61,11 +61,12 @@ class NetworkPropagator(Propagator):
         C = self._make_C(mean)
         M = self._M + self._check_source(mean, n_step)
         budget = M.sum(axis=(1, 2), keepdims=True)
+        M = M / budget
 
         C = np.hstack((C, np.log(budget[:, 0])))
-        inputs = map(torch.as_tensor, [C, apply_smoothing(M / budget)])
+        inputs = map(torch.as_tensor, [C, apply_smoothing(M)])
         F_v, F_h = [out.numpy() for out in self._model(*inputs)]
-        dM, F = _get_dM_and_F(M / budget, F_v, F_h)
+        dM, F = _get_dM_and_F(M, F_v, F_h)
 
         self._M = (M + dM) * budget
         self._F = F * budget[:, 0] * mean.dz / hp.generation.dt_output
@@ -158,12 +159,12 @@ def _get_dM_and_F(
             F_top = F_v[i, :, k + 1].sum()
             deficit = F_top - F_h[i, 0, k] - (M[i, :, k].sum() + F_bot)
 
-            if deficit > 0:
+            if deficit > 1e-14:
                 sink = min(F_h[i, 0, k] + deficit, 0)
                 deficit = deficit + F_h[i, 0, k] - sink
                 F_h[i, 0, k] = sink
 
-            if deficit > 0:
+            if deficit > 1e-14:
                 factor = (F_top - deficit) / F_top
                 F_v[i, :, k + 1] = factor * F_v[i, :, k + 1]
 
