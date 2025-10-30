@@ -40,10 +40,10 @@ class ConvNet(nn.Module):
         meta = self._meta_block(meta)[:, None]
 
         X = self._joint_block(torch.cat((C, meta, M), dim=1))
-        W = self._amp_block(self._pool(X).squeeze())
+        W = self._amp_block(self._pool(X).flatten(1, 2))
         Y = self._shape_block(X)
 
-        return self._postprocess(Y), W.reshape(-1, 2, self._n_bins, 1)
+        return self._postprocess(Y), W[..., None, None]
     
     def _init_layers(self, trial: Trial) -> None:
         """
@@ -174,13 +174,15 @@ class ConvNet(nn.Module):
             nn.Linear(width, config.n_grid - 1)
         )
 
+        pool = trial.suggest_int('amp_pool', 1, 4)
+        self._pool = nn.AdaptiveAvgPool1d(pool)
+
         depth = trial.suggest_int('amp_depth', 2, 5)
-        width = trial.suggest_int('amp_width', 128, 512)
-        sizes = [n_split] + [width] * depth + [self._n_channels_out]
+        width = trial.suggest_int('amp_width', 256, 1024)
+        sizes = [pool * n_split] + [width] * depth + [2]
 
         args = (sizes, -1 if use_bn else 0, act_str, dropout)
         self._amp_block = get_block(*args, final=True)
-        self._pool = nn.AdaptiveAvgPool1d(1)
 
     @property
     def _n_channels_in(self) -> int:
@@ -235,8 +237,8 @@ class ConvNet(nn.Module):
         mask[:, 1] = -1
         
         Y = mask * self._pos_func(Y)
-        norms = abs(Y.sum(dim=-1, keepdim=True))
-        
+        norms = abs(Y.sum(dim=(-2, -1), keepdim=True))
+
         return Y / torch.where(norms > 1e-12, norms, self._one)
 
 class _ConvBlock(nn.Module):

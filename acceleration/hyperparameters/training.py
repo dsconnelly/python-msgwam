@@ -6,3 +6,4 @@ n_smoothing: int
 patience: int
 loss_scale_Y: float
 W_scale: float
+W_thresh: float

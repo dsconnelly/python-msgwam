@@ -124,7 +124,7 @@ def _get_optimizer(
     """
 
     optim_name = trial.suggest_categorical('optimizer', ['AdamW', 'SGD'])
-    lr_bounds = {'AdamW' : (1e-5, 1e-2), 'SGD' : (1e-2, 5e-1)}[optim_name]
+    lr_bounds = {'AdamW' : (1e-5, 4e3), 'SGD' : (1e-2, 5e-1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
     kwargs = {'lr' : lr}
 
@@ -181,7 +181,7 @@ def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
         kwargs['mode'] = 'min'
 
     elif scheduler_name == 'cosine':
-        kwargs['T_0'] = trial.suggest_int('cosine_T_0', 10, 20)
+        kwargs['T_0'] = trial.suggest_int('cosine_T_0', 10, 30)
         kwargs['T_mult'] = trial.suggest_int('cosine_T_mult', 1, 3)
 
     return schedulers[scheduler_name](optimizer, **kwargs)
@@ -398,5 +398,5 @@ def _run_epoch(
             losses[-1].backward()
             optimizer.step()
 
-    rms = lambda a: (a / weight_sum).item() ** 0.5
+    rms = lambda a: (a / weight_sum).item()
     return list(map(rms, totals))

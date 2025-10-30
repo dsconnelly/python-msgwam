@@ -223,7 +223,7 @@ def prepare_data(
         C = C_trans(C)
         M = M_trans(M)
 
-    W = abs(F.sum(dim=-1, keepdim=True))
+    W = abs(F.sum(dim=(-2, -1), keepdim=True))
     tensors = [C, M, F / W, hp.training.W_scale * W]
     tensors = tuple([a.float() for a in tensors])
 
@@ -255,7 +255,7 @@ def _fix_vertical_fluxes(
             F_needed = F_b - deltas[i, k]
             F_out = F_v[i, :, k].sum()
 
-            if abs(F_needed) < 1e-16:
+            if abs(F_needed) < 1e-12:
                 F_needed = 0
 
             if F_out != 0:
@@ -335,12 +335,13 @@ def _parse_momentum(
     dM = M_out - M_in
 
     M_in = reshape_data(M_in, n_bins, 'sum')
-    _fix_vertical_fluxes((dM + D).sum(1), F_v)
     F = reshape_data(np.stack((F_v, -D), axis=1), n_bins, 'sum')
 
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)
         F = apply_smoothing(F)
+
+    _fix_vertical_fluxes((dM + D).sum(1), F_v)
 
     budget = M_in.sum(axis=(1, 2))
     keep, budget = budget > 0, budget[:, None, None]
@@ -351,8 +352,8 @@ def _parse_momentum(
     budget[keep] = np.log(budget[keep])
 
     res = M_out.sum(axis=(1, 2)) - F[:, -1].sum((1, 2)) - 1
-    n_active = (abs(F.sum(axis=-1)) > 1e-8).sum(axis=(-2, -1))
-    keep = keep & (abs(res) < 1e-14) & (n_active == 2 * n_bins)
+    n_active = (abs(F.sum(axis=(-2, -1))) > 1e-12).sum(-1)
+    keep = keep & (abs(res) < 1e-14) & (n_active == 2)
     F[abs(F) < 1e-14] = 0
 
     return M_in, F, budget[:, 0], keep

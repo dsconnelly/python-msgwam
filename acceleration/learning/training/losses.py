@@ -60,11 +60,9 @@ class FluxLoss(nn.Module):
         """
 
         W = torch.log(W)
-        scales_Y, _ = abs(Y).max(dim=-1, keepdim=True)
-        scales_Y = hp.loss_scale_Y * scales_Y
-
-        loss_Y = ((Y - Y_hat) / scales_Y) ** 2
-        loss_W = ((W - W_hat) / self._scales_W) ** 2
+        scales_Y = hp.loss_scale_Y * abs(Y).max(dim=-1, keepdim=True)[0]
+        loss_Y = _smae((Y - Y_hat) / torch.clip(scales_Y, min=0.01))
+        loss_W = _smae((W - W_hat) / self._scales_W)
 
         if reduce:
             loss_Y, loss_W = loss_Y.mean(), loss_W.mean()
@@ -95,5 +93,25 @@ class FluxLoss(nn.Module):
 
         """
 
-        bias = self._bias_Y if self.training else 0.5
-        return bias * loss_Y + (1 - bias) * loss_W
+        if self.training:
+            return self._bias_Y * loss_Y + (1 - self._bias_Y) * loss_W
+        
+        return torch.maximum(loss_Y, loss_W)
+
+def _smae(error: torch.Tensor) -> torch.Tensor:
+    """
+    Calculate the smoothed mean absolute error. Behaves like `abs(error)` when
+    `error` is large, and `error ** 2` when it is small.
+
+    Parameters
+    ----------
+    error
+        (Potentially scaled) differences between prediction and target.
+
+    Returns
+    -------
+    torch.Tensor 
+        Loss values.
+    """
+
+    return error * torch.tanh(error)
