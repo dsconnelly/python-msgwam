@@ -2,15 +2,12 @@ from typing import Optional
 
 import torch, torch.nn as nn
 
-from optuna.trial import Trial
-
 from ...hyperparameters import training as hp
 
 class FluxLoss(nn.Module):
     _scales_Y: torch.Tensor
-    _scales_W: torch.Tensor
     
-    def __init__(self, trial: Trial, W: torch.Tensor) -> None:
+    def __init__(self, Y: torch.Tensor) -> None:
         """
         Initialize the loss module.
 
@@ -19,22 +16,20 @@ class FluxLoss(nn.Module):
         trial
             Current trial. Used to sample a bias applied to the `Y` loss during
             training epochs.
-        W
-            Tensor of amplitude parameters in the training dataset, used to
-            calculate an array of scales to weight the `W` loss by.
+        Y
+            Tensor of training targets.
 
         """
 
         super().__init__()
-        self._bias_Y = trial.suggest_float('bias_Y', 0.05, 0.95)
-        self.register_buffer('_scales_W', torch.std(torch.log(W), axis=0))
+
+        scales_Y = torch.clamp(torch.std(Y, dim=(0, 3)), min=0.1)
+        self.register_buffer('_scales_Y', scales_Y[:, :, None])
 
     def forward(
         self,
         Y: torch.Tensor,
-        W: torch.Tensor,
         Y_hat: torch.Tensor,
-        W_hat: torch.Tensor,
         reduce: bool=True
     ) -> tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -44,8 +39,6 @@ class FluxLoss(nn.Module):
         ----------
         Y, Y_hat
             True and network-predicted shape profiles.
-        W, W_hat
-            True and network-predict amplitudes.
         reduce
             Whether to take the mean over all entries (so that the gradient can
             be calculated) or to preserve the array structure (for plotting).
@@ -59,44 +52,21 @@ class FluxLoss(nn.Module):
         
         """
 
-        W = torch.log(W)
-        scales_Y = hp.loss_scale_Y * abs(Y).max(dim=-1, keepdim=True)[0]
-        loss_Y = _smae((Y - Y_hat) / torch.clip(scales_Y, min=0.01))
-        loss_W = _smae((W - W_hat) / self._scales_W)
+        loss_Y = (Y - Y_hat) / self._scales_Y
+
+        if hp.loss_func == 'mse':
+            loss_Y = loss_Y ** 2
+
+        elif hp.loss_func == 'smae':
+            loss_Y = _smae(loss_Y)
+
+        else:
+            raise ValueError(f'Unknown loss function {hp.loss_func}')
 
         if reduce:
-            loss_Y, loss_W = loss_Y.mean(), loss_W.mean()
-            return loss_Y, loss_W, self._combine(loss_Y, loss_W)
-        
-        return loss_Y, loss_W, None
+            loss_Y = loss_Y.mean()
 
-    def _combine(
-        self,
-        loss_Y: torch.Tensor,
-        loss_W: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Combine the shape and amplitude losses to obtain one number that can be
-        used for backpropagation or evaluation. During training epochs, the loss
-        may be biased towards one part or the other, but at evaluation time the
-        losses are weighted equally.
-
-        Parameters
-        ----------
-        loss_Y, loss_W
-            Reduced losses for shape and amplitude.
-
-        Returns
-        -------
-        torch.Tensor
-            Combined loss, possibly biased.
-
-        """
-
-        if self.training:
-            return self._bias_Y * loss_Y + (1 - self._bias_Y) * loss_W
-        
-        return torch.maximum(loss_Y, loss_W)
+        return loss_Y
 
 def _smae(error: torch.Tensor) -> torch.Tensor:
     """
@@ -112,6 +82,7 @@ def _smae(error: torch.Tensor) -> torch.Tensor:
     -------
     torch.Tensor 
         Loss values.
+
     """
 
     return error * torch.tanh(error)

@@ -10,7 +10,13 @@ class Transform(nn.Module):
     _shift: torch.Tensor
     _scale: torch.Tensor
 
-    def __init__(self, a: torch.Tensor, mode: str) -> None:
+    def __init__(
+        self,
+        a: torch.Tensor,
+        mode: str,
+        p: torch.Tensor | int=1,
+        scale_only: bool=False
+    ) -> None:
         """
         Initialize a module that transforms neural network input data.
 
@@ -20,8 +26,16 @@ class Transform(nn.Module):
             Tensor from which to derive transform statistics.
         mode
             What kind of transform to perform. Must be `'constant'` or `'z'`.
+        p
+            Root to take before transforming.
+        scale_only
+            Whether to only include the scale term. Useful for sign-definite
+            target data.
 
         """
+
+        self._p = p
+        a = take_root(a, p)
 
         if mode == 'constant':
             b = a.transpose(1, 2).flatten(0, 1)
@@ -37,6 +51,9 @@ class Transform(nn.Module):
 
         else:
             raise ValueError(f'Unknown transform mode: {mode}')
+        
+        if scale_only:
+            shift = 0 * shift
 
         super().__init__()
         self.register_buffer('_shift', shift)
@@ -58,11 +75,31 @@ class Transform(nn.Module):
 
         """
 
-        sdx = self._scale > 0
+        a = take_root(a, self._p)
         out = torch.zeros_like(a)
+
+        sdx = self._scale > 0
         out[:, sdx] = (a - self._shift)[:, sdx] / self._scale[sdx]
         
         return out
+    
+    def inverse(self, a: torch.Tensor) -> torch.Tensor:
+        """
+        Invert the transform back into dimensional space.
+
+        Parameters
+        ----------
+        a
+            Transformed data.
+
+        Returns
+        -------
+        torch.Tensor
+            Data with transformation inverted.
+
+        """
+
+        return (self._scale * a + self._shift) ** self._p
 
 @nb.njit
 def apply_smoothing(a: np.ndarray) -> np.ndarray:
@@ -158,3 +195,23 @@ def reshape_data(
     elif mode == 'skip':
         n_skip = a.shape[-2] // n_bins
         return a[..., (n_skip - 1)::n_skip, :]
+
+def take_root(a: torch.Tensor, p: int) -> torch.Tensor:
+    """
+    Take a root while respecting the sign of the input.
+
+    Parameters
+    ----------
+    a
+        Data to transform.
+    p
+        Order of the root to take.
+
+    Returns
+    -------
+    torch.Tensor
+        Root of each element in `a`.
+
+    """
+
+    return torch.sign(a) * abs(a) ** (1 / p)

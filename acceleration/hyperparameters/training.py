@@ -4,6 +4,4 @@ max_epochs: int
 min_delta: float
 n_smoothing: int
 patience: int
-loss_scale_Y: float
-W_scale: float
-W_thresh: float
+loss_func: str

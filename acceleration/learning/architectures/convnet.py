@@ -4,7 +4,7 @@ from optuna.trial import Trial
 
 from msgwam import config
 
-from .utils import get_block, xavier_init
+from .utils import xavier_init
 
 _ACTIVATIONS = {
     'relu' : nn.ReLU,
@@ -14,6 +14,7 @@ _ACTIVATIONS = {
 
 class ConvNet(nn.Module):
     _one: torch.Tensor
+    _z: torch.Tensor
 
     def __init__(self, trial: Trial) -> None:
         """Instantiate the network layers."""
@@ -29,7 +30,7 @@ class ConvNet(nn.Module):
         self,
         C: torch.Tensor,
         M: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Apply the joint block, then use the amplitude block to predict `W` and
         the shape block to predict `Y`.
@@ -39,12 +40,19 @@ class ConvNet(nn.Module):
         C = C.reshape(-1, 2, config.n_grid - 1)
         meta = self._meta_block(meta)[:, None]
 
-        X = self._joint_block(torch.cat((C, meta, M), dim=1))
-        W = self._amp_block(self._pool(X).flatten(1, 2))
-        Y = self._shape_block(X)
+        if hasattr(self, '_z'):
+            z = torch.tile(self._z, (C.shape[0], 1, 1))
+            meta = torch.cat((meta, z), dim=1)
 
-        return self._postprocess(Y), W[..., None, None]
-    
+        X = self._joint_block(torch.cat((C, meta, M), dim=1))
+        Y = self._postprocess(self._shape_block(X))
+
+        if self._use_mask:
+            mask = M > M.min() + 1e-14
+            Y = Y * mask[:, None]
+
+        return Y
+ 
     def _init_layers(self, trial: Trial) -> None:
         """
         Initialize the convolutional and dense layers of the network, along with
@@ -61,9 +69,13 @@ class ConvNet(nn.Module):
         i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
         self._n_bins = options[i]
 
+        if trial.suggest_categorical('use_z', [True, False]):
+            z = torch.linspace(-1, 1, config.n_grid - 1)
+            self.register_buffer('_z', z)
+
         use_bn = trial.suggest_categorical('use_bn', [True, False])
-        n_split = self._init_conv_blocks(trial, use_bn)
-        self._init_dense_blocks(trial, n_split, use_bn)
+        self._init_conv_blocks(trial, use_bn)
+        self._init_dense_blocks(trial)
 
         options = {
             'relu' : nn.functional.relu,
@@ -71,6 +83,7 @@ class ConvNet(nn.Module):
             'exp' : torch.exp
         }
 
+        self._use_mask = trial.suggest_categorical('use_mask', [True, False])
         func_name = trial.suggest_categorical('pos_func', options.keys())
         self._pos_func = options[func_name]
 
@@ -142,13 +155,9 @@ class ConvNet(nn.Module):
         self._joint_block = nn.Sequential(*joint_convs)
         self._shape_block = nn.Sequential(*shape_convs)
 
-        return sizes[0]
-    
     def _init_dense_blocks(
         self,
         trial: Trial,
-        n_split: int,
-        use_bn: bool
     ) -> None:
         """
         Initialize the two fully-connected blocks of the network: the block that
@@ -158,14 +167,9 @@ class ConvNet(nn.Module):
         ----------
         trial
             Current trial.
-        n_split
-            Number of channels after the last convolution of the joint block.
-        use_bn
-            Whether to use batch normalization.
 
         """
 
-        dropout = trial.suggest_float('dense_dropout', 0.2, 0.5)
         act_str = trial.suggest_categorical('dense_act', _ACTIVATIONS.keys())
         width = trial.suggest_int('meta_width', 32, 64, step=32)
         
@@ -174,16 +178,6 @@ class ConvNet(nn.Module):
             nn.Linear(width, config.n_grid - 1)
         )
 
-        pool = trial.suggest_int('amp_pool', 1, 4)
-        self._pool = nn.AdaptiveAvgPool1d(pool)
-
-        depth = trial.suggest_int('amp_depth', 2, 5)
-        width = trial.suggest_int('amp_width', 256, 1024)
-        sizes = [pool * n_split] + [width] * depth + [2]
-
-        args = (sizes, -1 if use_bn else 0, act_str, dropout)
-        self._amp_block = get_block(*args, final=True)
-
     @property
     def _n_channels_in(self) -> int:
         """
@@ -191,7 +185,7 @@ class ConvNet(nn.Module):
         wind, one for buoyancy frequency, and one for the encoded metadata.
         """
 
-        return self._n_bins + 3
+        return self._n_bins + 3 + hasattr(self, '_z')
     
     @property
     def _n_channels_out(self) -> int:
@@ -231,15 +225,10 @@ class ConvNet(nn.Module):
         """
 
         Y = Y.reshape(-1, 2, self._n_bins, Y.shape[-1])
-
         mask = torch.ones_like(Y)
-        mask[:, 0, :, -1] = 0
         mask[:, 1] = -1
-        
-        Y = mask * self._pos_func(Y)
-        norms = abs(Y.sum(dim=(-2, -1), keepdim=True))
 
-        return Y / torch.where(norms > 1e-12, norms, self._one)
+        return mask * self._pos_func(Y)
 
 class _ConvBlock(nn.Module):
     def __init__(

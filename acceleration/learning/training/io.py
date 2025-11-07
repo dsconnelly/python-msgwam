@@ -1,23 +1,25 @@
 from os import listdir
 from typing import Literal, Iterator, Optional
 
-import numba as nb
 import numpy as np
 import torch
 import xarray as xr
+
+from optuna.trial import Trial
 
 from msgwam import config
 
 from ... import hyperparameters as hp
 from ...shared.constants import MIMA_MONTHS
 
+from .reconstruction import get_vertical_flux
 from .transforms import (
     Transform,
     apply_smoothing,
-    reshape_data
+    reshape_data,
 )
 
-CMYW = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+CMY = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
 def get_split(
     flag: np.ndarray,
@@ -82,7 +84,7 @@ def iter_paths() -> Iterator[tuple[str, int]]:
 
     """
 
-    base = f'data/ml-accel/integrations'
+    base = f'data/ml-accel/integrations-{hp.generation.dt_output}'
     n_years = len(listdir(base))
 
     n_va = 1 + (n_years > 1)
@@ -119,46 +121,47 @@ def cache_arrays(n_bins_str: str) -> None:
     for _ in iter_paths():
         n_paths = n_paths + 1
 
-    Cs, Ms, Fs = None, None, None
+    Cs, Ms, Ys = None, None, None
     for i, (path, flag) in enumerate(iter_paths()):
         with xr.open_dataset(path) as ds:
             print(path, flag)
 
-            M, F, budget, keep = _parse_momentum(ds, n_bins)
+            M, Y, budget, keep = _parse_momentum(ds, n_bins)
             col = flag * np.ones((M.shape[0], 1))
             C = np.hstack((col, _parse_column(ds), budget))
 
             if Cs is None:
                 Cs = np.nan * np.zeros((n_paths, *C.shape))
                 Ms = np.nan * np.zeros((n_paths, *M.shape))
-                Fs = np.nan * np.zeros((n_paths, *F.shape))
+                Ys = np.nan * np.zeros((n_paths, *Y.shape))
 
             n_valid = keep.sum()
             Cs[i, :n_valid] = C[keep]
             Ms[i, :n_valid] = M[keep]
-            Fs[i, :n_valid] = F[keep]
+            Ys[i, :n_valid] = Y[keep]
 
     flatten = lambda a: a.reshape(a.shape[0] * a.shape[1], *a.shape[2:])
-    Cs, Ms, Fs = flatten(Cs), flatten(Ms), flatten(Fs)    
+    Cs, Ms, Ys = flatten(Cs), flatten(Ms), flatten(Ys)    
     keep = ~np.isnan(Cs[:, 0])
 
     Cs = Cs[keep]
     Ms = Ms[keep]
-    Fs = Fs[keep]
+    Ys = Ys[keep]
 
-    for data, name in zip([Cs, Ms, Fs], 'CMF'):
+    for data, name in zip([Cs, Ms, Ys], 'CMY'):
         np.save(make_path(name), data)
 
     print(f'Cached {keep.sum()} total samples')
 
 def prepare_data(
+    trial: Trial,
     n_bins: int,
     eval_type: Literal['va', 'te'],
     n_samples: Optional[int]=None,
-    transform_inputs: bool=True,
+    apply_transforms: bool=True,
     seed: int=1234
 ) -> tuple[
-    CMYW,
+    CMY,
     tuple[np.ndarray, np.ndarray],
     tuple[Transform, Transform]
 ]:
@@ -174,7 +177,7 @@ def prepare_data(
         generate training and evaluation index arrays.
     n_samples
         How many samples to return. By default, returns everything.
-    transform_inputs
+    apply_transforms
         Whether to actually apply the transforms to the inputs or just return
         them. Defaults to applying them, but can be skipped in plotting.
     seed
@@ -195,11 +198,11 @@ def prepare_data(
     """
 
     memmaps = []
-    for name in 'CMF':
+    for name in 'CMY':
         path = f'data/ml-accel/cached/{name}-{n_bins}.npy'
         memmaps = memmaps + [np.load(path, mmap_mode='r')]
 
-    C_mm, M_mm, F_mm = memmaps
+    C_mm, M_mm, Y_mm = memmaps
     idx_tr, idx_ev = get_split(C_mm[:, 0], eval_type, n_samples, seed)
     keep = np.concatenate((idx_tr, idx_ev))
     n_tr, n_ev = len(idx_tr), len(idx_ev)
@@ -211,58 +214,25 @@ def prepare_data(
 
     C = torch.as_tensor(C_mm[keep, 1:])
     M = torch.as_tensor(M_mm[keep])
-    F = torch.as_tensor(F_mm[keep])
+    Y = torch.as_tensor(Y_mm[keep])
 
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
-    del C_mm, M_mm, F_mm
+    del C_mm, M_mm, Y_mm
 
+    p_M = trial.suggest_int('p_M', 1, 5)
     C_trans = Transform(C[idx_tr], mode='z')
-    M_trans = Transform(M[idx_tr], mode=hp.training.M_transform)
+    M_trans = Transform(M[idx_tr], mode='constant', p=p_M)
 
-    if transform_inputs:
+    p_Y = torch.as_tensor([3, 5])[:, None, None]
+    Y_trans = Transform(Y[idx_tr], 'constant', p_Y, True)
+
+    if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
+        Y = Y_trans(Y)
 
-    W = abs(F.sum(dim=(-2, -1), keepdim=True))
-    tensors = [C, M, F / W, hp.training.W_scale * W]
-    tensors = tuple([a.float() for a in tensors])
-
-    return tensors, (idx_tr, idx_ev), (C_trans, M_trans)
-
-@nb.njit
-def _fix_vertical_fluxes(
-    deltas: np.ndarray,
-    F_v: np.ndarray
-) -> None:
-    """
-    The projected group velocities give some idea of the vertical fluxes, but
-    they are not always accurate with respect to the observed changes in `M`.
-    Here we enforce vertical level-wise balance by scaling the vertical fluxes.
-
-    Parameters
-    ----------
-    deltas
-        Effective change at each grid cell, equal to `dM + D` summed over the
-        phase speed bins.
-    F_v
-        Vertical fluxes from group velocity projection. Will be overwritten.
-
-    """
-
-    for i in range(F_v.shape[0]):
-        for k in range(F_v.shape[2]):
-            F_b = 0 if k == 0 else F_v[i, :, k - 1].sum()
-            F_needed = F_b - deltas[i, k]
-            F_out = F_v[i, :, k].sum()
-
-            if abs(F_needed) < 1e-12:
-                F_needed = 0
-
-            if F_out != 0:
-                F_v[i, :, k] *= F_needed / F_out
-                
-            elif F_needed != 0:
-                F_v[i, :, k] = F_needed / F_v.shape[1]
+    tensors = tuple([a.float() for a in (C, M, Y)])
+    return tensors, (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
@@ -324,36 +294,34 @@ def _parse_momentum(
     S = ds['source'].values
     D = ds['sink'].values
 
-    F_v = ds['F_bulk'].values[..., 1:]
-    dz = np.diff(ds['z_faces'].values)[0]
-    F_v = F_v * hp.generation.dt_output / dz
-    F_v = F_v[1:].reshape(-1, *M.shape[2:])
-
     M_in = M[:-1].reshape(-1, *M.shape[2:])
     M_out = (M - S)[1:].reshape(-1, *M.shape[2:])
-    D = D[1:].reshape(-1, *D.shape[2:])
-    dM = M_out - M_in
+    D = -D[1:].reshape(-1, *D.shape[2:])
 
     M_in = reshape_data(M_in, n_bins, 'sum')
-    F = reshape_data(np.stack((F_v, -D), axis=1), n_bins, 'sum')
+    M_out = reshape_data(M_out, n_bins, 'sum')
+    D = reshape_data(D, n_bins, 'sum')
 
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)
-        F = apply_smoothing(F)
+        M_out = apply_smoothing(M_out)
+        D = apply_smoothing(D)
 
-    _fix_vertical_fluxes((dM + D).sum(1), F_v)
+    dF = M_out - M_in - D    
+    F_v = get_vertical_flux(M_in, dF)
+    Y = np.stack((F_v[..., 1:], D), axis=1)
 
     budget = M_in.sum(axis=(1, 2))
-    keep, budget = budget > 0, budget[:, None, None]
+    keep = budget > 0
+    budget = budget[:, None, None]
 
     M_in[keep] = M_in[keep] / budget[keep]
     M_out[keep] = M_out[keep] / budget[keep]
-    F[keep] = F[keep] / budget[keep, None]
+    Y[keep] = Y[keep] / budget[keep, None]
     budget[keep] = np.log(budget[keep])
 
-    res = M_out.sum(axis=(1, 2)) - F[:, -1].sum((1, 2)) - 1
-    n_active = (abs(F.sum(axis=(-2, -1))) > 1e-12).sum(-1)
+    res = M_out.sum(axis=(1, 2)) - Y[:, -1].sum((1, 2)) - 1
+    n_active = (abs(Y.sum(axis=(-2, -1))) > 1e-12).sum(-1)
     keep = keep & (abs(res) < 1e-14) & (n_active == 2)
-    F[abs(F) < 1e-14] = 0
 
-    return M_in, F, budget[:, 0], keep
+    return M_in, Y, budget[:, 0], keep

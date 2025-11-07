@@ -100,12 +100,12 @@ def plot_strategy(strategy: str, *args: str) -> None:
         else:
             fmax = 10
 
-        fields = fields + fluxes + [f'acceleration_{c}']
-        factors = factors + [1e3] * len(fluxes) + [86400]
+        fields = fields + fluxes + [f'deposition_{c}']
+        factors = factors + [1e3] * len(fluxes) + [10]
         labels = labels + [f'$D^{c}$']
 
-        amaxes = amaxes + [fmax] * len(fluxes) + [100]
-        units = units + ['mPa'] * len(fluxes) + ['m / s / d']
+        amaxes = amaxes + [fmax] * len(fluxes) + [1000]
+        units = units + ['mPa'] * len(fluxes) + ['hPa / km']
         
         for label, field, factor in zip(labels, fields, factors):
             kwargs = {}

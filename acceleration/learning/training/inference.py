@@ -7,7 +7,6 @@ import torch, torch.nn as nn
 from optuna.trial import FixedTrial
 from torch.nn.functional import pad as _PAD
 
-from ...hyperparameters import training as hp
 from ..architectures import ConvNet
 
 from .io import prepare_data
@@ -38,13 +37,13 @@ def serialize_model(
         state = torch.load('data/ml-accel/models/state-best.pkl', **kwargs)
         model.load_state_dict(state['model'])
 
-        _, _, (C_trans, M_trans) = prepare_data(n_bins, 'te', None, False, 0)
+        _, _, transforms = prepare_data(n_bins, 'te', None, False, 0)
 
     else:
-        model, C_trans, M_trans = inputs
+        model, *transforms = inputs
 
     with torch.inference_mode():
-        wrapper = Inferer(model, C_trans, M_trans)
+        wrapper = Inferer(model, *transforms)
         scripted = torch.jit.script(wrapper.float().cpu())
         scripted = torch.jit.optimize_for_inference(scripted)
 
@@ -56,6 +55,7 @@ class Inferer(nn.Module):
         model: ConvNet,
         C_trans: Transform,
         M_trans: Transform,
+        Y_trans: Transform,
         batch_size: int=64
     ) -> None:
         """
@@ -68,6 +68,8 @@ class Inferer(nn.Module):
             Trained neural network.
         C_trans, M_trans
             Transforms to apply to network inputs.
+        Y_trans
+            Transform to invert on network outputs.
         batch_size
             Batch size to use at inference time. Batches larger than this value
             will be processed in chunks for improved performance.
@@ -76,10 +78,11 @@ class Inferer(nn.Module):
 
         super().__init__()
         self._batch_size = batch_size
-
         self._model = model
+
         self._C_trans = C_trans
         self._M_trans = M_trans
+        self._Y_trans = Y_trans
 
     def forward(
         self,
@@ -107,13 +110,12 @@ class Inferer(nn.Module):
         i = 0
         while i < M.shape[0]:
             j = min(M.shape[0], i + self._batch_size)
-            Y, W = self._model(C[i:j], M[i:j])
-            W = torch.exp(W) / hp.W_scale
-            out[i:j] = W * Y
+            out[i:j] = self._model(C[i:j], M[i:j])
 
             i = j
 
-        F_v = _PAD(out[:, 0], (1, 0))
-        D = out[:, 1]
+        out = self._Y_trans.inverse(out)
+        F_v, D = out[:, 0], out[:, 1]
+        F_v = _PAD(F_v, (1, 0))
 
         return F_v.double(), D.double()

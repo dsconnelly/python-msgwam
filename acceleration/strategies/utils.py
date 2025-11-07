@@ -120,14 +120,23 @@ def load_data(
         z_faces, z_centers = get_vertical_grids()
         ds = ds.interp(z_faces=z_faces, z_centers=z_centers)
 
-        if field.startswith(('flux', 'acceleration')):
+        if field.startswith(('flux', 'acceleration', 'deposition')):
             a, b = {'x' : 'ew', 'y' : 'ns'}[field[-1]]
             data = ds[f'pmf_{a}'] + ds[f'pmf_{b}']
 
-            if field.startswith('acceleration'):
-                rho = xr.DataArray(get_rho(z_faces), [ds['z_faces']])
-                data = -data.diff('z_faces') / (z_faces[1] - z_faces[0]) / rho
+            if field.startswith(('acceleration', 'deposition')):
+                data = -data.diff('z_faces') / (z_faces[1] - z_faces[0])
                 data = data.rename(z_faces='z_centers')
+                data['z_centers'] = ds['z_centers']
+
+                if field.startswith('acceleration'):
+                    rho = xr.DataArray(get_rho(z_centers), [ds['z_centers']])
+                    data = data / rho
+
+                elif field.startswith('deposition'):
+                    units = f'seconds since {EPOCH}'
+                    seconds = cftime.date2num(data['time'], units)
+                    data = data.cumsum('time') * (seconds[1] - seconds[0])
 
         else:
             data = ds[field]

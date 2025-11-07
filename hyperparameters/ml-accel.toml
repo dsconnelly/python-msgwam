@@ -25,9 +25,8 @@ max_sink = 0.1
 [training]
 batch_size = 512
 M_transform = 'constant'
-loss_scale_Y = 0.2
+loss_func = 'smae'
 max_epochs = 70
-min_delta = 0.001
-n_smoothing = 5
+min_delta = 0.0005
+n_smoothing = 2
 patience = 15
-W_scale = 10

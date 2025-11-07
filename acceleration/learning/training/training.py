@@ -25,7 +25,7 @@ from ... import hyperparameters as hp
 from ..architectures import ConvNet
 
 from .inference import serialize_model
-from .io import CMYW, prepare_data
+from .io import CMY, prepare_data
 from .losses import FluxLoss
 
 _DEVICE = torch.device('cpu')
@@ -34,6 +34,8 @@ if torch.cuda.is_available():
     print('Training will occur on the GPU.')
 
 torch.set_flush_denormal(True)
+
+_CACHE = {}
 
 def search_hyperparameters(n_hours_str: str) -> None:
     """
@@ -124,7 +126,7 @@ def _get_optimizer(
     """
 
     optim_name = trial.suggest_categorical('optimizer', ['AdamW', 'SGD'])
-    lr_bounds = {'AdamW' : (1e-5, 4e3), 'SGD' : (1e-2, 5e-1)}[optim_name]
+    lr_bounds = {'AdamW' : (1e-5, 5e-3), 'SGD' : (1e-2, 5e-1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
     kwargs = {'lr' : lr}
 
@@ -187,7 +189,7 @@ def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
     return schedulers[scheduler_name](optimizer, **kwargs)
 
 def _iter_loaders(
-    tensors: CMYW,
+    tensors: CMY,
     idxs: tuple[np.ndarray, np.ndarray],
 ) -> Iterator[DataLoader]:
     """
@@ -238,7 +240,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 450000 if eval_type == 'va' else None
+    n_samples = 500000 if eval_type == 'va' else None
 
     state = None
     if restart and eval_type == 'te':
@@ -249,15 +251,24 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     optimizer = _get_optimizer(trial, model, state)
     scheduler = _get_scheduler(trial, optimizer)
 
-    tensors, idxs, transforms = prepare_data(
-        n_bins=model._n_bins,
-        eval_type=eval_type,
-        n_samples=n_samples,
-        seed=(trial.number + 1)
-    )
+    try:
+        tensors, idxs, transforms = _CACHE[model._n_bins]
+        print(f'Found data for {model._n_bins} bins in the cache.')
+
+    except KeyError:
+        tensors, idxs, transforms = prepare_data(
+            trial=trial,
+            n_bins=model._n_bins,
+            eval_type=eval_type,
+            n_samples=n_samples,
+            seed=model._n_bins
+        )
+
+        if eval_type == 'va':
+            _CACHE[model._n_bins] = (tensors, idxs, transforms)
 
     loader_tr, loader_ev = _iter_loaders(tensors, idxs)
-    loss_func = FluxLoss(trial, loader_tr.dataset.tensors[-1])
+    loss_func = FluxLoss(loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -265,7 +276,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     n_epoch, waited = 1, 0
 
     patience = hp.training.patience if eval_type == 'va' else -1
-    max_epochs = hp.training.max_epochs if eval_type == 'va' else -120
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else -60
 
     if max_epochs > 0:
         keep_going = lambda n, _: n <= max_epochs
@@ -280,21 +291,17 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
 
     while keep_going(n_epoch, time()):
         epoch_start = time()
-        losses_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
-        losses_ev = _run_epoch(model, loader_ev, loss_func)
+        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
-        *_, loss_ev = losses_ev
         improved = loss_ev < best_score - hp.training.min_delta
+        suffix = ' (new best)' if improved else ''
 
         if n_epoch % n_print == 0:
             print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
-            for losses, tag in zip([losses_tr, losses_ev], ['tr', 'ev']):
-                suffix = ' (new best)' if improved and tag == 'ev' else ''
-
-                print(f'      loss_{tag}  = {losses[-1]:.6f}{suffix}')
-                print(f'        loss_Y = {losses[0]:.6f}')
-                print(f'        loss_W = {losses[1]:.6f}')
+            print(f'      loss_tr = {loss_tr:.6f}')
+            print(f'      loss_ev = {loss_ev:.6f}{suffix}')
 
         if np.isnan(loss_ev):
             print('NaN detected with parameters')
@@ -371,7 +378,7 @@ def _run_epoch(
         loss_func.train()
 
     weight_sum = 0
-    totals = None
+    total = 0
 
     for tensors in loader:
         C, M, *targets = [a.to(_DEVICE) for a in tensors]
@@ -386,17 +393,12 @@ def _run_epoch(
 
         weight = M.shape[0]
         weight_sum = weight_sum + weight
-        losses = loss_func(*targets, *outputs)
-
-        if totals is None:
-            totals = [0] * len(losses)
-
-        for i, v in enumerate(losses):
-            totals[i] += weight * v
+        loss = loss_func(*targets, outputs)
+        total = total + weight * loss
 
         if optimizer is not None:
-            losses[-1].backward()
+            loss.backward()
             optimizer.step()
 
-    rms = lambda a: (a / weight_sum).item()
-    return list(map(rms, totals))
+    p = {'mse' : 2, 'smae' : 1}[hp.training.loss_func]
+    return (total / weight_sum).item() ** (1 / p)
