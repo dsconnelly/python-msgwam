@@ -67,9 +67,10 @@ class NetworkPropagator(Propagator):
 
         inputs = map(torch.as_tensor, [C, M])
         F_v, D = [out.numpy() for out in self._model(*inputs)]
-        M, F = _get_M_and_F(M, F_v, D)
+        M = _get_M(M, F_v, D)
+        F = F_v.sum(1)
        
-        self._M = M * budget
+        self._M = (M) * budget
         self._F = F * budget[:, 0] * mean.dz / hp.generation.dt_output
 
         return self
@@ -126,14 +127,14 @@ class NetworkPropagator(Propagator):
 
         return torch.as_tensor(np.hstack((wind, N, lat)))
 
-def _get_M_and_F(
+@nb.njit
+def _get_M(
     M: np.ndarray,
     F_v: np.ndarray,
     D: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
+) -> np.ndarray:
     """
-    A : source at each point to do with flux div
-    D : sink at each point to do with sinks (e.g. positive always)
+    
     """
 
     for k in range(M.shape[2]):
@@ -155,4 +156,4 @@ def _get_M_and_F(
     b = M.sum(axis=1, keepdims=True)
     b[b <= 0] = 1
 
-    return a * M / b, F_v.sum(axis=1)
+    return a * M / b

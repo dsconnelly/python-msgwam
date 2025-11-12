@@ -2,7 +2,7 @@ import json
 
 from copy import deepcopy
 from time import time
-from typing import Iterator, Optional
+from typing import Iterator, Literal, Optional
 
 import numpy as np
 import torch
@@ -27,6 +27,7 @@ from ..architectures import ConvNet
 from .inference import serialize_model
 from .io import CMY, prepare_data
 from .losses import FluxLoss
+from .transforms import Transform
 
 _DEVICE = torch.device('cpu')
 if torch.cuda.is_available():
@@ -35,7 +36,7 @@ if torch.cuda.is_available():
 
 torch.set_flush_denormal(True)
 
-_CACHE = {}
+PREVIOUS = [(None, None, None)]
 
 def search_hyperparameters(n_hours_str: str) -> None:
     """
@@ -214,6 +215,50 @@ def _iter_loaders(
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
 
+def _maybe_load_data(
+    n_bins: int,
+    eval_type: Literal['va', 'te'],
+    n_samples: int,
+    p_M: int
+) -> tuple[
+    CMY,
+    tuple[torch.Tensor, torch.Tensor],
+    tuple[Transform, Transform, Transform]
+]:
+    """
+    Load training data and associated split indices and transforms. If called
+    during a hyperparameter search, first checks to see if suitable data was
+    loaded during the previous trial.
+
+    Parameters
+    ----------
+    n_bins, eval_type, n_samples, p_M
+        Parameters to pass to `prepare_data`.
+
+    Returns
+    -------
+    tuple
+        Data as returned by `prepare_data`.
+
+    """
+
+    *key, cached = PREVIOUS.pop()
+    if eval_type == 'va' and tuple(key) == (n_bins, p_M):
+        print('Found matching samples from previous trial.')
+        to_cache = cached
+
+    else:
+        to_cache = prepare_data(
+            n_bins,
+            eval_type,
+            n_samples,
+            p_M=p_M,
+            seed=n_bins
+        )
+
+    PREVIOUS.append((n_bins, p_M, to_cache))
+    return to_cache
+
 def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
@@ -240,7 +285,8 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     """
 
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 500000 if eval_type == 'va' else None
+    n_samples = 750000 if eval_type == 'va' else None
+    p_M = trial.suggest_int('p_M', 1, 5)
 
     state = None
     if restart and eval_type == 'te':
@@ -251,23 +297,10 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     optimizer = _get_optimizer(trial, model, state)
     scheduler = _get_scheduler(trial, optimizer)
 
-    try:
-        tensors, idxs, transforms = _CACHE[model._n_bins]
-        print(f'Found data for {model._n_bins} bins in the cache.')
-
-    except KeyError:
-        tensors, idxs, transforms = prepare_data(
-            trial=trial,
-            n_bins=model._n_bins,
-            eval_type=eval_type,
-            n_samples=n_samples,
-            seed=model._n_bins
-        )
-
-        if eval_type == 'va':
-            _CACHE[model._n_bins] = (tensors, idxs, transforms)
-
+    args = (model._n_bins, eval_type, n_samples, p_M)
+    tensors, idxs, transforms = _maybe_load_data(*args)
     loader_tr, loader_ev = _iter_loaders(tensors, idxs)
+
     loss_func = FluxLoss(loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 

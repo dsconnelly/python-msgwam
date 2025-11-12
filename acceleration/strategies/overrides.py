@@ -103,7 +103,7 @@ def _get_reference_overrides() -> dict[str, Any]:
         'dr_source' : 100,
         'n_source' : 200,
         'n_increment' : 1000,
-        'prune_by' : 'none',
+        'prune_by' : 'none'
     }
 
 def _get_stochastic_overrides(speedup_str: str) -> dict[str, Any]:

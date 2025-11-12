@@ -38,9 +38,9 @@ class Transform(nn.Module):
         a = take_root(a, p)
 
         if mode == 'constant':
-            b = a.transpose(1, 2).flatten(0, 1)
-            sigma = nonzero_stat(b.numpy(), mode='std')[:, None]
-            sigma = torch.as_tensor(sigma)
+            b = a.permute([0, a.ndim - 1, *range(1, a.ndim - 1)])
+            sigma = nonzero_stat(b.flatten(0, 1).numpy(), mode='std')
+            sigma = torch.as_tensor(sigma)[..., None]
 
             shift = sigma * torch.ones(a.shape[1:])
             scale = sigma * torch.ones(a.shape[1:])

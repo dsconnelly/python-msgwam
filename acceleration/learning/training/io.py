@@ -154,16 +154,16 @@ def cache_arrays(n_bins_str: str) -> None:
     print(f'Cached {keep.sum()} total samples')
 
 def prepare_data(
-    trial: Trial,
     n_bins: int,
     eval_type: Literal['va', 'te'],
     n_samples: Optional[int]=None,
     apply_transforms: bool=True,
+    p_M: int=1,
     seed: int=1234
 ) -> tuple[
     CMY,
     tuple[np.ndarray, np.ndarray],
-    tuple[Transform, Transform]
+    tuple[Transform, Transform, Transform]
 ]:
     """
     Prepare data for training or plotting.
@@ -212,27 +212,25 @@ def prepare_data(
     idx_ev, = np.where(sdx >= n_tr)
     keep = keep[sdx]
 
-    C = torch.as_tensor(C_mm[keep, 1:])
-    M = torch.as_tensor(M_mm[keep])
-    Y = torch.as_tensor(Y_mm[keep])
+    C = torch.as_tensor(C_mm[keep, 1:]).float()
+    M = torch.as_tensor(M_mm[keep]).float()
+    Y = torch.as_tensor(Y_mm[keep]).float()
 
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
     del C_mm, M_mm, Y_mm
 
-    p_M = trial.suggest_int('p_M', 1, 5)
-    C_trans = Transform(C[idx_tr], mode='z')
-    M_trans = Transform(M[idx_tr], mode='constant', p=p_M)
+    C_trans = Transform(C[idx_tr], mode='z').float()
+    M_trans = Transform(M[idx_tr], mode='constant', p=p_M).float()
 
     p_Y = torch.as_tensor([3, 5])[:, None, None]
-    Y_trans = Transform(Y[idx_tr], 'constant', p_Y, True)
+    Y_trans = Transform(Y[idx_tr], 'constant', p_Y, True).float()
 
     if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
         Y = Y_trans(Y)
 
-    tensors = tuple([a.float() for a in (C, M, Y)])
-    return tensors, (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
+    return (C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
