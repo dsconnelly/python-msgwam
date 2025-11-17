@@ -24,9 +24,11 @@ max_sink = 0.1
 
 [training]
 batch_size = 512
+exp_name = 'cayuga'
+loss_func = 'mse'
 M_transform = 'constant'
-loss_func = 'smae'
 max_epochs = 70
 min_delta = 0.0005
+n_online_test = 0
 n_smoothing = 2
 patience = 15

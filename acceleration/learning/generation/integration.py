@@ -78,7 +78,7 @@ def save_training_data(n_str: Optional[str]=None) -> None:
 
     year, month, site, lat = get_info(n)
     ds = xr.Dataset(data).assign_attrs(latitude=lat)
-    dir_name = f'data/ml-accel/integrations/{year}'
+    dir_name = f'data/ml-accel/integrations-1200/{year}'
     ds.to_netcdf(f'{dir_name}/{site}-{month}.nc')
 
 def _make_callback(
@@ -135,7 +135,7 @@ def _make_callback(
 
         project(prop.r, prop.dr, mean.z_faces, attr, bdx, D[i])
         project(prop.r, prop.dr, prop._z_padded, mom * cg, bdx, F[i])
-        _break_oob_rays(prop, mean, mom + attr, bdx, D[i, :, -config.n_sponge:])
+        prop._delete_rays(prop.age < 0)
         
         if n_seconds % hp.dt_output:
             return

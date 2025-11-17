@@ -13,7 +13,8 @@ from .io import prepare_data
 from .transforms import Transform
 
 def serialize_model(
-    inputs: Optional[tuple[ConvNet, Transform, Transform]]=None
+    model_path: Optional[str]=None,
+    inputs: Optional[tuple[ConvNet, Transform, Transform]]=None,
 ) -> None:
     """
     Load a trained model, wrap it in a module containing appropriate input and
@@ -47,7 +48,10 @@ def serialize_model(
         scripted = torch.jit.script(wrapper.float().cpu())
         scripted = torch.jit.optimize_for_inference(scripted)
 
-    torch.jit.save(scripted, 'data/ml-accel/models/scripted.jit')
+    if model_path is not None:
+        torch.jit.save(scripted, model_path)
+
+    return scripted
 
 class Inferer(nn.Module):
     def __init__(
@@ -104,8 +108,9 @@ class Inferer(nn.Module):
 
         """
 
+        n_bins = self._model._n_bins
         C, M = self._C_trans(C.float()), self._M_trans(M.float())
-        out = torch.zeros((M.shape[0], 2, M.shape[1], M.shape[2])).float()
+        out = torch.zeros((M.shape[0], 2, n_bins, M.shape[2])).float()
 
         i = 0
         while i < M.shape[0]:

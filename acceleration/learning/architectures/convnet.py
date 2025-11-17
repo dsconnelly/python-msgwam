@@ -40,15 +40,18 @@ class ConvNet(nn.Module):
         C = C.reshape(-1, 2, config.n_grid - 1)
         meta = self._meta_block(meta)[:, None]
 
-        if hasattr(self, '_z'):
+        if self._use_z:
             z = torch.tile(self._z, (C.shape[0], 1, 1))
             meta = torch.cat((meta, z), dim=1)
+
+        if not self._use_M_tot:
+            M = M[:, :self._n_bins]
 
         X = self._joint_block(torch.cat((C, meta, M), dim=1))
         Y = self._postprocess(self._shape_block(X))
 
         if self._use_mask:
-            mask = M > M.min() + 1e-14
+            mask = M[:, :self._n_bins] > M.min() + 1e-14
             Y = Y * mask[:, None]
 
         return Y
@@ -69,7 +72,10 @@ class ConvNet(nn.Module):
         i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
         self._n_bins = options[i]
 
-        if trial.suggest_categorical('use_z', [True, False]):
+        self._use_M_tot = trial.suggest_categorical('use_M_tot', [True, False])
+        self._use_z = trial.suggest_categorical('use_z', [True, False])
+
+        if self._use_z:
             z = torch.linspace(-1, 1, config.n_grid - 1)
             self.register_buffer('_z', z)
 
@@ -185,7 +191,7 @@ class ConvNet(nn.Module):
         wind, one for buoyancy frequency, and one for the encoded metadata.
         """
 
-        return self._n_bins + 3 + hasattr(self, '_z')
+        return self._n_bins + 3 + self._use_z + self._use_M_tot
     
     @property
     def _n_channels_out(self) -> int:

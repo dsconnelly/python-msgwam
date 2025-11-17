@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 import torch, torch.nn as nn
 
@@ -7,7 +7,11 @@ from ...hyperparameters import training as hp
 class FluxLoss(nn.Module):
     _scales_Y: torch.Tensor
     
-    def __init__(self, Y: torch.Tensor) -> None:
+    def __init__(
+        self,
+        loss_type: Literal['mse', 'smae'],
+        Y: torch.Tensor
+    ) -> None:
         """
         Initialize the loss module.
 
@@ -23,6 +27,10 @@ class FluxLoss(nn.Module):
 
         super().__init__()
 
+        if loss_type not in ['mse', 'smae']:
+            raise ValueError(f'Unknown loss function {loss_type}')
+
+        self._loss_type = loss_type
         scales_Y = torch.clamp(torch.std(Y, dim=(0, 3)), min=0.1)
         self.register_buffer('_scales_Y', scales_Y[:, :, None])
 
@@ -54,14 +62,11 @@ class FluxLoss(nn.Module):
 
         loss_Y = (Y - Y_hat) / self._scales_Y
 
-        if hp.loss_func == 'mse':
+        if self._loss_type == 'mse':
             loss_Y = loss_Y ** 2
 
-        elif hp.loss_func == 'smae':
+        elif self._loss_type == 'smae':
             loss_Y = _smae(loss_Y)
-
-        else:
-            raise ValueError(f'Unknown loss function {hp.loss_func}')
 
         if reduce:
             loss_Y = loss_Y.mean()

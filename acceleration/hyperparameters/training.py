@@ -1,7 +1,9 @@
 batch_size: int
+exp_name: str
 M_transform: str
 max_epochs: int
 min_delta: float
+n_online_test: int
 n_smoothing: int
 patience: int
 loss_func: str

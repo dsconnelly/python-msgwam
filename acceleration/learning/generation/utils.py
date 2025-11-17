@@ -57,7 +57,7 @@ def get_overrides(n: int) -> dict[str, Any]:
         
         'max_age' : 14 * 86400,
         'max_age_ghost' : 2 * 86400,
-        'max_age_warning' : 86400,
+        'max_age_warning' : 14 * 86400,
         'min_flux' : 0,
         'min_cg' : 0,
 
@@ -65,6 +65,7 @@ def get_overrides(n: int) -> dict[str, Any]:
         'n_increment' : 1000,
         'strict_source' : True,
         'oob_action' : 'mark',
+        'n_sponge' : 0,
 
         'n_day' : 30,
         'dt' : hp.generation.dt,

@@ -80,14 +80,14 @@ def _get_MiMAlike_overrides() -> dict[str, Any]:
         'n_source' : 40
     }
 
-def _get_network_overrides() -> dict[str, Any]:
+def _get_network_overrides(exp_name: str) -> dict[str, Any]:
     """Use a neural network to advance the wave momentum state."""
 
-    with open('data/ml-accel/models/hyperparameters.json') as f:
+    with open(f'data/ml-accel/models/hyperparameters-{exp_name}.json') as f:
         n_bins = [1, 2, 3, 4, 6][json.load(f)['n_bin_idx']]
 
     return {
-        'model_path' : 'data/ml-accel/models/scripted.jit',
+        'model_path' : f'data/ml-accel/models/scripted-{exp_name}.jit',
         'propagator_type' : 'network',
         'n_bins' : n_bins,
         'dr_source' : -1200,

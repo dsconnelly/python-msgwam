@@ -1,11 +1,14 @@
 import json
+import os
 
 from copy import deepcopy
 from time import time
-from typing import Iterator, Literal, Optional
+from typing import Iterator, Optional
 
+import cftime
 import numpy as np
 import torch
+import xarray as xr
 
 from optuna import create_study
 from optuna.exceptions import TrialPruned
@@ -20,7 +23,15 @@ from torch.optim.lr_scheduler import (
 )
 from torch.utils.data import DataLoader, TensorDataset
 
+from msgwam import config
+from msgwam.constants import EPOCH
+from msgwam.utils import gaussian_filter
+
 from ... import hyperparameters as hp
+from ...strategies import (
+    get_integration,
+    get_overrides
+)
 
 from ..architectures import ConvNet
 
@@ -36,7 +47,7 @@ if torch.cuda.is_available():
 
 torch.set_flush_denormal(True)
 
-PREVIOUS = [(None, None, None)]
+REFERENCES = {}
 
 def search_hyperparameters(n_hours_str: str) -> None:
     """
@@ -50,26 +61,38 @@ def search_hyperparameters(n_hours_str: str) -> None:
     
     """
 
+    n_warmup = max(hp.training.patience, hp.training.n_online_test)
+    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=n_warmup)
+    name = hp.training.exp_name
+
     study = create_study(
         direction='minimize',
-        study_name='msgwam-convnet',
-        pruner=MedianPruner(5, hp.training.patience),
-        storage='sqlite:///data/ml-accel/models/study.db',
-        load_if_exists=True
+        study_name=f'msgwam-{name}',
+        storage=f'sqlite:///data/ml-accel/models/study-{name}.db',
+        load_if_exists=True,
+        pruner=pruner
     )
 
+    kwargs = {
+        'gc_after_trial' : True,
+        'catch' : (FloatingPointError, RuntimeError,)
+    }
+
+    if hp.training.n_online_test > 0:
+        _init_references()
+
     n_hours = float(n_hours_str)
-    kwargs = {'gc_after_trial' : True, 'catch' : (RuntimeError,)}
     study.optimize(_train, timeout=(n_hours * 3600), **kwargs)
 
     params = study.best_trial.params
-    with open('data/ml-accel/models/hyperparameters.json', 'w') as f:
+    with open(f'data/ml-accel/models/hyperparameters-{name}.json', 'w') as f:
         json.dump(params, f, indent=4)
 
 def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
 
-    with open('data/ml-accel/models/hyperparameters.json') as f:
+    name = hp.training.exp_name
+    with open(f'data/ml-accel/models/hyperparameters-{name}.json') as f:
         _train(FixedTrial(json.load(f), number=-1))
 
 def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
@@ -215,49 +238,34 @@ def _iter_loaders(
         ds = TensorDataset(*[a[idx] for a in tensors])
         yield DataLoader(ds, batch_size, i == 0)
 
-def _maybe_load_data(
-    n_bins: int,
-    eval_type: Literal['va', 'te'],
-    n_samples: int,
-    p_M: int
-) -> tuple[
-    CMY,
-    tuple[torch.Tensor, torch.Tensor],
-    tuple[Transform, Transform, Transform]
-]:
+def _init_references():
     """
-    Load training data and associated split indices and transforms. If called
-    during a hyperparameter search, first checks to see if suitable data was
-    loaded during the previous trial.
-
-    Parameters
-    ----------
-    n_bins, eval_type, n_samples, p_M
-        Parameters to pass to `prepare_data`.
-
-    Returns
-    -------
-    tuple
-        Data as returned by `prepare_data`.
-
+    In hyperparameter search, each trial concludes by using the network in
+    integrations of a few scenarios. This function populates a global dictionary
+    of references with the data needed to perform that evaluation.
     """
 
-    *key, cached = PREVIOUS.pop()
-    if eval_type == 'va' and tuple(key) == (n_bins, p_M):
-        print('Found matching samples from previous trial.')
-        to_cache = cached
+    scenarios = [
+        'lisbon-1',
+        'maldives-3',
+        'miami-10',
+        'weddell-sea-7'
+    ]
 
-    else:
-        to_cache = prepare_data(
-            n_bins,
-            eval_type,
-            n_samples,
-            p_M=p_M,
-            seed=n_bins
-        )
+    for scenario in scenarios:
+        path = f'data/ml-accel/integrations-1200/24/{scenario}.nc'
+        with xr.open_dataset(path) as ds:
+            F = ds['F_bulk'].sum('bin')
+            lat = ds.attrs['latitude']
 
-    PREVIOUS.append((n_bins, p_M, to_cache))
-    return to_cache
+        units = f'seconds since {EPOCH}'
+        F['time'] = cftime.num2date(F['time'].values, units)
+
+        F = gaussian_filter(F, hours=3, z_faces=1500)
+        F_x = F.isel(quadrant=0) - F.isel(quadrant=2)
+        F_y = F.isel(quadrant=1) - F.isel(quadrant=3)
+
+        REFERENCES[scenario] = (lat, F_x, F_y)
 
 def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     """
@@ -284,24 +292,40 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     
     """
 
+    name = hp.training.exp_name
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 750000 if eval_type == 'va' else None
-    p_M = trial.suggest_int('p_M', 1, 5)
+    n_samples = 1000000 if eval_type == 'va' else None
 
     state = None
     if restart and eval_type == 'te':
         kwargs = dict(weights_only=True, map_location=torch.device('cpu'))
-        state = torch.load('data/ml-accel/models/state-best.pkl', **kwargs)
+        state = torch.load(f'data/ml-accel/models/state-{name}.pkl', **kwargs)
 
     model = _get_model(trial, state)
     optimizer = _get_optimizer(trial, model, state)
     scheduler = _get_scheduler(trial, optimizer)
 
-    args = (model._n_bins, eval_type, n_samples, p_M)
-    tensors, idxs, transforms = _maybe_load_data(*args)
-    loader_tr, loader_ev = _iter_loaders(tensors, idxs)
+    if hp.training.n_online_test > 0:
+        p_F = trial.suggest_int('p_F', 1, 5)
+        p_D = trial.suggest_int('p_D', 1, 5)
+        loss_type = trial.suggest_categorical('loss_type', ['mse', 'smae'])
 
-    loss_func = FluxLoss(loader_tr.dataset.tensors[-1])
+    else:
+        p_F = 3
+        p_D = 5
+        loss_type = hp.training.loss_func
+
+    p_M = trial.suggest_int('p_M', 1, 5)
+    tensors, idxs, transforms = prepare_data(
+        n_bins=model._n_bins,
+        ps=(p_M, p_F, p_D),
+        eval_type=eval_type,
+        n_samples=n_samples,
+        seed=model._n_bins
+    )
+
+    loader_tr, loader_ev = _iter_loaders(tensors, idxs)
+    loss_func = FluxLoss(loss_type, loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -336,18 +360,6 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
             print(f'      loss_tr = {loss_tr:.6f}')
             print(f'      loss_ev = {loss_ev:.6f}{suffix}')
 
-        if np.isnan(loss_ev):
-            print('NaN detected with parameters')
-            for key, value in trial.params.items():
-                print(f'    {key}: {value}')
-
-            raise TrialPruned()
-
-        trial.report(loss_ev, n_epoch)
-        too_slow = (eval_type == 'va') and (n_epoch == 2) and (runtime > 45)
-        if trial.should_prune() or too_slow:
-            raise TrialPruned()
-
         if improved:
             state['model'] = deepcopy(model.state_dict())
             state['optimizer'] = deepcopy(optimizer.state_dict())
@@ -360,16 +372,35 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
                 print('Stopping early due to lack of improvement.')
                 break
 
+        too_slow = (eval_type == 'va') and (n_epoch == 2) and (runtime > 45)
+        should_prune = too_slow or np.isnan(loss_ev)
+
+        if hp.training.n_online_test == 0:
+            trial.report(loss_ev, n_epoch)
+            should_prune = should_prune or trial.should_prune()
+
+        elif n_epoch % hp.training.n_online_test == 0:
+            trial.report(_run_online_tests(model, transforms), n_epoch)
+            should_prune = should_prune or trial.should_prune()
+
+        if should_prune:
+            raise TrialPruned()
+
         if scheduler is not None:
             needs_loss = isinstance(scheduler, ReduceLROnPlateau)
             scheduler.step(*([loss_ev] if needs_loss else []))
         
         n_epoch = n_epoch + 1
 
+    model.load_state_dict(state['model'])
+
     if eval_type == 'te':
-        model.load_state_dict(state['model'])
-        serialize_model((model, *transforms))
-        torch.save(state, 'data/ml-accel/models/state-best.pkl')
+        scripted = serialize_model(None, (model, *transforms))
+        torch.jit.save(scripted, f'data/ml-accel/models/scripted-{name}.jit')
+        torch.save(state, f'data/ml-accel/models/state-{name}.pkl')
+
+    if hp.training.n_online_test > 0:
+        return _run_online_tests(model, transforms)
 
     return best_score
 
@@ -433,5 +464,55 @@ def _run_epoch(
             loss.backward()
             optimizer.step()
 
-    p = {'mse' : 2, 'smae' : 1}[hp.training.loss_func]
-    return (total / weight_sum).item() ** (1 / p)
+    return (total / weight_sum).item()
+
+def _run_online_tests(model: ConvNet, transforms: list[Transform]) -> float:
+    """
+    Integrate several scenarios using the trained network, and return the
+    average flux RMSE, as a final evaluation step in hyperparameter search.
+
+    Parameters
+    ----------
+    n_bins
+        Number of bins in trained model.
+    
+    Returns
+    -------
+    float
+        Normalized flux RMSE over all scenarios.
+
+    """
+
+    scripted = serialize_model(None, (model, *transforms))
+    torch.jit.save(scripted, '.tmp-model.jit')
+
+    kwargs = get_overrides('network')
+    kwargs['model_path'] = '.tmp-model.jit'
+    kwargs['dt_output'] = hp.generation.dt_output
+    kwargs['n_bins'] = model._n_bins
+
+    score = 0
+    for scenario, (lat, *refs) in REFERENCES.items():
+        path = f'data/ml-accel/context/24/{scenario}.nc'
+        kwargs['prescribed_mean_file'] = path
+        kwargs['latitude'] = lat
+
+        with config.override(**kwargs):
+            ds = get_integration().isel(member=0)
+
+        for ref, cs in zip(refs, ['ew', 'ns']):
+            rms = np.sqrt((ref ** 2).mean('time'))
+            keep = (20e3 <= ref['z_faces']) & (ref['z_faces'] <= 55e3)
+            keep = keep.values
+
+            pmf = ds[f'pmf_{cs[0]}'] + ds[f'pmf_{cs[1]}']
+            rmse = np.sqrt(((pmf - ref) ** 2).mean('time'))
+
+            rms = rms.isel(z_faces=keep)
+            rmse = rmse.isel(z_faces=keep)
+            score = score + (rmse / rms).mean('z_faces')
+
+    model.to(_DEVICE)
+    os.remove('.tmp-model.jit')
+
+    return score.item() / len(REFERENCES) / 2

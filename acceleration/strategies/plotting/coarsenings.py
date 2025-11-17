@@ -144,7 +144,7 @@ def plot_coarse_errors(kind: str, prefix: str='') -> None:
             if kind == 'acceleration':
                 zaxes[k].set_xscale('log')
 
-            zaxes[k].set_ylim(10, config.z_max / 1000)
+            zaxes[k].set_ylim(20, config.z_max / 1000)
             zaxes[k].tick_params('both', direction='in')
 
             zaxes[k].grid(color='lightgray')

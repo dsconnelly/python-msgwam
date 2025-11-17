@@ -155,10 +155,10 @@ def cache_arrays(n_bins_str: str) -> None:
 
 def prepare_data(
     n_bins: int,
+    ps: tuple[int, int, int],
     eval_type: Literal['va', 'te'],
     n_samples: Optional[int]=None,
     apply_transforms: bool=True,
-    p_M: int=1,
     seed: int=1234
 ) -> tuple[
     CMY,
@@ -218,11 +218,12 @@ def prepare_data(
 
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
     del C_mm, M_mm, Y_mm
-
+    
+    p_M, p_F, p_D = ps
     C_trans = Transform(C[idx_tr], mode='z').float()
     M_trans = Transform(M[idx_tr], mode='constant', p=p_M).float()
 
-    p_Y = torch.as_tensor([3, 5])[:, None, None]
+    p_Y = torch.as_tensor([p_F, p_D])[:, None, None]
     Y_trans = Transform(Y[idx_tr], 'constant', p_Y, True).float()
 
     if apply_transforms:
@@ -296,6 +297,10 @@ def _parse_momentum(
     M_out = (M - S)[1:].reshape(-1, *M.shape[2:])
     D = -D[1:].reshape(-1, *D.shape[2:])
 
+    M_tot = M[:-1].sum(axis=(1, 2))[:, None]
+    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, M_tot.shape[2]))
+    M_tot = M_tot.reshape(-1, M_tot.shape[-1])[:, None]
+
     M_in = reshape_data(M_in, n_bins, 'sum')
     M_out = reshape_data(M_out, n_bins, 'sum')
     D = reshape_data(D, n_bins, 'sum')
@@ -305,7 +310,7 @@ def _parse_momentum(
         M_out = apply_smoothing(M_out)
         D = apply_smoothing(D)
 
-    dF = M_out - M_in - D    
+    dF = M_out - M_in - D
     F_v = get_vertical_flux(M_in, dF)
     Y = np.stack((F_v[..., 1:], D), axis=1)
 
@@ -315,11 +320,17 @@ def _parse_momentum(
 
     M_in[keep] = M_in[keep] / budget[keep]
     M_out[keep] = M_out[keep] / budget[keep]
+    M_tot[keep] = M_tot[keep] / budget[keep]
+    M_in = np.concatenate((M_in, M_tot), axis=1)
+
     Y[keep] = Y[keep] / budget[keep, None]
     budget[keep] = np.log(budget[keep])
 
-    res = M_out.sum(axis=(1, 2)) - Y[:, -1].sum((1, 2)) - 1
+    a = Y[:, 0, :, -1].sum(-1) - Y[:, 1].sum((1, 2))
+    res = abs(M_out.sum((1, 2) + a - 1))
+    keep = keep & (res < 1e-14)
+
     n_active = (abs(Y.sum(axis=(-2, -1))) > 1e-12).sum(-1)
-    keep = keep & (abs(res) < 1e-14) & (n_active == 2)
+    keep = keep & (n_active == 2)
 
     return M_in, Y, budget[:, 0], keep

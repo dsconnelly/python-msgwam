@@ -108,6 +108,8 @@ def plot_error_profiles(kind: str, prefix: str, *strategies: str) -> None:
         for i, task in enumerate(tasks):
             factor, xmax, cname, unit = _get_plot_specs(kind, c)
             factor, xmax = (1, 1) if task == 'rel' else (factor, xmax)
+            xmax = 4 if len(rnames) > 1 and task == 'abs' else xmax
+
             suffix = f'normalized error' if task == 'rel' else f'RMSE ({unit})'
             xlabel = f'{cname} {suffix}'
 
@@ -193,16 +195,16 @@ def _format_strategy(strategy: str) -> str:
 
     """
 
+    if strategy.startswith('MiMAlike'):
+        return 'MiMA-like'
+
     if strategy.startswith('coarse'):
         _, *suffix = strategy.split('-')
-        return f'coarse ({", ".join(suffix)})'
+        return f'optimal coarse\n(prune by {", ".join(suffix)})'
     
     if strategy.startswith('stochastic'):
         _, n = strategy.split('-')
         return f'stochastic\n($\\epsilon = {n}^{{-1}}$)'
-    
-    if strategy == 'instantaneous':
-        return 'steady-state'
     
     return strategy
 

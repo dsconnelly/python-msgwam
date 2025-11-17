@@ -7,6 +7,7 @@ from .plotting import (
     plot_strategy,
     plot_trajectories
 )
+from .overrides import get_overrides
 
 __all__ = [
     'get_integration',
