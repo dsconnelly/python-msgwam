@@ -5,7 +5,11 @@ import numpy as np
 import tqdm
 
 @nb.njit
-def get_vertical_flux(M: np.ndarray, dF: np.ndarray) -> np.ndarray:
+def get_vertical_flux(
+    M: np.ndarray,
+    dF: np.ndarray,
+    F_est: np.ndarray
+) -> np.ndarray:
     """
     Get the vertical flux given the flux divergence, assuming that the flux is
     proportional to the momentum concentration unless there is no pre-existing
@@ -17,6 +21,9 @@ def get_vertical_flux(M: np.ndarray, dF: np.ndarray) -> np.ndarray:
         Input flux at each height and phase speed bin.
     dF
         Flux divergence at each height and phase speed bin.
+    F_est
+        Estimate of the vertical momentum flux to use when there is no bulk
+        momentum (e.g. from projections of the online flux).
 
     Returns
     -------
@@ -30,20 +37,42 @@ def get_vertical_flux(M: np.ndarray, dF: np.ndarray) -> np.ndarray:
 
     for i in range(n_samples):
         for k in range(n_vert):
-            F_out = (F[i, :, k] - dF[i, :, k]).sum()
-            avail = M[i, :, k].sum()
+            delta = F[i, :, k] - dF[i, :, k]
+            start = 0
 
-            if avail > 1e-14:
-                F[i, :, k + 1] = F_out * M[i, :, k] / avail
+            while start < n_bins:
+                if np.abs(delta[start]) < 1e-14:
+                    start = start + 1
+                    continue
 
-            else:
-                F[i, :, k + 1] = F_out / M.shape[1]
+                end = start + 1
+                while np.abs(delta[end]) > 1e-14 and end < n_bins:
+                    end = end + 1
 
-    a = F.sum()
+                sdx = slice(start, end)
+                F_out = delta[sdx].sum()
+                avail = M[i, sdx, k].sum()
+                est = F_est[i, sdx, k + 1].sum()
+
+                if avail > 1e-14:
+                    F[i, sdx, k + 1] = F_out * M[i, sdx, k] / avail
+
+                elif est > 1e-14:
+                    F[i, sdx, k + 1] = F_out * F_est[i, sdx, k + 1] / est
+
+                else:
+                    F[i, sdx, k + 1] = F_out / (end - start)
+
+                start = end
+            
+    a = F.sum(axis=1)[:, None]
+    a = np.where(a > 0, a, 1)
+    
     F = F * (F > 1e-14)
-    F = a * F / F.sum()
+    b = F.sum(axis=1)[:, None]
+    b = np.where(b > 0, b, 1)
 
-    return F
+    return a * F / b
 
 @nb.njit
 def get_horizontal_flux(F_v: np.ndarray) -> np.ndarray:

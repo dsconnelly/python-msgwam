@@ -2,6 +2,12 @@ from typing import Iterator, Literal
 
 import torch, torch.nn as nn
 
+ACTIVATIONS = {
+    'relu' : nn.ReLU,
+    'leaky' : nn.LeakyReLU,
+    'tanh' : nn.Tanh
+}
+
 def allocate_layers(n_layers: int, n_blocks: int) -> list[int]:
     """
     Allocate a specified number of layers between the requested numbeer of
@@ -166,9 +172,8 @@ def maybe_interp(a: torch.Tensor, n: int) -> torch.Tensor:
 
     if a.shape[-1] == n:
         return a
-    
-    kwargs = dict(mode='linear', align_corners=False)
-    return nn.functional.interpolate(a, n, **kwargs)
+
+    return nn.functional.interpolate(a, n, mode='linear', align_corners=False)
 
 def xavier_init(layer: nn.Module) -> None:
     """

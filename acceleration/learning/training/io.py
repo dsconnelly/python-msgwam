@@ -5,8 +5,6 @@ import numpy as np
 import torch
 import xarray as xr
 
-from optuna.trial import Trial
-
 from msgwam import config
 
 from ... import hyperparameters as hp
@@ -221,7 +219,7 @@ def prepare_data(
     
     p_M, p_F, p_D = ps
     C_trans = Transform(C[idx_tr], mode='z').float()
-    M_trans = Transform(M[idx_tr], mode='constant', p=p_M).float()
+    M_trans = Transform(M[idx_tr], 'constant', p_M, True).float()
 
     p_Y = torch.as_tensor([p_F, p_D])[:, None, None]
     Y_trans = Transform(Y[idx_tr], 'constant', p_Y, True).float()
@@ -297,21 +295,28 @@ def _parse_momentum(
     M_out = (M - S)[1:].reshape(-1, *M.shape[2:])
     D = -D[1:].reshape(-1, *D.shape[2:])
 
-    M_tot = M[:-1].sum(axis=(1, 2))[:, None]
-    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, M_tot.shape[2]))
-    M_tot = M_tot.reshape(-1, M_tot.shape[-1])[:, None]
-
     M_in = reshape_data(M_in, n_bins, 'sum')
     M_out = reshape_data(M_out, n_bins, 'sum')
     D = reshape_data(D, n_bins, 'sum')
 
+    M_tot = reshape_data(M[:-1], n_bins, 'sum').sum(axis=1)[:, None]
+    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, *M_tot.shape[2:]))
+    M_tot = M_tot.reshape(-1, *M_tot.shape[2:]) - M_in
+    
+    F_est = ds['F_bulk'].values
+    F_est = F_est[1:].reshape(-1, *F_est.shape[2:])
+    F_est = reshape_data(F_est, n_bins, 'sum')
+
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)
         M_out = apply_smoothing(M_out)
+        M_tot = apply_smoothing(M_tot)
         D = apply_smoothing(D)
 
+        F_est = apply_smoothing(F_est)
+
     dF = M_out - M_in - D
-    F_v = get_vertical_flux(M_in, dF)
+    F_v = get_vertical_flux(M_in, dF, F_est)
     Y = np.stack((F_v[..., 1:], D), axis=1)
 
     budget = M_in.sum(axis=(1, 2))
@@ -327,7 +332,7 @@ def _parse_momentum(
     budget[keep] = np.log(budget[keep])
 
     a = Y[:, 0, :, -1].sum(-1) - Y[:, 1].sum((1, 2))
-    res = abs(M_out.sum((1, 2) + a - 1))
+    res = abs(M_out.sum((1, 2)) + a - 1)
     keep = keep & (res < 1e-14)
 
     n_active = (abs(Y.sum(axis=(-2, -1))) > 1e-12).sum(-1)

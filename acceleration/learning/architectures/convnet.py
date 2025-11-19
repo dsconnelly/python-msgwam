@@ -4,13 +4,7 @@ from optuna.trial import Trial
 
 from msgwam import config
 
-from .utils import xavier_init
-
-_ACTIVATIONS = {
-    'relu' : nn.ReLU,
-    'leaky' : nn.LeakyReLU,
-    'tanh' : nn.Tanh
-}
+from .utils import ACTIVATIONS, xavier_init
 
 class ConvNet(nn.Module):
     _one: torch.Tensor
@@ -69,15 +63,14 @@ class ConvNet(nn.Module):
         """
 
         options = [1, 2, 3, 4, 6]
-        i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
+        i = trial.suggest_int('n_bin_idx', 1, len(options) - 2)
         self._n_bins = options[i]
 
         self._use_M_tot = trial.suggest_categorical('use_M_tot', [True, False])
         self._use_z = trial.suggest_categorical('use_z', [True, False])
 
-        if self._use_z:
-            z = torch.linspace(-1, 1, config.n_grid - 1)
-            self.register_buffer('_z', z)
+        z = torch.linspace(-1, 1, config.n_grid - 1)
+        self.register_buffer('_z', z)
 
         use_bn = trial.suggest_categorical('use_bn', [True, False])
         self._init_conv_blocks(trial, use_bn)
@@ -116,7 +109,7 @@ class ConvNet(nn.Module):
         kernel = 1 + 2 * trial.suggest_int('kernel', 1, 4)
         dropout = trial.suggest_float('conv_dropout', 0, 0.2)
         use_res = trial.suggest_categorical('use_res', [True, False])
-        act_str = trial.suggest_categorical('conv_act', _ACTIVATIONS.keys())
+        act_str = trial.suggest_categorical('conv_act', ACTIVATIONS.keys())
 
         min_channels = trial.suggest_int('min_channels', 32, 64)
         max_channels = 2 ** trial.suggest_int('max_channels', 7, 9)
@@ -176,11 +169,11 @@ class ConvNet(nn.Module):
 
         """
 
-        act_str = trial.suggest_categorical('dense_act', _ACTIVATIONS.keys())
+        act_str = trial.suggest_categorical('dense_act', ACTIVATIONS.keys())
         width = trial.suggest_int('meta_width', 32, 64, step=32)
         
         self._meta_block = nn.Sequential(
-            nn.Linear(self._n_meta, width), _ACTIVATIONS[act_str](),
+            nn.Linear(self._n_meta, width), ACTIVATIONS[act_str](),
             nn.Linear(width, config.n_grid - 1)
         )
 
@@ -280,7 +273,7 @@ class _ConvBlock(nn.Module):
         
         args = [
             nn.Conv1d(n_in, n_in, kernel, padding='same', groups=n_in),
-            _ACTIVATIONS[activation](),
+            ACTIVATIONS[activation](),
             nn.Conv1d(n_in, n_out, 1),
             nn.Dropout(dropout)
         ]

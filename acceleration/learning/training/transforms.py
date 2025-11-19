@@ -9,6 +9,7 @@ _Array = np.ndarray | torch.Tensor
 class Transform(nn.Module):
     _shift: torch.Tensor
     _scale: torch.Tensor
+    _p: torch.Tensor
 
     def __init__(
         self,
@@ -34,7 +35,7 @@ class Transform(nn.Module):
 
         """
 
-        self._p = p
+        p = torch.as_tensor(p)
         a = take_root(a, p)
 
         if mode == 'constant':
@@ -58,6 +59,7 @@ class Transform(nn.Module):
         super().__init__()
         self.register_buffer('_shift', shift)
         self.register_buffer('_scale', scale)
+        self.register_buffer('_p', p)
 
     def forward(self, a: torch.Tensor) -> torch.Tensor:
         """
@@ -99,7 +101,8 @@ class Transform(nn.Module):
 
         """
 
-        return (self._scale * a + self._shift) ** self._p
+        out = self._scale * a + self._shift
+        return torch.sign(out) * (abs(out) ** self._p)
 
 @nb.njit
 def apply_smoothing(a: np.ndarray) -> np.ndarray:

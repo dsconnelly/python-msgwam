@@ -33,7 +33,7 @@ from ...strategies import (
     get_overrides
 )
 
-from ..architectures import ConvNet
+from ..architectures import ConvNet, UNet
 
 from .inference import serialize_model
 from .io import CMY, prepare_data
@@ -114,7 +114,7 @@ def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
     
     """
 
-    model = ConvNet(trial)
+    model = UNet(trial)
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Initialized model with {n_params} trainable parameters.')
 
@@ -294,7 +294,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
 
     name = hp.training.exp_name
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 1000000 if eval_type == 'va' else None
+    n_samples = 500000 if eval_type == 'va' else None
 
     state = None
     if restart and eval_type == 'te':

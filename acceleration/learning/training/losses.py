@@ -2,8 +2,6 @@ from typing import Literal, Optional
 
 import torch, torch.nn as nn
 
-from ...hyperparameters import training as hp
-
 class FluxLoss(nn.Module):
     _scales_Y: torch.Tensor
     
@@ -60,7 +58,7 @@ class FluxLoss(nn.Module):
         
         """
 
-        loss_Y = (Y - Y_hat) / self._scales_Y
+        loss_Y = Y - Y_hat
 
         if self._loss_type == 'mse':
             loss_Y = loss_Y ** 2
