@@ -119,7 +119,7 @@ class Inferer(nn.Module):
 
             i = j
 
-        out = self._Y_trans.inverse(out)
+        out = self._Y_trans(out, inverse=True)
         F_v, D = out[:, 0], out[:, 1]
         F_v = _PAD(F_v, (1, 0))
 

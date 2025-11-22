@@ -95,7 +95,7 @@ def train_network() -> None:
     with open(f'data/ml-accel/models/hyperparameters-{name}.json') as f:
         _train(FixedTrial(json.load(f), number=-1))
 
-def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
+def _get_model(trial: Trial, n_bins: int, state: Optional[dict]=None) -> UNet:
     """
     Instantiate a model to train, potentially loading state from a previous run.
 
@@ -103,6 +103,8 @@ def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
     ----------
     trial
         Current trial, used to define the model architecture.
+    n_bins
+        How many phase speed bins to use.
     state
         If not `None`, should be a dictionary with key `'model'` pointing to a
         state dictionary matching the current model architecture.
@@ -114,7 +116,7 @@ def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
     
     """
 
-    model = UNet(trial)
+    model = UNet(trial, n_bins)
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Initialized model with {n_params} trainable parameters.')
 
@@ -127,6 +129,7 @@ def _get_model(trial: Trial, state: Optional[dict]=None) -> ConvNet:
 def _get_optimizer(
     trial: Trial,
     model: ConvNet,
+    Y_trans: Transform,
     state: Optional[dict]=None
 ) -> tuple[Optimizer]:
     """
@@ -138,6 +141,8 @@ def _get_optimizer(
         Current trial, used to select and configure the optimizer.
     model
         Model to train.
+    Y_trans
+        Transform applied to the target data with learnable parameters.
     state
         If not `None`, should contain a key `'optimizer'` pointing to a state
         dictionary matching the current optimizer class and configuration.
@@ -149,7 +154,7 @@ def _get_optimizer(
 
     """
 
-    optim_name = trial.suggest_categorical('optimizer', ['AdamW', 'SGD'])
+    optim_name = trial.suggest_categorical('optimizer', ['AdamW'])
     lr_bounds = {'AdamW' : (1e-5, 5e-3), 'SGD' : (1e-2, 5e-1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
     kwargs = {'lr' : lr}
@@ -165,7 +170,8 @@ def _get_optimizer(
         kwargs['weight_decay'] = weight_decay
 
     optim_cls = getattr(torch.optim, optim_name)
-    optimizer = optim_cls(model.parameters(), **kwargs)
+    params = list(model.parameters()) + list(Y_trans.parameters())
+    optimizer = optim_cls(params, **kwargs)
 
     if state is not None:
         optimizer.load_state_dict(state['optimizer'])
@@ -261,7 +267,7 @@ def _init_references():
         units = f'seconds since {EPOCH}'
         F['time'] = cftime.num2date(F['time'].values, units)
 
-        F = gaussian_filter(F, hours=3, z_faces=1500)
+        F = gaussian_filter(F, hours=24, z_faces=1500)
         F_x = F.isel(quadrant=0) - F.isel(quadrant=2)
         F_y = F.isel(quadrant=1) - F.isel(quadrant=3)
 
@@ -294,38 +300,38 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
 
     name = hp.training.exp_name
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 500000 if eval_type == 'va' else None
+    n_samples = 200000 if eval_type == 'va' else None
 
     state = None
     if restart and eval_type == 'te':
         kwargs = dict(weights_only=True, map_location=torch.device('cpu'))
         state = torch.load(f'data/ml-accel/models/state-{name}.pkl', **kwargs)
 
-    model = _get_model(trial, state)
-    optimizer = _get_optimizer(trial, model, state)
-    scheduler = _get_scheduler(trial, optimizer)
+    options = [1, 2, 3, 4, 6]
+    i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
+    n_bins = options[i]
 
-    if hp.training.n_online_test > 0:
-        p_F = trial.suggest_int('p_F', 1, 5)
-        p_D = trial.suggest_int('p_D', 1, 5)
-        loss_type = trial.suggest_categorical('loss_type', ['mse', 'smae'])
-
-    else:
-        p_F = 3
-        p_D = 5
-        loss_type = hp.training.loss_func
-
-    p_M = trial.suggest_int('p_M', 1, 5)
     tensors, idxs, transforms = prepare_data(
-        n_bins=model._n_bins,
-        ps=(p_M, p_F, p_D),
+        trial=trial,
+        n_bins=n_bins,
         eval_type=eval_type,
         n_samples=n_samples,
-        seed=model._n_bins
+        seed=n_bins
     )
 
+    *_, Y_trans = transforms
+    Y_trans = Y_trans.to(_DEVICE)
+
+    if restart and eval_type == 'te':
+        Y_trans.load_state_dict(state['Y_trans'])
+        print('Previous transform state loaded successfully.')
+
+    model = _get_model(trial, n_bins, state)
+    optimizer = _get_optimizer(trial, model, Y_trans, state)
+    scheduler = _get_scheduler(trial, optimizer)
+
     loader_tr, loader_ev = _iter_loaders(tensors, idxs)
-    loss_func = FluxLoss(loss_type, loader_tr.dataset.tensors[-1])
+    loss_func = FluxLoss(trial, Y_trans)
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -363,6 +369,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
         if improved:
             state['model'] = deepcopy(model.state_dict())
             state['optimizer'] = deepcopy(optimizer.state_dict())
+            state['Y_trans'] = deepcopy(Y_trans.state_dict())
             best_score, waited = loss_ev, 0
 
         else:
@@ -393,6 +400,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
         n_epoch = n_epoch + 1
 
     model.load_state_dict(state['model'])
+    Y_trans.load_state_dict(state['Y_trans'])
 
     if eval_type == 'te':
         scripted = serialize_model(None, (model, *transforms))
@@ -483,13 +491,13 @@ def _run_online_tests(model: ConvNet, transforms: list[Transform]) -> float:
 
     """
 
+    
     scripted = serialize_model(None, (model, *transforms))
     torch.jit.save(scripted, '.tmp-model.jit')
 
-    kwargs = get_overrides('network')
-    kwargs['model_path'] = '.tmp-model.jit'
+    kwargs = get_overrides('network', hp.training.exp_name, model._n_bins)
     kwargs['dt_output'] = hp.generation.dt_output
-    kwargs['n_bins'] = model._n_bins
+    kwargs['model_path'] = '.tmp-model.jit'
 
     score = 0
     for scenario, (lat, *refs) in REFERENCES.items():
@@ -510,9 +518,9 @@ def _run_online_tests(model: ConvNet, transforms: list[Transform]) -> float:
 
             rms = rms.isel(z_faces=keep)
             rmse = rmse.isel(z_faces=keep)
-            score = score + (rmse / rms).mean('z_faces')
+            score = score + (rmse / rms).mean('z_faces').item()
 
     model.to(_DEVICE)
     os.remove('.tmp-model.jit')
 
-    return score.item() / len(REFERENCES) / 2
+    return score / len(REFERENCES) / 2

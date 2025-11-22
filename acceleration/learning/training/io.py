@@ -7,10 +7,12 @@ import xarray as xr
 
 from msgwam import config
 
+from optuna import Trial
+
 from ... import hyperparameters as hp
 from ...shared.constants import MIMA_MONTHS
 
-from .reconstruction import get_vertical_flux
+from .reconstruction import get_dM, get_vertical_flux
 from .transforms import (
     Transform,
     apply_smoothing,
@@ -152,11 +154,11 @@ def cache_arrays(n_bins_str: str) -> None:
     print(f'Cached {keep.sum()} total samples')
 
 def prepare_data(
+    trial: Trial,
     n_bins: int,
-    ps: tuple[int, int, int],
     eval_type: Literal['va', 'te'],
     n_samples: Optional[int]=None,
-    apply_transforms: bool=True,
+    transform_inputs: bool=True,
     seed: int=1234
 ) -> tuple[
     CMY,
@@ -175,7 +177,7 @@ def prepare_data(
         generate training and evaluation index arrays.
     n_samples
         How many samples to return. By default, returns everything.
-    apply_transforms
+    transform_inputs
         Whether to actually apply the transforms to the inputs or just return
         them. Defaults to applying them, but can be skipped in plotting.
     seed
@@ -197,7 +199,7 @@ def prepare_data(
 
     memmaps = []
     for name in 'CMY':
-        path = f'data/ml-accel/cached/{name}-{n_bins}.npy'
+        path = f'data/ml-accel/cached/n2/{name}-{n_bins}.npy'
         memmaps = memmaps + [np.load(path, mmap_mode='r')]
 
     C_mm, M_mm, Y_mm = memmaps
@@ -216,18 +218,18 @@ def prepare_data(
 
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
     del C_mm, M_mm, Y_mm
-    
-    p_M, p_F, p_D = ps
-    C_trans = Transform(C[idx_tr], mode='z').float()
-    M_trans = Transform(M[idx_tr], 'constant', p_M, True).float()
 
-    p_Y = torch.as_tensor([p_F, p_D])[:, None, None]
-    Y_trans = Transform(Y[idx_tr], 'constant', p_Y, True).float()
+    p_M = trial.suggest_int('p_M', 1, 5)
+    C_trans = Transform(C[idx_tr], False, True, False, 1).float()
+    M_trans = Transform(M[idx_tr], False, False, True, p_M).float()
+    Y_trans = Transform(Y[idx_tr], True, False, False, (1, 5)).float()
 
-    if apply_transforms:
+    if transform_inputs:
         C = C_trans(C)
         M = M_trans(M)
-        Y = Y_trans(Y)
+
+    dM = get_dM(Y)[:, None]
+    Y = torch.cat((Y, dM), dim=1)
 
     return (C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
 

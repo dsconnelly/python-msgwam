@@ -63,14 +63,17 @@ class NetworkPropagator(Propagator):
 
         budget = M.sum(axis=(1, 2), keepdims=True)
         C = np.hstack((C, np.log(budget[:, 0])))
-        M = apply_smoothing(M / budget)
+
+        M_tot = M.sum(axis=0)[None] - M
+        M = np.concatenate((M, M_tot), axis=1) / budget
+        M = apply_smoothing(M)
 
         inputs = map(torch.as_tensor, [C, M])
         F_v, D = [out.numpy() for out in self._model(*inputs)]
-        M = _get_M(M, F_v, D)
+        M = _get_M(M[:, :config.n_bins], F_v, D)
         F = F_v.sum(1)
        
-        self._M = (M) * budget
+        self._M = M * budget
         self._F = F * budget[:, 0] * mean.dz / hp.generation.dt_output
 
         return self
@@ -127,7 +130,6 @@ class NetworkPropagator(Propagator):
 
         return torch.as_tensor(np.hstack((wind, N, lat)))
 
-@nb.njit
 def _get_M(
     M: np.ndarray,
     F_v: np.ndarray,

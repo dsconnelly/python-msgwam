@@ -1,6 +1,6 @@
 import json
 
-from typing import Any
+from typing import Any, Optional
 
 from msgwam import config
 
@@ -80,11 +80,16 @@ def _get_MiMAlike_overrides() -> dict[str, Any]:
         'n_source' : 40
     }
 
-def _get_network_overrides(exp_name: str) -> dict[str, Any]:
+def _get_network_overrides(
+    exp_name: str,
+    n_bins: Optional[int]=None
+) -> dict[str, Any]:
     """Use a neural network to advance the wave momentum state."""
 
-    with open(f'data/ml-accel/models/hyperparameters-{exp_name}.json') as f:
-        n_bins = [1, 2, 3, 4, 6][json.load(f)['n_bin_idx']]
+    if n_bins is None:
+        fname = f'hyperparameters-{exp_name}.json'
+        with open(f'data/ml-accel/models/{fname}') as f:
+            n_bins = [1, 2, 3, 4, 6][json.load(f)['n_bin_idx']]
 
     return {
         'model_path' : f'data/ml-accel/models/scripted-{exp_name}.jit',

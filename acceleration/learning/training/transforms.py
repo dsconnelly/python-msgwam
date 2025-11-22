@@ -7,102 +7,107 @@ import torch, torch.nn as nn
 _Array = np.ndarray | torch.Tensor
 
 class Transform(nn.Module):
+    _log_scale: torch.Tensor
+    _logit_p: torch.Tensor
     _shift: torch.Tensor
-    _scale: torch.Tensor
-    _p: torch.Tensor
 
     def __init__(
         self,
         a: torch.Tensor,
-        mode: str,
-        p: torch.Tensor | int=1,
-        scale_only: bool=False
+        learnable: bool,
+        has_shift: bool,
+        by_bin_only: bool,
+        ps: int | tuple[int, int],
     ) -> None:
         """
-        Initialize a module that transforms neural network input data.
+        Initialize a transform, possibly with learnable parameters. Flexible
+        enough to work for all input and output types.
 
         Parameters
         ----------
         a
-            Tensor from which to derive transform statistics.
-        mode
-            What kind of transform to perform. Must be `'constant'` or `'z'`.
-        p
-            Root to take before transforming.
-        scale_only
-            Whether to only include the scale term. Useful for sign-definite
-            target data.
-
-        """
-
-        p = torch.as_tensor(p)
-        a = take_root(a, p)
-
-        if mode == 'constant':
-            b = a.permute([0, a.ndim - 1, *range(1, a.ndim - 1)])
-            sigma = nonzero_stat(b.flatten(0, 1).numpy(), mode='std')
-            sigma = torch.as_tensor(sigma)[..., None]
-
-            shift = sigma * torch.ones(a.shape[1:])
-            scale = sigma * torch.ones(a.shape[1:])
-
-        elif mode == 'z':
-            shift = a.mean(dim=0)
-            scale = a.std(dim=0)
-
-        else:
-            raise ValueError(f'Unknown transform mode: {mode}')
+            Training data. Used to calculate statistics, which are either the
+            statistics used at transform time if `not learnable`, or the initial
+            values of those statistics otherwise.
+        learnable
+            Whether the statistics should be learnable or fixed.
+        has_shift
+            Whether to include a shift or just a scale.
+        by_bin_only
+            Whether the shift and scale parameters should be per-level and per-
+            phase speed bin or per-bin only.
+        ps
+            If a tuple the bounds on the order of the root to use at transform
+            time. If an integer, the upper and lower bounds are the same. Must
+            be an integer if `not learnable`.
         
-        if scale_only:
-            shift = 0 * shift
+        """
 
         super().__init__()
+
+        if isinstance(ps, int):
+            ps = (ps, ps)
+        elif not learnable:
+            raise ValueError('Must specify a power for a fixed Transform')
+        
+        p_min, p_max = ps
+        self._p_min = p_min
+        self._dp = p_max - p_min
+        a = take_root(a, (p_min + p_max / 2))
+
+        if by_bin_only:
+            b = a.permute([0, a.ndim - 1, *range(1, a.ndim - 1)])
+            scale = nonzero_stat(b.flatten(0, 1).numpy(), mode='std')
+            scale = torch.as_tensor(scale)[..., None]
+        else:
+            scale = a.std(dim=0)
+            scale[scale == 0] = 1
+
+        if has_shift:
+            shift = a.mean(dim=0)
+        else:
+            shift = torch.zeros(1)
+
+        shape = (*a.shape[1:-1], 1)
+        logit_p = torch.zeros(shape)
+
+        word = 'parameter' if learnable else 'buffer'
+        register = getattr(self, f'register_{word}')
+        log_scale = torch.log(scale)
+
+        if learnable:
+            log_scale = nn.Parameter(log_scale)
+            logit_p = nn.Parameter(logit_p)
+
         self.register_buffer('_shift', shift)
-        self.register_buffer('_scale', scale)
-        self.register_buffer('_p', p)
+        register('_log_scale', log_scale)
+        register('_logit_p', logit_p)
 
-    def forward(self, a: torch.Tensor) -> torch.Tensor:
-        """
-        Transform the input along the first dimension.
+    @property
+    def _p(self) -> torch.Tensor:
+        """Get the order of the roots."""
 
-        Parameters
-        ----------
-        a
-            Data to transform.
-        
-        Returns
-        -------
-        torch.Tensor
-            Transformed data.
-
-        """
-
-        a = take_root(a, self._p)
-        out = torch.zeros_like(a)
-
-        sdx = self._scale > 0
-        out[:, sdx] = (a - self._shift)[:, sdx] / self._scale[sdx]
-        
-        return out
+        return self._p_min + self._dp * torch.sigmoid(self._logit_p)
     
-    def inverse(self, a: torch.Tensor) -> torch.Tensor:
+    @property
+    def _scale(self) -> torch.Tensor:
+        """Get the scale parameter to use after taking a root."""
+
+        return torch.exp(self._log_scale)
+
+    def forward(self, a: torch.Tensor, inverse: bool=False) -> torch.Tensor:
         """
-        Invert the transform back into dimensional space.
-
-        Parameters
-        ----------
-        a
-            Transformed data.
-
-        Returns
-        -------
-        torch.Tensor
-            Data with transformation inverted.
-
+        Transform a tensor, or revers the transformation.
         """
 
-        out = self._scale * a + self._shift
-        return torch.sign(out) * (abs(out) ** self._p)
+        if inverse:
+            scale = self._scale
+            scale = scale * (scale < 1)
+            out = scale * a + self._shift
+
+            return torch.sign(out) * torch.abs(out) ** self._p
+        
+        return (take_root(a, self._p) - self._shift) / self._scale
 
 @nb.njit
 def apply_smoothing(a: np.ndarray) -> np.ndarray:
@@ -199,7 +204,7 @@ def reshape_data(
         n_skip = a.shape[-2] // n_bins
         return a[..., (n_skip - 1)::n_skip, :]
 
-def take_root(a: torch.Tensor, p: int) -> torch.Tensor:
+def take_root(a: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
     """
     Take a root while respecting the sign of the input.
 

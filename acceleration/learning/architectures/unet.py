@@ -7,21 +7,24 @@ from msgwam import config
 from .utils import ACTIVATIONS, iter_pairs, maybe_interp, xavier_init
 
 class UNet(nn.Module):
-    def __init__(self, trial: Trial) -> None:
+    _z: torch.Tensor
+
+    def __init__(self, trial: Trial, n_bins: int) -> None:
         """
         Initialize a UNet with a specific number of phase speed bins.
 
         Parameters
         ----------
-        n_bins
-            Number of phase speed bins into which the bulk momentum is split.
         trial
             Current trial, used to sample parameters for the UNet.
+        n_bins
+            Number of phase speed bins into which the bulk momentum is split.
 
         """
 
         super().__init__()
 
+        self._n_bins = n_bins
         self._init_settings(trial)
         self._init_dense(trial)
         self._init_convs(trial)
@@ -72,10 +75,6 @@ class UNet(nn.Module):
 
     def _init_settings(self, trial: Trial) -> None:
         """Sample general hyperparameters from the trial."""
-
-        options = [1, 2, 3, 4, 6]
-        i = trial.suggest_int('n_bin_idx', 1, len(options) - 2)
-        self._n_bins = options[i]
 
         self._use_M_tot = trial.suggest_categorical('use_M_tot', [True, False])
         self._use_mask = trial.suggest_categorical('use_mask', [True, False])

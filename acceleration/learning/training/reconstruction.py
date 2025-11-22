@@ -2,7 +2,19 @@ from itertools import product
 
 import numba as nb
 import numpy as np
+import torch
 import tqdm
+
+def get_dM(Y: torch.Tensor) -> torch.Tensor:
+    """
+    Get the total change in momentum density from the vertical fluxes and sink
+    profiles, without correction (for use during training.)
+    """
+
+    F, D = Y[:, 0], Y[:, 1]
+    F = torch.nn.functional.pad(F, (1, 0))
+
+    return F[..., :-1] - F[..., 1:] + D
 
 @nb.njit
 def get_vertical_flux(
