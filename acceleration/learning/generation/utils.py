@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 
 import numba as nb
 import numpy as np
@@ -6,7 +6,10 @@ import xarray as xr
 
 from ... import hyperparameters as hp
 
-def get_bin_edges(n_bins: Optional[int]=None) -> np.ndarray:
+def get_bin_edges(
+    n_bins: Optional[int]=None,
+    mode: Literal['coarsen', 'from_left']='coarsen'
+) -> np.ndarray:
     """
     Get the bin edges to use when projecting the ray volumes.
 
@@ -22,8 +25,12 @@ def get_bin_edges(n_bins: Optional[int]=None) -> np.ndarray:
     edges = np.concatenate((edges, [100]))
 
     if n_bins is not None:
-        left = edges[:-1].reshape(n_bins, -1)[:, 0]
-        edges = np.concatenate((left, edges[-1:]))
+        if mode == 'coarsen':
+            left = edges[:-1].reshape(n_bins, -1)[:, 0]
+            edges = np.concatenate((left, edges[-1:]))
+
+        elif mode == 'from_left':
+            edges = np.concatenate((edges[:n_bins], [edges[-1]]))
 
     return edges
 
@@ -99,7 +106,7 @@ def get_pdx(
 
     """
 
-    edges = get_bin_edges(n_bins)
+    edges = get_bin_edges(n_bins, 'from_left')
     cp_hat = np.clip(cp_hat, edges[0], edges[-1])
     out = np.argmax(cp_hat[:, None] <= edges[1:], axis=1)
 

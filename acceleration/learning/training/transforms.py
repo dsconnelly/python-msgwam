@@ -7,102 +7,79 @@ import torch, torch.nn as nn
 _Array = np.ndarray | torch.Tensor
 
 class Transform(nn.Module):
-    _log_scale: torch.Tensor
-    _logit_p: torch.Tensor
+    _p: torch.Tensor
     _shift: torch.Tensor
+    _scale: torch.Tensor
 
     def __init__(
         self,
-        a: torch.Tensor,
-        learnable: bool,
-        has_shift: bool,
-        by_bin_only: bool,
-        ps: int | tuple[int, int],
+        a: torch.Tensor | tuple[torch.Tensor, torch.Tensor],
+        has_shift: bool=True,
+        by_bin_only: bool=True,
+        p: int | torch.Tensor = 1
     ) -> None:
         """
-        Initialize a transform, possibly with learnable parameters. Flexible
-        enough to work for all input and output types.
+        Initialize a transform.
 
         Parameters
         ----------
         a
-            Training data. Used to calculate statistics, which are either the
-            statistics used at transform time if `not learnable`, or the initial
-            values of those statistics otherwise.
-        learnable
-            Whether the statistics should be learnable or fixed.
+            Tensor from which to calculate scale and shift statistics.
         has_shift
-            Whether to include a shift or just a scale.
+            Whether to include a shift, or just a scale.
         by_bin_only
-            Whether the shift and scale parameters should be per-level and per-
-            phase speed bin or per-bin only.
-        ps
-            If a tuple the bounds on the order of the root to use at transform
-            time. If an integer, the upper and lower bounds are the same. Must
-            be an integer if `not learnable`.
-        
+            If `True`, the second-to-last dimension is interpreted as the phase
+            speed bin dimension, and one statistic is used for each entire bin,
+            instead of calculating statistics for each level.
+        p
+            Power to use in the transform. If a `Tensor`, must broadcast to the
+            shape of `a`.
+
         """
 
         super().__init__()
+        p = torch.as_tensor(p)
 
-        if isinstance(ps, int):
-            ps = (ps, ps)
-        elif not learnable:
-            raise ValueError('Must specify a power for a fixed Transform')
-        
-        p_min, p_max = ps
-        self._p_min = p_min
-        self._dp = p_max - p_min
-        a = take_root(a, (p_min + p_max / 2))
+        if isinstance(a, tuple):
+            shift, scale = a
 
-        if by_bin_only:
-            b = a.permute([0, a.ndim - 1, *range(1, a.ndim - 1)])
-            scale = nonzero_stat(b.flatten(0, 1).numpy(), mode='std')
-            scale = torch.as_tensor(scale)[..., None]
         else:
-            scale = a.std(dim=0)
-            scale[scale == 0] = 1
+            a = take_root(a, p)
+            shift = has_shift * a.mean(dim=0)
 
-        if has_shift:
-            shift = a.mean(dim=0)
-        else:
-            shift = torch.zeros(1)
+            if by_bin_only:
+                b = a.permute([0, a.ndim - 1, *range(1, a.ndim - 1)])
+                scale = nonzero_stat(b.flatten(0, 1).numpy(), mode='std')
+                scale = torch.as_tensor(scale)[..., None]
 
-        shape = (*a.shape[1:-1], 1)
-        logit_p = torch.zeros(shape)
+            else:
+                scale = a.std(dim=0)
+                scale[scale == 0] = 1
 
-        word = 'parameter' if learnable else 'buffer'
-        register = getattr(self, f'register_{word}')
-        log_scale = torch.log(scale)
-
-        if learnable:
-            log_scale = nn.Parameter(log_scale)
-            logit_p = nn.Parameter(logit_p)
-
+        self.register_buffer('_p', p)
         self.register_buffer('_shift', shift)
-        register('_log_scale', log_scale)
-        register('_logit_p', logit_p)
-
-    @property
-    def _p(self) -> torch.Tensor:
-        """Get the order of the roots."""
-
-        return self._p_min + self._dp * torch.sigmoid(self._logit_p)
-    
-    @property
-    def _scale(self) -> torch.Tensor:
-        """Get the scale parameter to use after taking a root."""
-
-        return torch.exp(self._log_scale)
+        self.register_buffer('_scale', scale)
 
     def forward(self, a: torch.Tensor, inverse: bool=False) -> torch.Tensor:
         """
-        Transform a tensor, or revers the transformation.
+        Apply (or invert) the transform.
+
+        Parameters
+        ----------
+        a
+            Data to (un)transform.
+        inverse
+            Whether the transform should be inverted.
+
+        Returns
+        -------
+        torch.Tensor
+            (Un)transformed data.
+
         """
 
         if inverse:
-            scale = self._scale
-            scale = scale * (scale < 1)
+            scale = self._scale * (self._scale < 1)
             out = scale * a + self._shift
 
             return torch.sign(out) * torch.abs(out) ** self._p
@@ -170,7 +147,7 @@ def nonzero_stat(a: np.ndarray, mode=Literal['mean', 'std']) -> np.ndarray:
 def reshape_data(
     a: _Array,
     n_bins: int,
-    mode: Literal['sum', 'skip']
+    mode: Literal['coarsen', 'from_left']
 ) -> _Array:
     """
     Reshape arrays to have the appropriate number of phase speed bins. Supports
@@ -182,9 +159,6 @@ def reshape_data(
         Array to reshape, with phase speed bins as the second to last dimension.
     n_bins
         Desired number of phase speed bins in the output.
-    mode
-        Whether to combine bins by summing (for momentum or vertical fluxes) or
-        by taking boundary values (for horizonal fluxes).
     
     Returns
     -------
@@ -195,14 +169,20 @@ def reshape_data(
 
     if a.shape[-2] == n_bins:
         return a
-
-    if mode == 'sum':
+    
+    if mode == 'coarsen':
         shape = (*a.shape[:-2], n_bins, -1, a.shape[-1])
         return a.reshape(*shape).sum(-2)
     
-    elif mode == 'skip':
-        n_skip = a.shape[-2] // n_bins
-        return a[..., (n_skip - 1)::n_skip, :]
+    elif mode == 'from_left':
+        p = a[..., :(n_bins - 1), :]
+        q = a[..., (n_bins - 1):, :]
+        q = q.sum(-2)[..., None, :]
+
+        func = torch.cat if isinstance(a, torch.Tensor) else np.concatenate
+        return func((p, q), -2)
+    
+    raise ValueError(f'Unknown reshape mode {mode}')
 
 def take_root(a: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
     """

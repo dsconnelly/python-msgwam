@@ -65,20 +65,12 @@ class UNet(nn.Module):
             Y = maybe_interp(up(Y), skips[i].shape[-1])
             Y = dec(torch.cat((Y, skips[i]), dim=1))
 
-        Y = self._postprocess(Y)
-
-        if self._use_mask:
-            mask = M[:, :self._n_bins] > M.min() + 1e-14
-            Y = Y * mask[:, None]
-
-        return Y
+        return self._postprocess(Y)
 
     def _init_settings(self, trial: Trial) -> None:
         """Sample general hyperparameters from the trial."""
 
         self._use_M_tot = trial.suggest_categorical('use_M_tot', [True, False])
-        self._use_mask = trial.suggest_categorical('use_mask', [True, False])
-
         self._use_z = trial.suggest_categorical('use_z', [True, False])
         z = torch.linspace(-1, 1, config.n_grid - 1)
         self.register_buffer('_z', z)
@@ -119,7 +111,7 @@ class UNet(nn.Module):
         self._ups = nn.ModuleList()
 
         n_skips = trial.suggest_int('n_skips', 3, 5)
-        min_channels = trial.suggest_int('min_channels', 8, 32)
+        min_channels = trial.suggest_int('min_channels', 8, 64)
         sizes = [min_channels * (2 ** i) for i in range(n_skips)]
         sizes = [self._n_channels_in] + sizes
 

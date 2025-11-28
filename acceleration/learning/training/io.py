@@ -1,5 +1,5 @@
 from os import listdir
-from typing import Literal, Iterator, Optional
+from typing import Any, Literal, Iterator, Optional
 
 import numpy as np
 import torch
@@ -7,12 +7,15 @@ import xarray as xr
 
 from msgwam import config
 
-from optuna import Trial
+from optuna import load_study
+from optuna.trial import FixedTrial, Trial
 
 from ... import hyperparameters as hp
 from ...shared.constants import MIMA_MONTHS
 
-from .reconstruction import get_dM, get_vertical_flux
+from ..generation import get_bin_edges
+
+from .reconstruction import correct_bins, get_dM, get_vertical_flux
 from .transforms import (
     Transform,
     apply_smoothing,
@@ -115,7 +118,7 @@ def cache_arrays(n_bins_str: str) -> None:
     """
 
     n_bins = int(n_bins_str)
-    make_path = lambda c: f'data/ml-accel/cached/{c}-{n_bins}.npy'
+    make_path = lambda c: f'data/ml-accel/cached2/{c}-{n_bins}.npy'
 
     n_paths = 0
     for _ in iter_paths():
@@ -124,11 +127,16 @@ def cache_arrays(n_bins_str: str) -> None:
     Cs, Ms, Ys = None, None, None
     for i, (path, flag) in enumerate(iter_paths()):
         with xr.open_dataset(path) as ds:
-            print(path, flag)
+            C = _parse_column(ds)
+            u_old, u_new = C[:, 0], C[:, -1]
+            C = C[:, :-1].reshape(C.shape[0], -1)
 
-            M, Y, budget, keep = _parse_momentum(ds, n_bins)
-            col = flag * np.ones((M.shape[0], 1))
-            C = np.hstack((col, _parse_column(ds), budget))
+            col = flag * np.ones((C.shape[0], 1))
+            lat = ds.attrs['latitude'] * np.ones((C.shape[0], 1))
+            M, Y, budget, keep = _parse_momentum(ds, n_bins, u_old, u_new)
+            C = np.hstack((col, C, lat, budget))
+
+            print(f'{path}: found {keep.sum()} samples')
 
             if Cs is None:
                 Cs = np.nan * np.zeros((n_paths, *C.shape))
@@ -153,12 +161,46 @@ def cache_arrays(n_bins_str: str) -> None:
 
     print(f'Cached {keep.sum()} total samples')
 
+def get_best_trial(
+    exp_name: Optional[str]=None,
+    **kwargs: dict[str, Any]
+) -> FixedTrial:
+    """
+    Load a `Trial` object with the best hyperparameters found during a sweep
+    from a study saved to database storage.
+
+    Parameters
+    ----------
+    exp_name
+        Name of the experiment to load. If `None`, defaults to the currently
+        loaded value from the hyperparameter file.
+    kwargs
+        Parameters to override. If none are provided, then the exact set of
+        hyperparameters found during the sweep is returned.
+
+    Returns
+    -------
+    FixedTrial
+        Wrapper around the hyperparameters, for use in training or plotting.
+
+    """
+
+    if exp_name is None:
+        exp_name = hp.training.exp_name
+
+    path = f'sqlite:///data/ml-accel/models/study-{exp_name}.db'
+    study = load_study(study_name=f'{exp_name}-large', storage=path)
+    params = study.best_params
+    params.update(**kwargs)
+
+    return FixedTrial(params)
+
 def prepare_data(
     trial: Trial,
     n_bins: int,
     eval_type: Literal['va', 'te'],
     n_samples: Optional[int]=None,
-    transform_inputs: bool=True,
+    apply_transforms: bool=True,
     seed: int=1234
 ) -> tuple[
     CMY,
@@ -177,8 +219,8 @@ def prepare_data(
         generate training and evaluation index arrays.
     n_samples
         How many samples to return. By default, returns everything.
-    transform_inputs
-        Whether to actually apply the transforms to the inputs or just return
+    apply_transforms
+        Whether to actually apply the transforms to the tensors or just return
         them. Defaults to applying them, but can be skipped in plotting.
     seed
         Seed to use if subsetting from the available data.
@@ -199,7 +241,7 @@ def prepare_data(
 
     memmaps = []
     for name in 'CMY':
-        path = f'data/ml-accel/cached/n2/{name}-{n_bins}.npy'
+        path = f'data/ml-accel/cached2/{name}-{n_bins}.npy'
         memmaps = memmaps + [np.load(path, mmap_mode='r')]
 
     C_mm, M_mm, Y_mm = memmaps
@@ -220,16 +262,31 @@ def prepare_data(
     del C_mm, M_mm, Y_mm
 
     p_M = trial.suggest_int('p_M', 1, 5)
-    C_trans = Transform(C[idx_tr], False, True, False, 1).float()
-    M_trans = Transform(M[idx_tr], False, False, True, p_M).float()
-    Y_trans = Transform(Y[idx_tr], True, False, False, (1, 5)).float()
+    p_F = trial.suggest_int('p_F', 3, 5)
+    p_D = trial.suggest_int('p_D', 3, 5)
+    p_Y = torch.as_tensor([p_F, p_D])[:, None, None]
 
-    if transform_inputs:
+    C, meta = C[:, :-2], C[:, -2:]
+    C = C.reshape(-1, 2, config.n_grid - 1)
+    
+    ones = torch.ones(config.n_grid - 1)
+    C_mean = C.mean(dim=(0, 2))[:, None] * ones
+    C_std = C.std(dim=(0, 2))[:, None] * ones
+
+    C_mean = torch.cat((C_mean.flatten(), meta.mean(0)))
+    C_std = torch.cat((C_std.flatten(), meta.std(0)))
+    C_trans = Transform((C_mean, C_std)).float()
+    C = torch.hstack((C.flatten(1, 2), meta))
+
+    M_trans = Transform(M[idx_tr], False, True, p_M).float()
+    Y_trans = Transform(Y[idx_tr], False, True, p_Y).float()
+
+    if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
 
-    dM = get_dM(Y)[:, None]
-    Y = torch.cat((Y, dM), dim=1)
+    dM = get_dM(Y)
+    Y = torch.cat((Y_trans(Y), dM[:, None]), dim=1)
 
     return (C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
 
@@ -262,31 +319,22 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
     wind[quad > 1] = -wind[quad > 1]
 
     shape = (-1, config.n_grid - 1)
-    wind, N = wind[:-1].reshape(*shape), N[:-1].reshape(*shape)
-    lat = ds.attrs['latitude'] * np.ones((wind.shape[0], 1))
+    u_old = wind[:-1].reshape(*shape)
+    u_new = wind[1:].reshape(*shape)
+    N = N[:-1].reshape(*shape)
 
-    return np.hstack((wind, N, lat))
+    return np.stack((u_old, N, u_new), axis=1)
 
 def _parse_momentum(
     ds: xr.Dataset,
-    n_bins: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    n_bins: int,
+    u_old: np.ndarray,
+    u_new: np.ndarray,
+    mode: str='from_left'
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Parse a `Dataset` for relevant information about the bulk momentum.
-
-    Parameters
-    ----------
-    ds
-        Loaded dataset containing integration outputs.
-
-    Returns
-    -------
-    ndarray, ndarray, ndarray
-        Arrays of current bulk momentum profiles and still-dimensional momentum
-        and sink profiles at the next time step. The last array is an index
-        indicating which samples should be retained, so that the corresponding
-        rows of the `C` array can be indexed similarly.
-
+    Parse the bulk momentum density variables on a dataset and return the
+    relevant training inputs and targets.
     """
 
     M = ds['M_bulk'].values
@@ -297,47 +345,43 @@ def _parse_momentum(
     M_out = (M - S)[1:].reshape(-1, *M.shape[2:])
     D = -D[1:].reshape(-1, *D.shape[2:])
 
-    M_in = reshape_data(M_in, n_bins, 'sum')
-    M_out = reshape_data(M_out, n_bins, 'sum')
-    D = reshape_data(D, n_bins, 'sum')
+    M_in = reshape_data(M_in, n_bins, mode)
+    M_out = reshape_data(M_out, n_bins, mode)
+    D = reshape_data(D, n_bins, mode)
 
-    M_tot = reshape_data(M[:-1], n_bins, 'sum').sum(axis=1)[:, None]
-    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, *M_tot.shape[2:]))
-    M_tot = M_tot.reshape(-1, *M_tot.shape[2:]) - M_in
-    
+    if hp.training.correct_bins:
+        edges = get_bin_edges(n_bins, mode)
+        M_out = correct_bins(M_out, u_old, u_new, edges)
+        D = correct_bins(D, u_old, u_new, edges)
+
     F_est = ds['F_bulk'].values
     F_est = F_est[1:].reshape(-1, *F_est.shape[2:])
-    F_est = reshape_data(F_est, n_bins, 'sum')
-
+    F_est = reshape_data(F_est, n_bins, 'from_left')
+    
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)
         M_out = apply_smoothing(M_out)
-        M_tot = apply_smoothing(M_tot)
+        F_est = apply_smoothing(F_est)
         D = apply_smoothing(D)
 
-        F_est = apply_smoothing(F_est)
+    dF = (M_out - M_in - D).sum(1)
+    F = get_vertical_flux(dF, F_est)
+    Y = np.stack((F[..., 1:], D), axis=1)
 
-    dF = M_out - M_in - D
-    F_v = get_vertical_flux(M_in, dF, F_est)
-    Y = np.stack((F_v[..., 1:], D), axis=1)
+    M_tot = reshape_data(M[:-1], n_bins, mode).sum(axis=1)[:, None]
+    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, *M_tot.shape[2:]))
+    M_tot = M_tot.reshape(-1, *M_tot.shape[2:]) - M_in
 
     budget = M_in.sum(axis=(1, 2))
-    keep = budget > 0
-    budget = budget[:, None, None]
-
-    M_in[keep] = M_in[keep] / budget[keep]
-    M_out[keep] = M_out[keep] / budget[keep]
-    M_tot[keep] = M_tot[keep] / budget[keep]
     M_in = np.concatenate((M_in, M_tot), axis=1)
+    keep = budget > 0
 
-    Y[keep] = Y[keep] / budget[keep, None]
-    budget[keep] = np.log(budget[keep])
-
-    a = Y[:, 0, :, -1].sum(-1) - Y[:, 1].sum((1, 2))
-    res = abs(M_out.sum((1, 2)) + a - 1)
-    keep = keep & (res < 1e-14)
+    sink = Y[:, 0, :, -1].sum(-1) - Y[:, 1].sum((1, 2))
+    res = M_out.sum((1, 2)) + sink - budget
+    keep = keep & (abs(res) < 1e-14)
 
     n_active = (abs(Y.sum(axis=(-2, -1))) > 1e-12).sum(-1)
     keep = keep & (n_active == 2)
 
-    return M_in, Y, budget[:, 0], keep
+    budget[keep] = np.log(budget[keep])
+    return M_in, Y, budget[:, None], keep

@@ -205,6 +205,9 @@ def _format_strategy(strategy: str) -> str:
     if strategy.startswith('stochastic'):
         _, n = strategy.split('-')
         return f'stochastic\n($\\epsilon = {n}^{{-1}}$)'
+
+    if strategy.startswith('network'):
+        return 'emulator'
     
     return strategy
 

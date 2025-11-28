@@ -125,7 +125,7 @@ def _make_callback(
         wvn = abs(prop.k + prop.l)
         mom = wvn * prop.action
 
-        cp_hat = prop._get_omega_hat(mean) / wvn
+        cp_hat = (prop._get_omega_hat(mean) - abs(config.f)) / wvn
         bdx = get_pdx(prop.k, prop.l, cp_hat)
 
         since_last = n_seconds - (i - 1) * config.dt_output

@@ -1,4 +1,3 @@
-import json
 import os
 
 from copy import deepcopy
@@ -10,14 +9,15 @@ import numpy as np
 import torch
 import xarray as xr
 
-from optuna import create_study
+from optuna import create_study, load_study
 from optuna.exceptions import TrialPruned
 from optuna.pruners import MedianPruner
-from optuna.trial import FixedTrial, Trial
+from optuna.study import get_all_study_names
+from optuna.trial import FixedTrial, Trial, TrialState
 
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import (
-    CosineAnnealingWarmRestarts,
+    CosineAnnealingLR,
     ReduceLROnPlateau,
     LRScheduler
 )
@@ -36,7 +36,7 @@ from ...strategies import (
 from ..architectures import ConvNet, UNet
 
 from .inference import serialize_model
-from .io import CMY, prepare_data
+from .io import CMY, get_best_trial, prepare_data
 from .losses import FluxLoss
 from .transforms import Transform
 
@@ -49,51 +49,99 @@ torch.set_flush_denormal(True)
 
 REFERENCES = {}
 
-def search_hyperparameters(n_hours_str: str) -> None:
+def search_hyperparameters(
+    n_hours_small: str | int,
+    n_hours_large: str | int
+) -> None:
     """
     Search hyperparameter space for the best configuration.
 
     Parameters
     ----------
-    n_hours_str
-        How many hours to conduct the search for, passed as a string so that
-        this function may be invoked from the command line.
+    n_hours_small
+        How many hours to spend on the warmup study (using a small subset of the
+        data to suggest promising candidates to the main study).
+    n_hours_large
+        How many hours to spend on the main study.
     
     """
 
-    n_warmup = max(hp.training.patience, hp.training.n_online_test)
-    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=n_warmup)
-    name = hp.training.exp_name
-
-    study = create_study(
-        direction='minimize',
-        study_name=f'msgwam-{name}',
-        storage=f'sqlite:///data/ml-accel/models/study-{name}.db',
-        load_if_exists=True,
-        pruner=pruner
-    )
-
-    kwargs = {
-        'gc_after_trial' : True,
-        'catch' : (FloatingPointError, RuntimeError,)
-    }
+    n_hours_small = int(n_hours_small)
+    n_hours_large = int(n_hours_large)
 
     if hp.training.n_online_test > 0:
         _init_references()
 
-    n_hours = float(n_hours_str)
-    study.optimize(_train, timeout=(n_hours * 3600), **kwargs)
+    name = hp.training.exp_name
+    path = f'sqlite:///data/ml-accel/models/study-{name}.db'
+    n_warmup = max(hp.training.patience, hp.training.n_online_test)
+    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=n_warmup)
 
-    params = study.best_trial.params
-    with open(f'data/ml-accel/models/hyperparameters-{name}.json', 'w') as f:
-        json.dump(params, f, indent=4)
+    kwargs = {
+        'gc_after_trial' : True,
+        'catch' : (FloatingPointError, RuntimeError)
+    }
+
+    study_small = None
+    info = get_all_study_names(path)
+
+    if f'{name}-small' in info:
+        print(f'Found pre-existing warmup study.')
+        
+        study_small = load_study(
+            study_name=f'{name}-small',
+            storage=path
+        )
+
+    elif n_hours_small > 0:
+        study_small = create_study(
+            direction='minimize',
+            study_name=f'{name}-small',
+            pruner=pruner,
+            storage=path
+        )
+
+        study_small.optimize(
+            func=(lambda t: _train(t, n_samples=15000)),
+            timeout=(n_hours_small * 3600),
+            **kwargs
+        )
+
+    if n_hours_large > 0:
+        study_large = create_study(
+            direction='minimize',
+            study_name=f'{name}-large',
+            load_if_exists=True,
+            pruner=pruner,
+            storage=path
+        )
+
+        if study_small is not None:
+            keep = lambda t: t.state == TrialState.COMPLETE
+            trials = [t for t in study_small.get_trials() if keep(t)]
+            n_keep = max(1, int(0.2 * len(trials)))
+
+            key = lambda t: t.value
+            trials = sorted(trials, key=key)[:n_keep]
+            trials = [t for t in trials if t.value < 0.5]
+            print(f'Enqueuing {len(trials)} trials.\n')
+
+            for trial in trials:
+                study_large.enqueue_trial(
+                    trial.params,
+                    skip_if_exists=True
+                )
+
+        study_large.optimize(
+            func=_train,
+            timeout=(n_hours_large * 3600),
+            **kwargs
+        )
 
 def train_network() -> None:
     """Train a network with the best set of hyperparameters."""
 
-    name = hp.training.exp_name
-    with open(f'data/ml-accel/models/hyperparameters-{name}.json') as f:
-        _train(FixedTrial(json.load(f), number=-1))
+    _train(get_best_trial())
 
 def _get_model(trial: Trial, n_bins: int, state: Optional[dict]=None) -> UNet:
     """
@@ -179,7 +227,11 @@ def _get_optimizer(
 
     return optimizer
 
-def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
+def _get_scheduler(
+    trial: Trial,
+    optimizer: Optimizer,
+    state: Optional[dict]=None
+) -> Optional[LRScheduler]:
     """
     Create a learning rate scheduler for the optimizer.
 
@@ -201,7 +253,7 @@ def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
     schedulers = {
         'none' : lambda *_: None,
         'plateau' : ReduceLROnPlateau,
-        'cosine' : CosineAnnealingWarmRestarts
+        'cosine' : CosineAnnealingLR
     }
 
     scheduler_name = trial.suggest_categorical('scheduler', schedulers.keys())
@@ -213,12 +265,23 @@ def _get_scheduler(trial: Trial, optimizer: Optimizer) -> Optional[LRScheduler]:
         kwargs['mode'] = 'min'
 
     elif scheduler_name == 'cosine':
-        kwargs['T_0'] = trial.suggest_int('cosine_T_0', 10, 30)
-        kwargs['T_mult'] = trial.suggest_int('cosine_T_mult', 1, 3)
+        kwargs['T_max'] = trial.suggest_int('cosine_T_max', 40, 80)
+        kwargs['eta_min'] = trial.suggest_float(
+            'cosine_eta_min',
+            1e-7, 5e-6,
+            log=True
+        )
 
-    return schedulers[scheduler_name](optimizer, **kwargs)
+    scheduler = schedulers[scheduler_name](optimizer, **kwargs)
+
+    if state is not None and 'scheduler' in state:
+        scheduler.load_state_dict(state['scheduler'])
+        print('Scheduler state loaded successfully.')
+
+    return scheduler
 
 def _iter_loaders(
+    trial: Trial,
     tensors: CMY,
     idxs: tuple[np.ndarray, np.ndarray],
 ) -> Iterator[DataLoader]:
@@ -227,6 +290,8 @@ def _iter_loaders(
 
     Parameters
     ----------
+    trial
+        Current trial, used to set the batch size.
     arrays
         Reshaped and transformed inputs and outputs.
     idxs
@@ -239,10 +304,20 @@ def _iter_loaders(
 
     """
 
-    batch_sizes = [hp.training.batch_size, 4096]
-    for i, (idx, batch_size) in enumerate(zip(idxs, batch_sizes)):
+    total = 0
+    for a in tensors:
+        total = total + a.numel() * a.element_size()
+
+    if total / (1024 ** 3) < 20:
+        tensors = [a.to(_DEVICE) for a in tensors]
+        print('Preloaded tensors to the training device.')
+
+    batch_size = trial.suggest_int('batch_size', 256, 1024, step=128)
+    batch_sizes = [batch_size, 4096]
+
+    for i, (idx, n) in enumerate(zip(idxs, batch_sizes)):
         ds = TensorDataset(*[a[idx] for a in tensors])
-        yield DataLoader(ds, batch_size, i == 0)
+        yield DataLoader(ds, n, i == 0)
 
 def _init_references():
     """
@@ -273,7 +348,12 @@ def _init_references():
 
         REFERENCES[scenario] = (lat, F_x, F_y)
 
-def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
+def _train(
+    trial: Trial,
+    n_print: int=1,
+    restart: bool=False,
+    n_samples: Optional[int]=None
+) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
     It is assumed that the data has been read in from the netCDF files already,
@@ -300,14 +380,15 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
 
     name = hp.training.exp_name
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    n_samples = 200000 if eval_type == 'va' else None
+    if n_samples is None and eval_type == 'va':
+        n_samples = 500000
 
     state = None
     if restart and eval_type == 'te':
         kwargs = dict(weights_only=True, map_location=torch.device('cpu'))
         state = torch.load(f'data/ml-accel/models/state-{name}.pkl', **kwargs)
 
-    options = [1, 2, 3, 4, 6]
+    options = [1, 2, 3, 4, 5]
     i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
     n_bins = options[i]
 
@@ -320,26 +401,20 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
     )
 
     *_, Y_trans = transforms
-    Y_trans = Y_trans.to(_DEVICE)
-
-    if restart and eval_type == 'te':
-        Y_trans.load_state_dict(state['Y_trans'])
-        print('Previous transform state loaded successfully.')
-
     model = _get_model(trial, n_bins, state)
     optimizer = _get_optimizer(trial, model, Y_trans, state)
-    scheduler = _get_scheduler(trial, optimizer)
+    scheduler = _get_scheduler(trial, optimizer, state)
 
-    loader_tr, loader_ev = _iter_loaders(tensors, idxs)
-    loss_func = FluxLoss(trial, Y_trans)
+    loader_tr, loader_ev = _iter_loaders(trial, tensors, idxs)
+    loss_func = FluxLoss(trial, loader_tr.dataset.tensors[-1], Y_trans)
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
     best_score = torch.inf
     n_epoch, waited = 1, 0
 
-    patience = hp.training.patience if eval_type == 'va' else -1
-    max_epochs = hp.training.max_epochs if eval_type == 'va' else -60
+    patience = hp.training.patience if eval_type == 'va' else 30
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else -120
 
     if max_epochs > 0:
         keep_going = lambda n, _: n <= max_epochs
@@ -354,7 +429,8 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
 
     while keep_going(n_epoch, time()):
         epoch_start = time()
-        loss_tr = _run_epoch(model, loader_tr, loss_func, optimizer)
+        loss_bp = _run_epoch(model, loader_tr, loss_func, optimizer)
+        loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
 
@@ -363,13 +439,17 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
 
         if n_epoch % n_print == 0:
             print(f'    ==== epoch {n_epoch} ({runtime:.2f} s) ====')
+            print(f'      loss_bp = {loss_bp:.6f}')
             print(f'      loss_tr = {loss_tr:.6f}')
             print(f'      loss_ev = {loss_ev:.6f}{suffix}')
 
         if improved:
             state['model'] = deepcopy(model.state_dict())
             state['optimizer'] = deepcopy(optimizer.state_dict())
-            state['Y_trans'] = deepcopy(Y_trans.state_dict())
+
+            if scheduler is not None:
+                state['scheduler'] = deepcopy(scheduler.state_dict())
+
             best_score, waited = loss_ev, 0
 
         else:
@@ -379,7 +459,7 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
                 print('Stopping early due to lack of improvement.')
                 break
 
-        too_slow = (eval_type == 'va') and (n_epoch == 2) and (runtime > 45)
+        too_slow = (eval_type == 'va') and (n_epoch == 2) and (runtime > 90)
         should_prune = too_slow or np.isnan(loss_ev)
 
         if hp.training.n_online_test == 0:
@@ -399,8 +479,8 @@ def _train(trial: Trial, n_print: int=1, restart: bool=False) -> float:
         
         n_epoch = n_epoch + 1
 
-    model.load_state_dict(state['model'])
-    Y_trans.load_state_dict(state['Y_trans'])
+    if state:
+        model.load_state_dict(state['model'])
 
     if eval_type == 'te':
         scripted = serialize_model(None, (model, *transforms))
@@ -453,19 +533,19 @@ def _run_epoch(
     total = 0
 
     for tensors in loader:
-        C, M, *targets = [a.to(_DEVICE) for a in tensors]
+        C, M, Y = [a.to(_DEVICE) for a in tensors]
 
         if optimizer is None:
             with torch.no_grad():
-                outputs = model(C, M)
+                Y_hat = model(C, M)
 
         else:
             optimizer.zero_grad()
-            outputs = model(C, M)
+            Y_hat = model(C, M)
 
         weight = M.shape[0]
         weight_sum = weight_sum + weight
-        loss = loss_func(*targets, outputs)
+        loss = loss_func(Y, Y_hat, for_plotting=False)
         total = total + weight * loss
 
         if optimizer is not None:

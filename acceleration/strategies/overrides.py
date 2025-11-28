@@ -4,7 +4,7 @@ from typing import Any, Optional
 
 from msgwam import config
 
-from ..hyperparameters import strategies as hp
+from ..learning.training.io import get_best_trial
 
 def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     """
@@ -87,9 +87,9 @@ def _get_network_overrides(
     """Use a neural network to advance the wave momentum state."""
 
     if n_bins is None:
-        fname = f'hyperparameters-{exp_name}.json'
-        with open(f'data/ml-accel/models/{fname}') as f:
-            n_bins = [1, 2, 3, 4, 6][json.load(f)['n_bin_idx']]
+        trial = get_best_trial(exp_name)
+        i = trial.suggest_int('n_bin_idx', 1, 4)
+        n_bins = [1, 2, 3, 4, 5][i]
 
     return {
         'model_path' : f'data/ml-accel/models/scripted-{exp_name}.jit',

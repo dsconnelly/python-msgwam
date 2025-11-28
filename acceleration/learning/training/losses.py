@@ -1,23 +1,20 @@
-from typing import Literal, Optional
-
 import numpy as np
 import torch, torch.nn as nn
 
 from optuna.trial import Trial
-from torch.linalg import vector_norm
-
-from ...hyperparameters import training as hp
 
 from .reconstruction import get_dM
-from .transforms import Transform
+from .transforms import Transform, nonzero_stat
 
 class FluxLoss(nn.Module):
-    _scales_Y: torch.Tensor
+    _scales_dM: torch.Tensor
+    _scales_t: torch.Tensor
     _weights: torch.Tensor
     
     def __init__(
         self,
         trial: Trial,
+        Y: torch.Tensor,
         Y_trans: Transform
     ) -> None:
         """
@@ -27,6 +24,8 @@ class FluxLoss(nn.Module):
         ----------
         trial
             Current trial.
+        Y
+            Tensor of training targets, to use to calculate statistics.
         Y_trans
             Transform to apply and invert on network outputs.
 
@@ -35,18 +34,26 @@ class FluxLoss(nn.Module):
         super().__init__()
 
         self._Y_trans = Y_trans
-        use_weights = trial.suggest_categorical('use_weights', [True, False])
-        self._use_weights = use_weights
+        weights = self._sample_weights(trial)
+        dM = Y[:, -1].flatten(0, 1).cpu().numpy()
 
-        if use_weights:
-            weights = self._sample_weights(trial)
-            self.register_buffer('_weights', weights)
+        scales_t = Y[:, :-1].std(dim=(0, -1))[..., None]
+        scales_dM = nonzero_stat(abs(dM), mode='mean')
+
+        scales_dM[-5:] = np.nan
+        scales_dM[scales_dM < 1e-8] = np.nan
+        scales_dM = np.nan_to_num(1 / scales_dM)
+        scales_dM = torch.as_tensor(scales_dM)
+
+        self.register_buffer('_weights', weights)
+        self.register_buffer('_scales_t', scales_t)
+        self.register_buffer('_scales_dM', scales_dM)
 
     def forward(
         self,
         Y: torch.Tensor,
         Y_hat: torch.Tensor,
-        reduce: bool=True
+        for_plotting: bool=False
     ) -> torch.Tensor:
         """
         Calculate the loss.
@@ -57,7 +64,7 @@ class FluxLoss(nn.Module):
             True (untransformed) targets concatenated with `dM` profiles.
         Y_hat
             Network outputs in the transformed space.
-        reduce
+        for_plotting
             Whether to take the mean over all entries (so that the gradient can
             be calculated) or to preserve the array structure (for plotting).
 
@@ -70,18 +77,20 @@ class FluxLoss(nn.Module):
         """
 
         dM_hat = get_dM(self._Y_trans(Y_hat, inverse=True))
-        loss = _vnorm_loss(Y[:, -1], dM_hat, eps=1e-4)
+        loss = _smae((Y[:, -1] - dM_hat) * self._scales_dM)[:, None]
 
-        if self.training and self._use_weights:
-            Y_t = self._Y_trans(Y[:, :-1], inverse=False)
-            loss_t = _vnorm_loss(Y_t, Y_hat, eps=0.01)
+        if self.training or for_plotting:
+            loss_t = ((Y[:, :-1] - Y_hat) / self._scales_t) ** 2
 
-            loss = torch.cat((loss[:, None], loss_t), dim=1)
-            loss = (self._weights * loss).sum(1)
+            if for_plotting:
+                return torch.cat((loss_t, loss), dim=1)
 
-        if not reduce:
-            return loss
-        
+            loss = torch.cat((loss_t, loss), dim=1)
+            loss = (self._weights * loss).sum(dim=1)
+
+        else:
+            loss = loss * (loss < 2)
+
         return loss.mean()
     
     def _sample_weights(self, trial: Trial) -> torch.Tensor:
@@ -95,22 +104,7 @@ class FluxLoss(nn.Module):
         b = np.sqrt(v)
         a = u * b
 
-        return torch.as_tensor([a, b - a, 1 - b])[:, None]
-
-def _vnorm_loss(
-    a: torch.Tensor,
-    a_hat: torch.Tensor,
-    eps: float
-) -> torch.Tensor:
-    """
-    Calculate the norm of the error vector divided by the norm of the target,
-    with a small number floor to avoid division by zero.
-    """
-
-    norms = vector_norm(a, dim=-1)
-    norms = torch.clamp(norms, min=eps)
-
-    return vector_norm(a - a_hat, dim=-1) / norms
+        return torch.as_tensor([a, b - a, 1 - b])[:, None, None]
 
 def _smae(error: torch.Tensor) -> torch.Tensor:
     """
