@@ -118,7 +118,8 @@ def cache_arrays(n_bins_str: str) -> None:
     """
 
     n_bins = int(n_bins_str)
-    make_path = lambda c: f'data/ml-accel/cached2/{c}-{n_bins}.npy'
+    n_smoothing = hp.training.n_smoothing
+    make_path = lambda c: f'data/ml-accel/cached/{n_smoothing}/{c}-{n_bins}.npy'
 
     n_paths = 0
     for _ in iter_paths():
@@ -185,11 +186,16 @@ def get_best_trial(
 
     """
 
-    if exp_name is None:
-        exp_name = hp.training.exp_name
-
+    exp_name = hp.training.exp_name if exp_name is None else exp_name
     path = f'sqlite:///data/ml-accel/models/study-{exp_name}.db'
-    study = load_study(study_name=f'{exp_name}-large', storage=path)
+    
+    try:
+        study = load_study(study_name=f'{exp_name}-large', storage=path)
+
+    except KeyError:
+        study = load_study(study_name=f'{exp_name}-small', storage=path)
+        print('Found only a warmup study; using that instead.')
+
     params = study.best_params
     params.update(**kwargs)
 
@@ -240,8 +246,10 @@ def prepare_data(
     """
 
     memmaps = []
+    n_smoothing = hp.training.n_smoothing
+
     for name in 'CMY':
-        path = f'data/ml-accel/cached2/{name}-{n_bins}.npy'
+        path = f'data/ml-accel/cached/{n_smoothing}/{name}-{n_bins}.npy'
         memmaps = memmaps + [np.load(path, mmap_mode='r')]
 
     C_mm, M_mm, Y_mm = memmaps
@@ -275,9 +283,9 @@ def prepare_data(
 
     C_mean = torch.cat((C_mean.flatten(), meta.mean(0)))
     C_std = torch.cat((C_std.flatten(), meta.std(0)))
-    C_trans = Transform((C_mean, C_std)).float()
     C = torch.hstack((C.flatten(1, 2), meta))
 
+    C_trans = Transform((C_mean, C_std)).float()
     M_trans = Transform(M[idx_tr], False, True, p_M).float()
     Y_trans = Transform(Y[idx_tr], False, True, p_Y).float()
 
@@ -351,26 +359,28 @@ def _parse_momentum(
 
     if hp.training.correct_bins:
         edges = get_bin_edges(n_bins, mode)
-        M_out = correct_bins(M_out, u_old, u_new, edges)
-        D = correct_bins(D, u_old, u_new, edges)
+        M_out = correct_bins(M_out, u_new, u_old, edges)
+        D = correct_bins(D, u_new, u_old, edges)
 
     F_est = ds['F_bulk'].values
     F_est = F_est[1:].reshape(-1, *F_est.shape[2:])
     F_est = reshape_data(F_est, n_bins, 'from_left')
-    
+
+    M_tot = reshape_data(M[:-1], n_bins, mode).sum(axis=1)[:, None]
+    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, *M_tot.shape[2:]))
+    M_tot = M_tot.reshape(-1, *M_tot.shape[2:]) - M_in
+
     for _ in range(hp.training.n_smoothing):
         M_in = apply_smoothing(M_in)
         M_out = apply_smoothing(M_out)
+        M_tot = apply_smoothing(M_tot)
+        
         F_est = apply_smoothing(F_est)
         D = apply_smoothing(D)
 
     dF = (M_out - M_in - D).sum(1)
     F = get_vertical_flux(dF, F_est)
     Y = np.stack((F[..., 1:], D), axis=1)
-
-    M_tot = reshape_data(M[:-1], n_bins, mode).sum(axis=1)[:, None]
-    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, *M_tot.shape[2:]))
-    M_tot = M_tot.reshape(-1, *M_tot.shape[2:]) - M_in
 
     budget = M_in.sum(axis=(1, 2))
     M_in = np.concatenate((M_in, M_tot), axis=1)

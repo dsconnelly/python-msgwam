@@ -110,8 +110,8 @@ class UNet(nn.Module):
         self._down = nn.MaxPool1d(2)
         self._ups = nn.ModuleList()
 
-        n_skips = trial.suggest_int('n_skips', 3, 5)
-        min_channels = trial.suggest_int('min_channels', 8, 64)
+        n_skips = trial.suggest_int('n_skips', 2, 4)
+        min_channels = trial.suggest_int('min_channels', 96, 256, step=32)
         sizes = [min_channels * (2 ** i) for i in range(n_skips)]
         sizes = [self._n_channels_in] + sizes
 

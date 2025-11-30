@@ -24,11 +24,11 @@ max_sink = 0.1
 
 [training]
 batch_size = 512
-correct_bins = false
-exp_name = 'mineola'
+correct_bins = true
+exp_name = 'providence'
 loss_func = 'mse'
 M_transform = 'constant'
-max_epochs = 60
+max_epochs = 30
 min_delta = 0.0002
 n_online_test = 0
 n_smoothing = 1

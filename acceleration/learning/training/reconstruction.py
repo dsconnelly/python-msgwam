@@ -7,7 +7,8 @@ def correct_bins(
     M: np.ndarray,
     u_old: np.ndarray,
     u_new: np.ndarray,
-    edges: np.ndarray
+    edges: np.ndarray,
+    conservative: bool=True
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Correct a set of bulk momentum density profiles to account for the fact that
@@ -19,13 +20,17 @@ def correct_bins(
             edges_old = edges + u_old[i, k]
             edges_new = edges + u_new[i, k]
             
-            A = get_A(edges_old, edges_new)
+            A = get_A(edges_old, edges_new, conservative)
             M[i, :, k] = A @ M[i, :, k]
 
     return M
 
 @nb.njit
-def get_A(edges_old: np.ndarray, edges_new: np.ndarray) -> np.ndarray:
+def get_A(
+    edges_old: np.ndarray,
+    edges_new: np.ndarray,
+    conservative: bool
+) -> np.ndarray:
     """
     Get a matrix that gives the percentage of each old bin that should be
     transferred to each new bin.
@@ -34,8 +39,9 @@ def get_A(edges_old: np.ndarray, edges_new: np.ndarray) -> np.ndarray:
     n_bins = len(edges_old) - 1
     A = np.zeros((n_bins, n_bins))
 
-    edges_new[0] = min(edges_old[0], edges_new[0])
     edges_new[-1] = max(edges_old[-1], edges_new[-1])
+    if conservative:
+        edges_new[0] = min(edges_old[0], edges_new[0])
 
     pairs_old = (edges_old[:-1], edges_old[1:])
     pairs_new = (edges_new[:-1], edges_new[1:])

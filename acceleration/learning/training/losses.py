@@ -4,18 +4,17 @@ import torch, torch.nn as nn
 from optuna.trial import Trial
 
 from .reconstruction import get_dM
-from .transforms import Transform, nonzero_stat
+from .transforms import Transform
 
 class FluxLoss(nn.Module):
-    _scales_dM: torch.Tensor
-    _scales_t: torch.Tensor
+    _scales: torch.Tensor
     _weights: torch.Tensor
     
     def __init__(
         self,
         trial: Trial,
         Y: torch.Tensor,
-        Y_trans: Transform
+        Y_trans: Transform,
     ) -> None:
         """
         Initialize the loss module.
@@ -35,19 +34,13 @@ class FluxLoss(nn.Module):
 
         self._Y_trans = Y_trans
         weights = self._sample_weights(trial)
-        dM = Y[:, -1].flatten(0, 1).cpu().numpy()
+        self.register_buffer('_weights', weights)
+        self._skew = trial.suggest_float('skew', 0, 4)
 
         scales_t = Y[:, :-1].std(dim=(0, -1))[..., None]
-        scales_dM = nonzero_stat(abs(dM), mode='mean')
-
-        scales_dM[-5:] = np.nan
-        scales_dM[scales_dM < 1e-8] = np.nan
-        scales_dM = np.nan_to_num(1 / scales_dM)
-        scales_dM = torch.as_tensor(scales_dM)
-
-        self.register_buffer('_weights', weights)
-        self.register_buffer('_scales_t', scales_t)
-        self.register_buffer('_scales_dM', scales_dM)
+        scales_dM = abs(Y[:, -1]).mean(dim=(0, -1))[..., None]
+        scales = torch.cat((scales_t, scales_dM[None]), dim=0)
+        self.register_buffer('_scales', scales)
 
     def forward(
         self,
@@ -77,10 +70,16 @@ class FluxLoss(nn.Module):
         """
 
         dM_hat = get_dM(self._Y_trans(Y_hat, inverse=True))
-        loss = _smae((Y[:, -1] - dM_hat) * self._scales_dM)[:, None]
+        loss = _smae((Y[:, -1] - dM_hat) / self._scales[-1])[:, None]
 
         if self.training or for_plotting:
-            loss_t = ((Y[:, :-1] - Y_hat) / self._scales_t) ** 2
+            loss_t = ((Y[:, :-1] - Y_hat) / self._scales[:-1]) ** 2
+            maxes = abs(Y[:, :-1]).amax(dim=-1, keepdim=True)
+            maxes = torch.where(maxes > 0, maxes, 1)
+
+            rescale = abs(Y[:, :-1]) / maxes
+            rescale = self._skew * rescale + 1
+            loss_t = (rescale ** (self._Y_trans._p - 1)) * loss_t
 
             if for_plotting:
                 return torch.cat((loss_t, loss), dim=1)

@@ -102,7 +102,7 @@ def search_hyperparameters(
         )
 
         study_small.optimize(
-            func=(lambda t: _train(t, n_samples=15000)),
+            func=(lambda t: _train(t, warmup=True)),
             timeout=(n_hours_small * 3600),
             **kwargs
         )
@@ -119,7 +119,7 @@ def search_hyperparameters(
         if study_small is not None:
             keep = lambda t: t.state == TrialState.COMPLETE
             trials = [t for t in study_small.get_trials() if keep(t)]
-            n_keep = max(1, int(0.2 * len(trials)))
+            n_keep = min(5, max(1, int(0.2 * len(trials))))
 
             key = lambda t: t.value
             trials = sorted(trials, key=key)[:n_keep]
@@ -167,6 +167,10 @@ def _get_model(trial: Trial, n_bins: int, state: Optional[dict]=None) -> UNet:
     model = UNet(trial, n_bins)
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Initialized model with {n_params} trainable parameters.')
+
+    if n_params > 2000000:
+        print('Model is too complex.')
+        raise TrialPruned()
 
     if state is not None:
         model.load_state_dict(state['model'])
@@ -352,7 +356,7 @@ def _train(
     trial: Trial,
     n_print: int=1,
     restart: bool=False,
-    n_samples: Optional[int]=None
+    warmup: bool=False
 ) -> float:
     """
     Train a network with the given `Trial` and return the best evaluation loss.
@@ -380,7 +384,12 @@ def _train(
 
     name = hp.training.exp_name
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
-    if n_samples is None and eval_type == 'va':
+
+    if eval_type == 'te':
+        n_samples = None
+    elif warmup:
+        n_samples = 30000
+    else:
         n_samples = 500000
 
     state = None
@@ -414,7 +423,10 @@ def _train(
     n_epoch, waited = 1, 0
 
     patience = hp.training.patience if eval_type == 'va' else 30
-    max_epochs = hp.training.max_epochs if eval_type == 'va' else -120
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else -180
+
+    if warmup:
+        max_epochs = int(1.5 * max_epochs)
 
     if max_epochs > 0:
         keep_going = lambda n, _: n <= max_epochs
@@ -433,6 +445,9 @@ def _train(
         loss_tr = _run_epoch(model, loader_tr, loss_func)
         loss_ev = _run_epoch(model, loader_ev, loss_func)
         runtime = time() - epoch_start
+
+        if warmup:
+            loss_ev = loss_tr
 
         improved = loss_ev < best_score - hp.training.min_delta
         suffix = ' (new best)' if improved else ''
@@ -459,8 +474,7 @@ def _train(
                 print('Stopping early due to lack of improvement.')
                 break
 
-        too_slow = (eval_type == 'va') and (n_epoch == 2) and (runtime > 90)
-        should_prune = too_slow or np.isnan(loss_ev)
+        should_prune = np.isnan(loss_ev)
 
         if hp.training.n_online_test == 0:
             trial.report(loss_ev, n_epoch)
