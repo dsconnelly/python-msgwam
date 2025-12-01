@@ -25,7 +25,7 @@ max_sink = 0.1
 [training]
 batch_size = 512
 correct_bins = true
-exp_name = 'providence'
+exp_name = 'bethlehem'
 loss_func = 'mse'
 M_transform = 'constant'
 max_epochs = 30

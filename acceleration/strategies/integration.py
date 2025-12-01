@@ -55,7 +55,7 @@ def save_strategy(strategy: str, *args: str) -> None:
     with config.override(**get_overrides(strategy, *args)):
         ds = get_integration()
 
-    fname = '-'.join([strategy, *args])
+    fname = '-'.join([strategy, *map(str, args)])
     base = f'data/{config.name}/strategies/{fname}'
     ds.mean('member').to_netcdf(f'{base}.nc')
 

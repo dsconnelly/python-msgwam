@@ -91,6 +91,9 @@ def _get_network_overrides(
         i = trial.suggest_int('n_bin_idx', 1, 4)
         n_bins = [1, 2, 3, 4, 5][i]
 
+    else:
+        n_bins = int(n_bins)
+
     return {
         'model_path' : f'data/ml-accel/models/scripted-{exp_name}.jit',
         'propagator_type' : 'network',

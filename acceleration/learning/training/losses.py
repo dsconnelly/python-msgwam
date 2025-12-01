@@ -74,6 +74,10 @@ class FluxLoss(nn.Module):
 
         if self.training or for_plotting:
             loss_t = ((Y[:, :-1] - Y_hat) / self._scales[:-1]) ** 2
+
+            if for_plotting:
+                return torch.cat((loss_t, loss), dim=1)
+
             maxes = abs(Y[:, :-1]).amax(dim=-1, keepdim=True)
             maxes = torch.where(maxes > 0, maxes, 1)
 
@@ -81,14 +85,8 @@ class FluxLoss(nn.Module):
             rescale = self._skew * rescale + 1
             loss_t = (rescale ** (self._Y_trans._p - 1)) * loss_t
 
-            if for_plotting:
-                return torch.cat((loss_t, loss), dim=1)
-
             loss = torch.cat((loss_t, loss), dim=1)
             loss = (self._weights * loss).sum(dim=1)
-
-        else:
-            loss = loss * (loss < 2)
 
         return loss.mean()
     

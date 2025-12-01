@@ -286,7 +286,7 @@ def prepare_data(
     C = torch.hstack((C.flatten(1, 2), meta))
 
     C_trans = Transform((C_mean, C_std)).float()
-    M_trans = Transform(M[idx_tr], False, True, p_M).float()
+    M_trans = Transform(M[idx_tr], True, True, p_M).float()
     Y_trans = Transform(Y[idx_tr], False, True, p_Y).float()
 
     if apply_transforms:

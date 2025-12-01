@@ -14,7 +14,7 @@ class Transform(nn.Module):
     def __init__(
         self,
         a: torch.Tensor | tuple[torch.Tensor, torch.Tensor],
-        has_shift: bool=True,
+        has_shift: bool=False,
         by_bin_only: bool=True,
         p: int | torch.Tensor = 1
     ) -> None:
@@ -45,7 +45,6 @@ class Transform(nn.Module):
 
         else:
             a = take_root(a, p)
-            shift = has_shift * a.mean(dim=0)
 
             if by_bin_only:
                 b = a.permute([0, a.ndim - 1, *range(1, a.ndim - 1)])
@@ -55,6 +54,8 @@ class Transform(nn.Module):
             else:
                 scale = a.std(dim=0)
                 scale[scale == 0] = 1
+
+            shift = has_shift * torch.clone(scale)
 
         self.register_buffer('_p', p)
         self.register_buffer('_shift', shift)
