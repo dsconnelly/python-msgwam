@@ -6,6 +6,7 @@ import torch
 import xarray as xr
 
 from msgwam import config
+from msgwam.constants import ROT_EARTH
 
 from optuna import load_study
 from optuna.trial import FixedTrial, Trial
@@ -13,9 +14,6 @@ from optuna.trial import FixedTrial, Trial
 from ... import hyperparameters as hp
 from ...shared.constants import MIMA_MONTHS
 
-from ..generation import get_bin_edges
-
-from .reconstruction import correct_bins, get_dM, get_vertical_flux
 from .transforms import (
     Transform,
     apply_smoothing,
@@ -87,7 +85,7 @@ def iter_paths() -> Iterator[tuple[str, int]]:
 
     """
 
-    base = f'data/ml-accel/integrations-{hp.generation.dt_output}'
+    base = f'data/ml-accel/integrations-cg'
     n_years = len(listdir(base))
 
     n_va = 1 + (n_years > 1)
@@ -118,8 +116,8 @@ def cache_arrays(n_bins_str: str) -> None:
     """
 
     n_bins = int(n_bins_str)
-    n_smoothing = hp.training.n_smoothing
-    make_path = lambda c: f'data/ml-accel/cached/{n_smoothing}/{c}-{n_bins}.npy'
+    n = hp.training.n_smoothing
+    make_path = lambda c: f'data/ml-accel/cached-cg/{n}/{c}-{n_bins}.npy'
 
     n_paths = 0
     for _ in iter_paths():
@@ -129,14 +127,11 @@ def cache_arrays(n_bins_str: str) -> None:
     for i, (path, flag) in enumerate(iter_paths()):
         with xr.open_dataset(path) as ds:
             C = _parse_column(ds)
-            u_old, u_new = C[:, 0], C[:, -1]
-            C = C[:, :-1].reshape(C.shape[0], -1)
+            ones = np.ones((C.shape[0], 1))
+            f = 2 * ROT_EARTH * np.sin(ds.attrs['latitude'])
+            C = np.hstack((flag * ones, C, f * ones))
 
-            col = flag * np.ones((C.shape[0], 1))
-            lat = ds.attrs['latitude'] * np.ones((C.shape[0], 1))
-            M, Y, budget, keep = _parse_momentum(ds, n_bins, u_old, u_new)
-            C = np.hstack((col, C, lat, budget))
-
+            M, Y, keep = _parse_momentum(ds, n_bins)
             print(f'{path}: found {keep.sum()} samples')
 
             if Cs is None:
@@ -211,7 +206,7 @@ def prepare_data(
 ) -> tuple[
     CMY,
     tuple[np.ndarray, np.ndarray],
-    tuple[Transform, Transform, Transform]
+    tuple[Transform, Transform]
 ]:
     """
     Prepare data for training or plotting.
@@ -246,10 +241,10 @@ def prepare_data(
     """
 
     memmaps = []
-    n_smoothing = hp.training.n_smoothing
+    n = hp.training.n_smoothing
 
     for name in 'CMY':
-        path = f'data/ml-accel/cached/{n_smoothing}/{name}-{n_bins}.npy'
+        path = f'data/ml-accel/cached-cg/{n}/{name}-{n_bins}.npy'
         memmaps = memmaps + [np.load(path, mmap_mode='r')]
 
     C_mm, M_mm, Y_mm = memmaps
@@ -269,14 +264,9 @@ def prepare_data(
     print(f'Found {n_tr} training and {n_ev} evaluation samples.')
     del C_mm, M_mm, Y_mm
 
-    p_M = trial.suggest_int('p_M', 1, 5)
-    p_F = trial.suggest_int('p_F', 3, 5)
-    p_D = trial.suggest_int('p_D', 3, 5)
-    p_Y = torch.as_tensor([p_F, p_D])[:, None, None]
-
-    C, meta = C[:, :-2], C[:, -2:]
+    C, meta = C[:, :-1], C[:, -1:]
     C = C.reshape(-1, 2, config.n_grid - 1)
-    
+
     ones = torch.ones(config.n_grid - 1)
     C_mean = C.mean(dim=(0, 2))[:, None] * ones
     C_std = C.std(dim=(0, 2))[:, None] * ones
@@ -285,6 +275,9 @@ def prepare_data(
     C_std = torch.cat((C_std.flatten(), meta.std(0)))
     C = torch.hstack((C.flatten(1, 2), meta))
 
+    p_M = trial.suggest_int('p_M', 1, 5)
+    p_Y = trial.suggest_int('p_Y', 1, 5)
+
     C_trans = Transform((C_mean, C_std)).float()
     M_trans = Transform(M[idx_tr], True, True, p_M).float()
     Y_trans = Transform(Y[idx_tr], False, True, p_Y).float()
@@ -292,9 +285,7 @@ def prepare_data(
     if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
-
-    dM = get_dM(Y)
-    Y = torch.cat((Y_trans(Y), dM[:, None]), dim=1)
+        Y = Y_trans(Y)
 
     return (C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
 
@@ -327,71 +318,34 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
     wind[quad > 1] = -wind[quad > 1]
 
     shape = (-1, config.n_grid - 1)
-    u_old = wind[:-1].reshape(*shape)
-    u_new = wind[1:].reshape(*shape)
+    wind = wind[:-1].reshape(*shape)
     N = N[:-1].reshape(*shape)
 
-    return np.stack((u_old, N, u_new), axis=1)
+    return np.hstack((wind, N))
 
 def _parse_momentum(
     ds: xr.Dataset,
     n_bins: int,
-    u_old: np.ndarray,
-    u_new: np.ndarray,
     mode: str='from_left'
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Parse the bulk momentum density variables on a dataset and return the
     relevant training inputs and targets.
     """
 
-    M = ds['M_bulk'].values
-    S = ds['source'].values
-    D = ds['sink'].values
+    M = ds['M_bulk'].values[:-1]
+    cg = ds['cg_bulk'].values[:-1]
 
-    M_in = M[:-1].reshape(-1, *M.shape[2:])
-    M_out = (M - S)[1:].reshape(-1, *M.shape[2:])
-    D = -D[1:].reshape(-1, *D.shape[2:])
+    M = M.reshape(-1, *M.shape[2:])
+    cg = cg.reshape(-1, *cg.shape[2:])
+    cg = reshape_data(M * cg, n_bins, mode)
+    M = reshape_data(M, n_bins, mode)
 
-    M_in = reshape_data(M_in, n_bins, mode)
-    M_out = reshape_data(M_out, n_bins, mode)
-    D = reshape_data(D, n_bins, mode)
-
-    if hp.training.correct_bins:
-        edges = get_bin_edges(n_bins, mode)
-        M_out = correct_bins(M_out, u_new, u_old, edges)
-        D = correct_bins(D, u_new, u_old, edges)
-
-    F_est = ds['F_bulk'].values
-    F_est = F_est[1:].reshape(-1, *F_est.shape[2:])
-    F_est = reshape_data(F_est, n_bins, 'from_left')
-
-    M_tot = reshape_data(M[:-1], n_bins, mode).sum(axis=1)[:, None]
-    M_tot = np.broadcast_to(M_tot, (M_tot.shape[0], 4, *M_tot.shape[2:]))
-    M_tot = M_tot.reshape(-1, *M_tot.shape[2:]) - M_in
+    idx = M > 0
+    cg[idx] = cg[idx] / M[idx]
 
     for _ in range(hp.training.n_smoothing):
-        M_in = apply_smoothing(M_in)
-        M_out = apply_smoothing(M_out)
-        M_tot = apply_smoothing(M_tot)
-        
-        F_est = apply_smoothing(F_est)
-        D = apply_smoothing(D)
+        M = apply_smoothing(M)
+        cg = apply_smoothing(cg)
 
-    dF = (M_out - M_in - D).sum(1)
-    F = get_vertical_flux(dF, F_est)
-    Y = np.stack((F[..., 1:], D), axis=1)
-
-    budget = M_in.sum(axis=(1, 2))
-    M_in = np.concatenate((M_in, M_tot), axis=1)
-    keep = budget > 0
-
-    sink = Y[:, 0, :, -1].sum(-1) - Y[:, 1].sum((1, 2))
-    res = M_out.sum((1, 2)) + sink - budget
-    keep = keep & (abs(res) < 1e-14)
-
-    n_active = (abs(Y.sum(axis=(-2, -1))) > 1e-12).sum(-1)
-    keep = keep & (n_active == 2)
-
-    budget[keep] = np.log(budget[keep])
-    return M_in, Y, budget[:, None], keep
+    return M, cg, np.ones(M.shape[0]).astype(bool)

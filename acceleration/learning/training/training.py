@@ -37,7 +37,7 @@ from ..architectures import ConvNet, UNet
 
 from .inference import serialize_model
 from .io import CMY, get_best_trial, prepare_data
-from .losses import FluxLoss
+from .losses import FluxLoss, VelocityLoss
 from .transforms import Transform
 
 _DEVICE = torch.device('cpu')
@@ -181,7 +181,6 @@ def _get_model(trial: Trial, n_bins: int, state: Optional[dict]=None) -> UNet:
 def _get_optimizer(
     trial: Trial,
     model: ConvNet,
-    Y_trans: Transform,
     state: Optional[dict]=None
 ) -> tuple[Optimizer]:
     """
@@ -193,8 +192,6 @@ def _get_optimizer(
         Current trial, used to select and configure the optimizer.
     model
         Model to train.
-    Y_trans
-        Transform applied to the target data with learnable parameters.
     state
         If not `None`, should contain a key `'optimizer'` pointing to a state
         dictionary matching the current optimizer class and configuration.
@@ -222,8 +219,7 @@ def _get_optimizer(
         kwargs['weight_decay'] = weight_decay
 
     optim_cls = getattr(torch.optim, optim_name)
-    params = list(model.parameters()) + list(Y_trans.parameters())
-    optimizer = optim_cls(params, **kwargs)
+    optimizer = optim_cls(model.parameters(), **kwargs)
 
     if state is not None:
         optimizer.load_state_dict(state['optimizer'])
@@ -411,11 +407,11 @@ def _train(
 
     *_, Y_trans = transforms
     model = _get_model(trial, n_bins, state)
-    optimizer = _get_optimizer(trial, model, Y_trans, state)
+    optimizer = _get_optimizer(trial, model, state)
     scheduler = _get_scheduler(trial, optimizer, state)
 
     loader_tr, loader_ev = _iter_loaders(trial, tensors, idxs)
-    loss_func = FluxLoss(trial, loader_tr.dataset.tensors[-1], Y_trans)
+    loss_func = VelocityLoss(trial, loader_tr.dataset.tensors[-1], Y_trans)
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -559,7 +555,7 @@ def _run_epoch(
 
         weight = M.shape[0]
         weight_sum = weight_sum + weight
-        loss = loss_func(Y, Y_hat, for_plotting=False)
+        loss = loss_func(Y, Y_hat, reduce=True)
         total = total + weight * loss
 
         if optimizer is not None:

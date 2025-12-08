@@ -35,14 +35,15 @@ class UNet(nn.Module):
     def forward(
         self,
         C: torch.Tensor,
-        M: torch.Tensor
+        M: torch.Tensor,
+        as_wvn: bool=False
     ) -> torch.Tensor:
         """
         Apply the joint block, then use the amplitude block to predict `W` and
         the shape block to predict `Y`.
         """
 
-        C, meta = C[:, :-2], C[:, -2:]
+        C, meta = C[:, :-self._n_meta], C[:, -self._n_meta:]
         C = C.reshape(-1, 2, config.n_grid - 1)
         meta = self._meta_block(meta)[:, None]
 
@@ -65,12 +66,13 @@ class UNet(nn.Module):
             Y = maybe_interp(up(Y), skips[i].shape[-1])
             Y = dec(torch.cat((Y, skips[i]), dim=1))
 
-        return self._postprocess(Y)
+        mask = M > M.min() + 1e-14
+        return self._pos_func(Y) * mask
 
     def _init_settings(self, trial: Trial) -> None:
         """Sample general hyperparameters from the trial."""
 
-        self._use_M_tot = trial.suggest_categorical('use_M_tot', [True, False])
+        self._use_M_tot = False
         self._use_z = trial.suggest_categorical('use_z', [True, False])
         z = torch.linspace(-1, 1, config.n_grid - 1)
         self.register_buffer('_z', z)
@@ -146,7 +148,7 @@ class UNet(nn.Module):
         momentum flux profiles.
         """
 
-        return 2 * self._n_bins
+        return self._n_bins
 
     @property
     def _n_meta(self) -> int:
@@ -155,32 +157,7 @@ class UNet(nn.Module):
         and the natural log of the momentum budget.
         """
 
-        return 2
-    
-    def _postprocess(self, Y: torch.Tensor) -> torch.Tensor:
-        """
-        Postprocess the outputs of the shape block.
-
-        Parameters
-        ----------
-        Y
-            Output of the shape block, with `2 * self._n_bins` channels.
-
-        Returns
-        -------
-        torch.Tensor
-            Postprocessed output. The vertical fluxes are constrained to be non-
-            negative, and the sink (encoded as the horizontal flux in the lowest
-            phase speed bin) is non-positive. The data is reshaped into vertical
-            and horizontal profiles, and each is scaled to unit norm.
-
-        """
-
-        Y = Y.reshape(-1, 2, self._n_bins, Y.shape[-1])
-        mask = torch.ones_like(Y)
-        mask[:, 1] = -1
-
-        return mask * self._pos_func(Y)
+        return 1
 
 def _make_conv(
     n_in: int,
