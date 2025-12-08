@@ -1,5 +1,4 @@
 batch_size: int
-correct_bins: bool
 exp_name: str
 M_transform: str
 max_epochs: int

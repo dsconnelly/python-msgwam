@@ -17,7 +17,8 @@ _COLORS = {
     'instantaneous' : 'tab:red',
     'stochastic' : 'royalblue',
     'coarse' : 'forestgreen',
-    'network' : 'darkviolet'
+    'network' : 'darkviolet',
+    'eulerian' : 'gold'
 }
 
 _STYLES = {

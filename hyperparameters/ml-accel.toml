@@ -14,9 +14,9 @@ n_source_min = 4
 n_source_max = 40
 
 [generation]
-dt = 60
+dt = 120
 dt_output = 1200
-n_bins = 12
+n_bins = 10
 
 [architectures]
 learn_deltas = true
@@ -24,8 +24,7 @@ max_sink = 0.1
 
 [training]
 batch_size = 512
-correct_bins = true
-exp_name = 'bethlehem'
+exp_name = 'oneonta'
 loss_func = 'mse'
 M_transform = 'constant'
 max_epochs = 30

@@ -11,18 +11,16 @@ from msgwam.utils import get_vertical_grids
 from ... import hyperparameters as _hp
 from ...hyperparameters import generation as hp
 
+from ..propagators import EulerianPropagator
+
 from .utils import (
-    get_bin_edges,
     get_info,
-    get_overrides,
-    get_pdx,
-    project
+    get_overrides
 )
 
 if TYPE_CHECKING:
     from msgwam.integration import _Callback
     from msgwam.means import MeanState
-    from msgwam.propagators import TransientPropagator
 
 def save_training_data(n_str: Optional[str]=None) -> None:
     """
@@ -47,14 +45,13 @@ def save_training_data(n_str: Optional[str]=None) -> None:
         qnames = ['k > 0', 'l > 0', 'k < 0', 'l < 0']
         z_faces, z_centers = get_vertical_grids()
 
-        windN = np.zeros((n_samples, 3, config.n_grid - 1))
-        M, S, D = np.zeros((3, n_samples, 4 * hp.n_bins, config.n_grid - 1))
-        F = np.zeros((n_samples, 4 * hp.n_bins, config.n_grid))
+        C = np.zeros((n_samples, 3, config.n_grid - 1))
+        M, F = np.zeros((2, n_samples, 4, hp.n_bins, config.n_grid - 1))
+        _ = integrate(_make_callback(C, M, F))
 
-        _ = integrate(_make_callback(windN, M, D, S, F))
-        args = (n_samples, 4, hp.n_bins, config.n_grid - 1)
-        M, S, D = M.reshape(*args), S.reshape(*args), D.reshape(*args)
-        F = F.reshape(*args[:-1], config.n_grid)
+        idx = M > 0
+        cg = np.zeros_like(M)
+        cg[idx] = F[idx] / M[idx]
 
     data = {
         'time' : seconds.astype(int),
@@ -64,29 +61,25 @@ def save_training_data(n_str: Optional[str]=None) -> None:
         'z_faces' : z_faces
     }
 
-    edges = get_bin_edges()
+    edges = np.linspace(0, 100, hp.n_bins + 1)
     data['bin_center'] = (('bin'), (edges[:-1] + edges[1:]) / 2)
     data['bin_width'] = (('bin'), edges[1:] - edges[:-1])
 
     data['M_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), M)
-    data['source'] = (('time', 'quadrant', 'bin', 'z_centers'), S)
-    data['sink'] = (('time', 'quadrant', 'bin', 'z_centers'), D)
-    data['F_bulk'] = (('time', 'quadrant', 'bin', 'z_faces'), F)
+    data['cg_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), cg)
 
     for i, name in enumerate(['u', 'v', 'N']):
-        data[name] = (('time', 'z_centers'), windN[:, i])
+        data[name] = (('time', 'z_centers'), C[:, i])
 
     year, month, site, lat = get_info(n)
     ds = xr.Dataset(data).assign_attrs(latitude=lat)
-    dir_name = f'data/ml-accel/integrations-1200/{year}'
+    dir_name = f'data/ml-accel/integrations-cg/{year}'
     ds.to_netcdf(f'{dir_name}/{site}-{month}.nc')
 
 def _make_callback(
-    windN: np.ndarray,
+    C: np.ndarray,
     M: np.ndarray,
-    D: np.ndarray,
-    S: np.ndarray,
-    F: np.ndarray,
+    F: np.ndarray
 ) -> _Callback:
     """
     Make a callback function to pass to the integrator.
@@ -113,63 +106,30 @@ def _make_callback(
 
     def callback(
         mean: MeanState,
-        prop: TransientPropagator,
+        prop: EulerianPropagator,
         n_step: int
     ) -> None:
         """Callback function to return as output."""
 
         n_seconds = n_step * config.dt
         i = n_seconds // hp.dt_output
-        i = i + bool(n_seconds % hp.dt_output)
 
-        wvn = abs(prop.k + prop.l)
-        mom = wvn * prop.action
-
-        cp_hat = (prop._get_omega_hat(mean) - abs(config.f)) / wvn
-        bdx = get_pdx(prop.k, prop.l, cp_hat)
-
-        since_last = n_seconds - (i - 1) * config.dt_output
-        attr = prop.attrition * (abs(prop.age) >= since_last)   
-        cg = prop._get_cg_r(mean) / (hp.dt_output // hp.dt)
-        cg = cg * (abs(prop.age) >= since_last)
-
-        project(prop.r, prop.dr, mean.z_faces, attr, bdx, D[i])
-        project(prop.r, prop.dr, prop._z_padded, mom * cg, bdx, F[i])
-        prop._delete_rays(prop.age < 0)
-        
-        if n_seconds % hp.dt_output:
+        if n_seconds % config.dt_output:
             return
+            
+        edges = np.linspace(0, 100, hp.n_bins + 1)
+        _M, _F = [a.sum(axis=1) for a in prop._cache]
+        jdx = np.searchsorted(edges, prop._cpt.flatten()) - 1
 
-        windN[i, :2] = mean.wind
-        windN[i, 2] = mean.N
+        for q in range(4):
+            np.add.at(M[i, q], jdx, _M[q])
+            np.add.at(F[i, q], jdx, _F[q])
 
-        ndx = bdx.copy()
-        ndx[prop.age >= hp.dt_output] = -1
-        project(prop.r, prop.dr, mean.z_faces, mom, bdx, M[i])
-        project(prop.r, prop.dr, mean.z_faces, mom, ndx, S[i])
+        mean.step(None, max(n_step - 1, 0))
+
+        C[i, :2] = mean.wind
+        C[i, 2] = mean.N
+
+        mean.step(None, n_step)
 
     return callback
-
-def _break_oob_rays(
-    prop: TransientPropagator,
-    mean: MeanState,
-    mom: np.ndarray,
-    pdx: np.ndarray,
-    D: np.ndarray
-) -> None:
-    """
-    Catch the contributions from ray volumes that have partially or fully exited
-    the upper boundary, and add their momentum into the sponge layer.
-    """
-    
-    r_lo = prop.r - 0.5 * prop.dr
-    r_hi = prop.r + 0.5 * prop.dr
-
-    dr = np.maximum(r_hi - np.maximum(r_lo, config.z_max), 0)
-    dz = mean.z_faces[-1] - mean.z_faces[-(config.n_sponge + 1)]
-    sponged = (dr * mom / dz)[prop._valid, None]
-    np.add.at(D, pdx[prop._valid], sponged)
-
-    prop._data[1] = prop.dr - dr
-    prop._data[0] = r_lo + prop.dr / 2
-    prop._delete_rays(prop.age < 0)

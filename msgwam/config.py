@@ -12,7 +12,7 @@ _DEFAULTS = {}
 ################################################################################
 # global integration settings
 ################################################################################∂
-propagator_type: Literal['instantaneous', 'network', 'transient']
+propagator_type: Literal['eulerian', 'instantaneous', 'network', 'transient']
 source_type: Literal['constant', 'packet', 'stochastic']
 spectrum_type: Literal['mima', 'custom']
 
@@ -97,6 +97,12 @@ strict_source: bool
 ################################################################################
 model_path: str
 n_bins: int
+
+################################################################################
+# 'eulerian' propagator
+################################################################################
+n_c: int
+n_k: int
 
 ################################################################################
 # 'packet' source

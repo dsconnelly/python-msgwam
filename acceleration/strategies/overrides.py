@@ -53,6 +53,18 @@ def _get_coarse_overrides(
     equal_flux = {'cp' : False, 'flux' : True}[equal_in]
     return {'prune_by' : prune_by, 'equal_flux' : equal_flux}
 
+def _get_eulerian_overrides() -> dict[str, Any]:
+    """Use an Eulerian scheme instead of the ray tracer."""
+
+    return {
+        'propagator_type' : 'eulerian',
+        'dr_source' : -config.dt,
+        'n_source' : 256,
+        'dr_min' : 0,
+        'n_c' : 30,
+        'n_k' : 5,
+    }
+
 def _get_ICONlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that in Bölöni et al. (2020)."""
 
