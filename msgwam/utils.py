@@ -48,9 +48,18 @@ class FactoryABC(ABC):
 
         """
 
+        def get_subs(cls):
+            """Recursively find subclasses."""
+
+            out = set()
+            for sub in cls.__subclasses__():
+                out.update({sub} | get_subs(sub))
+
+            return out
+
         is_lower = lambda c: c.islower()
         handle = lambda s: s[0].lower() + ''.join(takewhile(is_lower, s[1:]))
-        subs = {handle(sub.__name__) : sub for sub in cls.__subclasses__()}
+        subs = {handle(sub.__name__) : sub for sub in get_subs(cls)}
 
         return subs[name](*args, **kwargs)
     

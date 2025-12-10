@@ -1,6 +1,6 @@
 import json
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from msgwam import config
 
@@ -53,16 +53,21 @@ def _get_coarse_overrides(
     equal_flux = {'cp' : False, 'flux' : True}[equal_in]
     return {'prune_by' : prune_by, 'equal_flux' : equal_flux}
 
-def _get_eulerian_overrides() -> dict[str, Any]:
+def _get_eulerian_overrides(mode: Literal['fine', 'coarse']) -> dict[str, Any]:
     """Use an Eulerian scheme instead of the ray tracer."""
+
+    n_c, n_k = {
+        'fine' : (50, 6),
+        'coarse' : (5, 3)
+    }[mode]
 
     return {
         'propagator_type' : 'eulerian',
         'dr_source' : -config.dt,
         'n_source' : 256,
         'dr_min' : 0,
-        'n_c' : 30,
-        'n_k' : 5,
+        'n_c' : n_c,
+        'n_k' : n_k,
     }
 
 def _get_ICONlike_overrides() -> dict[str, Any]:
@@ -92,28 +97,15 @@ def _get_MiMAlike_overrides() -> dict[str, Any]:
         'n_source' : 40
     }
 
-def _get_network_overrides(
-    exp_name: str,
-    n_bins: Optional[int]=None
-) -> dict[str, Any]:
+def _get_network_overrides(exp_name: str) -> dict[str, Any]:
     """Use a neural network to advance the wave momentum state."""
 
-    if n_bins is None:
-        trial = get_best_trial(exp_name)
-        i = trial.suggest_int('n_bin_idx', 1, 4)
-        n_bins = [1, 2, 3, 4, 5][i]
+    kwargs = _get_eulerian_overrides('coarse')
+    
+    kwargs['propagator_type'] = 'network'
+    kwargs['model_path'] = f'data/ml-accel/models/scripted-{exp_name}.jit'
 
-    else:
-        n_bins = int(n_bins)
-
-    return {
-        'model_path' : f'data/ml-accel/models/scripted-{exp_name}.jit',
-        'propagator_type' : 'network',
-        'n_bins' : n_bins,
-        'dr_source' : -1200,
-        'n_source' : 128,
-        'dr_min' : 0
-    }
+    return kwargs
 
 def _get_reference_overrides() -> dict[str, Any]:
     """Integrate at high resolution with no pruning."""

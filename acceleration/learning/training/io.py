@@ -13,12 +13,10 @@ from optuna.trial import FixedTrial, Trial
 
 from ... import hyperparameters as hp
 from ...shared.constants import MIMA_MONTHS
+from ...shared.distributed import add_task_info, combine, get_workload
 
-from .transforms import (
-    Transform,
-    apply_smoothing,
-    reshape_data,
-)
+from .reconstruction import invert_cg
+from .transforms import Transform, apply_smoothing
 
 CMY = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
@@ -92,11 +90,19 @@ def iter_paths() -> Iterator[tuple[str, int]]:
     y_min = 25 - n_years + 1
     modulus = n_years * 12
 
+    n_tasks = len(MIMA_MONTHS) * n_years * 12
+    start, end = get_workload(n_tasks)
+    i = -1
+
     for site, month_te in MIMA_MONTHS.items():
         month_te = month_te + 12 * (n_years - 1)
 
         for k, year in enumerate(range(y_min, 26)):
             for m in range(1, 13):
+                i = i + 1
+                if not (start <= i < end):
+                    continue
+
                 month = m + k * 12  
                 d = month - month_te
                 d = min(d % modulus, -d % modulus)
@@ -104,7 +110,7 @@ def iter_paths() -> Iterator[tuple[str, int]]:
                 flag = 2 if d < 2 else (1 if d < 2 + n_va else 0)
                 yield f'{base}/{year}/{site}-{m}.nc', flag
 
-def cache_arrays(n_bins_str: str) -> None:
+def cache_arrays(n_bins_str: str, mode: Literal['compute', 'combine']) -> None:
     """
     Load input and target data from the MS-GWaM integrations saved to disk.
 
@@ -117,7 +123,16 @@ def cache_arrays(n_bins_str: str) -> None:
 
     n_bins = int(n_bins_str)
     n = hp.training.n_smoothing
-    make_path = lambda c: f'data/ml-accel/cached-cg/{n}/{c}-{n_bins}.npy'
+
+    base = f'data/ml-accel/cached-cg/{n}'
+    make_path = lambda c: add_task_info(f'{base}/{c}-{n_bins}.npy')
+
+    if mode == 'combine':
+        combine(make_path('C'), remove_after=True)
+        combine(make_path('M'), remove_after=True)
+        combine(make_path('Y'), remove_after=True)
+
+        return
 
     n_paths = 0
     for _ in iter_paths():
@@ -129,9 +144,11 @@ def cache_arrays(n_bins_str: str) -> None:
             C = _parse_column(ds)
             ones = np.ones((C.shape[0], 1))
             f = 2 * ROT_EARTH * np.sin(ds.attrs['latitude'])
-            C = np.hstack((flag * ones, C, f * ones))
+            C = np.hstack((flag * ones, C, abs(f) * ones))
 
-            M, Y, keep = _parse_momentum(ds, n_bins)
+            N, f = C[:, -config.n_grid:-1], C[:, -1]
+            M, Y, keep = _parse_momentum(ds, N, f)
+
             print(f'{path}: found {keep.sum()} samples')
 
             if Cs is None:
@@ -276,18 +293,15 @@ def prepare_data(
     C = torch.hstack((C.flatten(1, 2), meta))
 
     p_M = trial.suggest_int('p_M', 1, 5)
-    p_Y = trial.suggest_int('p_Y', 1, 5)
-
     C_trans = Transform((C_mean, C_std)).float()
     M_trans = Transform(M[idx_tr], True, True, p_M).float()
-    Y_trans = Transform(Y[idx_tr], False, True, p_Y).float()
 
+    Nf = C[:, -config.n_grid:]
     if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
-        Y = Y_trans(Y)
 
-    return (C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans, Y_trans)
+    return (Nf, C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans)
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """
@@ -325,8 +339,8 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
 
 def _parse_momentum(
     ds: xr.Dataset,
-    n_bins: int,
-    mode: str='from_left'
+    N: np.ndarray,
+    f: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Parse the bulk momentum density variables on a dataset and return the
@@ -335,11 +349,11 @@ def _parse_momentum(
 
     M = ds['M_bulk'].values[:-1]
     cg = ds['cg_bulk'].values[:-1]
+    shape = (M.shape[0] * M.shape[1], *M.shape[2:])
+    M, cg = M.reshape(*shape), cg.reshape(*shape)
 
-    M = M.reshape(-1, *M.shape[2:])
-    cg = cg.reshape(-1, *cg.shape[2:])
-    cg = reshape_data(M * cg, n_bins, mode)
-    M = reshape_data(M, n_bins, mode)
+    cg = (M * cg).sum(axis=1)
+    M = M.sum(axis=1)
 
     idx = M > 0
     cg[idx] = cg[idx] / M[idx]
@@ -348,4 +362,7 @@ def _parse_momentum(
         M = apply_smoothing(M)
         cg = apply_smoothing(cg)
 
-    return M, cg, np.ones(M.shape[0]).astype(bool)
+    T_hat, keep = invert_cg(N, f, cg)
+    Y = np.stack((T_hat, cg), axis=1)
+
+    return M, Y, keep

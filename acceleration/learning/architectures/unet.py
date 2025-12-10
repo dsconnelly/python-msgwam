@@ -34,9 +34,9 @@ class UNet(nn.Module):
 
     def forward(
         self,
+        Nf: torch.Tensor,
         C: torch.Tensor,
-        M: torch.Tensor,
-        as_wvn: bool=False
+        M: torch.Tensor
     ) -> torch.Tensor:
         """
         Apply the joint block, then use the amplitude block to predict `W` and
@@ -66,8 +66,15 @@ class UNet(nn.Module):
             Y = maybe_interp(up(Y), skips[i].shape[-1])
             Y = dec(torch.cat((Y, skips[i]), dim=1))
 
-        mask = M > M.min() + 1e-14
-        return self._pos_func(Y) * mask
+        N = Nf[:, None, :-1]
+        f = Nf[:, -1, None, None]
+        T_min, T_max = 2 * torch.pi / N, 2 * torch.pi / f
+
+        mask = (M > M.min() + 1e-14).float()
+        logits = mask * Y + (1 - mask) * 100
+        T_hat = T_min + (T_max - T_min) * torch.sigmoid(logits)
+
+        return T_hat
 
     def _init_settings(self, trial: Trial) -> None:
         """Sample general hyperparameters from the trial."""

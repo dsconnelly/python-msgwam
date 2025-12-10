@@ -1,6 +1,8 @@
 from itertools import product as _product
-from os import environ
+from os import environ, listdir, remove
 from typing import Any, Iterable, Iterator
+
+import numpy as np
 
 from .. import hyperparameters as hp
 
@@ -32,6 +34,26 @@ def add_task_info(fname: str) -> str:
     stem = '.'.join(parts)
 
     return stem + f'_task-{hp.task_id}' + f'.{suffix}'
+
+def combine(path: str, remove_after: bool=False) -> None:
+    """Combine arrays created by different SLURM tasks with a common prefix."""
+
+    *parts, bname = path.split('/')
+    bname, suffix = bname.split('.')
+    dname = '/'.join(parts)
+
+    paths = []
+    for fname in listdir(dname):
+        if fname.startswith(bname + '_'):
+            paths.append(f'{dname}/{fname}')
+
+    paths = sorted(paths)
+    data = np.concatenate(list(map(np.load, paths)), axis=0)
+    np.save(f'{dname}/{bname}.{suffix}', data)
+
+    if remove_after:
+        for path in paths:
+            remove(path)
 
 def get_workload(n: int) -> tuple[int, int]:
     """

@@ -3,8 +3,64 @@ import torch, torch.nn as nn
 
 from optuna.trial import Trial
 
-from .reconstruction import get_dM
-from .transforms import Transform
+from ..propagators import EulerianPropagator
+from .reconstruction import get_dM, cg_from_T_hat
+from .transforms import Transform, nonzero_stat
+
+class VelocityLoss(nn.Module):
+    _cpt: torch.Tensor
+    _scales: torch.Tensor
+    _weights: torch.Tensor
+    
+    def __init__(self, trial: Trial, Y: torch.Tensor):
+        """
+        Initialize various buffers and parameters.
+        """
+
+        super().__init__()
+
+        _, edges_cpt = EulerianPropagator._init_edges(1, Y.shape[-2])
+        cpt = torch.as_tensor((edges_cpt[:-1] + edges_cpt[1:]) / 2)
+        self.register_buffer('_cpt', cpt[:, None])
+
+        Y = Y * (Y[:, 1] > 1e-14)[:, None]
+        Y = Y.permute([0, 3, 1, 2]).flatten(0, 1)
+        scales = nonzero_stat(Y.cpu().numpy(), mode='std')[..., None]
+        self.register_buffer('_scales', torch.as_tensor(scales))
+
+        w_T = trial.suggest_float('w_T', 0, 1)
+        weights = torch.as_tensor([w_T, 1 - w_T])
+        self.register_buffer('_weights', weights[:, None, None])
+        
+    def forward(
+        self,
+        Nf: torch.Tensor,
+        Y: torch.Tensor,
+        T_nn: torch.Tensor,
+        reduce: bool=True
+    ) -> torch.Tensor:
+        """
+        Calculate the loss, either a weighted combination of the period and the
+        group velocity or just the latter at evaluation time.
+        """
+
+        N, f = Nf[:, None, :-1], Nf[:, -1, None, None]
+        cg_nn = cg_from_T_hat(N, f, self._cpt, T_nn)
+        Y_hat = torch.stack((T_nn, cg_nn), dim=1)
+
+        mask = (Y[:, 1] > 1e-14)[:, None]
+        loss = mask * ((Y - Y_hat) / self._scales) ** 2
+
+        if self.training:
+            loss = (self._weights * loss).sum(dim=1)
+
+        else:
+            loss = loss[:, 1]
+
+        if reduce:
+            return loss.mean()
+        
+        return loss
 
 class FluxLoss(nn.Module):
     _scales: torch.Tensor

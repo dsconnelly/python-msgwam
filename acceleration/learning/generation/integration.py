@@ -22,6 +22,9 @@ if TYPE_CHECKING:
     from msgwam.integration import _Callback
     from msgwam.means import MeanState
 
+_N_K = 3
+_N_C = 5
+
 def save_training_data(n_str: Optional[str]=None) -> None:
     """
     Integrate and save the relevant quantities for training.
@@ -46,27 +49,29 @@ def save_training_data(n_str: Optional[str]=None) -> None:
         z_faces, z_centers = get_vertical_grids()
 
         C = np.zeros((n_samples, 3, config.n_grid - 1))
-        M, F = np.zeros((2, n_samples, 4, hp.n_bins, config.n_grid - 1))
+        M, F = np.zeros((2, n_samples, 4, _N_K * _N_C, config.n_grid - 1))
         _ = integrate(_make_callback(C, M, F))
 
         idx = M > 0
         cg = np.zeros_like(M)
         cg[idx] = F[idx] / M[idx]
 
+    shape = (n_samples, 4, _N_K, _N_C, config.n_grid - 1)
+    M, cg = M.reshape(*shape), cg.reshape(*shape)
+
     data = {
         'time' : seconds.astype(int),
         'quadrant' : np.array(qnames),
-        'bin' : np.arange(hp.n_bins),
+        'bin_wvn' : np.arange(_N_K),
+        'bin_cpt' : np.arange(_N_C),
         'z_centers' : z_centers,
         'z_faces' : z_faces
     }
 
-    edges = np.linspace(0, 100, hp.n_bins + 1)
-    data['bin_center'] = (('bin'), (edges[:-1] + edges[1:]) / 2)
-    data['bin_width'] = (('bin'), edges[1:] - edges[:-1])
+    dims = ('time', 'quadrant', 'bin_wvn', 'bin_cpt', 'z_centers')
 
-    data['M_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), M)
-    data['cg_bulk'] = (('time', 'quadrant', 'bin', 'z_centers'), cg)
+    data['M_bulk'] = (dims, M)
+    data['cg_bulk'] = (dims, cg)
 
     for i, name in enumerate(['u', 'v', 'N']):
         data[name] = (('time', 'z_centers'), C[:, i])
@@ -116,14 +121,17 @@ def _make_callback(
 
         if n_seconds % config.dt_output:
             return
-            
-        edges = np.linspace(0, 100, hp.n_bins + 1)
-        _M, _F = [a.sum(axis=1) for a in prop._cache]
-        jdx = np.searchsorted(edges, prop._cpt.flatten()) - 1
+        
+        _M, _F = [a.reshape(4, -1, config.n_grid - 1) for a in prop._cache]
+        edges_k, edges_c = EulerianPropagator._init_edges(_N_K, _N_C)
+
+        wdx = np.digitize(prop._wvn.flatten(), edges_k) - 1
+        jdx = np.digitize(prop._cpt.flatten(), edges_c) - 1
+        fdx = (wdx[:, None] * _N_C + jdx[None]).ravel()
 
         for q in range(4):
-            np.add.at(M[i, q], jdx, _M[q])
-            np.add.at(F[i, q], jdx, _F[q])
+            np.add.at(M[i, q], fdx, _M[q])
+            np.add.at(F[i, q], fdx, _F[q])
 
         mean.step(None, max(n_step - 1, 0))
 

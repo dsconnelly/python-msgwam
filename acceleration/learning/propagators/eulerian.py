@@ -21,9 +21,12 @@ class EulerianPropagator(Propagator):
 
         super().__init__(mean)
 
-        self._init_edges()        
-        wvn = (self._edges_wvn[:-1] + self._edges_wvn[1:]) / 2
-        cpt = (self._edges_cpt[:-1] + self._edges_cpt[1:]) / 2
+        edges_wvn, edges_cpt = self._init_edges(config.n_k, config.n_c)
+        self._edges_wvn, self._edges_cpt = edges_wvn, edges_cpt
+
+        mid = lambda a: (a[:-1] + a[1:]) / 2
+        wvn = 1 / mid(1 / self._edges_wvn)
+        cpt = mid(self._edges_cpt)
 
         self._wvn = wvn[:, None, None]
         self._cpt = cpt[:, None]
@@ -56,8 +59,8 @@ class EulerianPropagator(Propagator):
         N = np.interp(mean.z_faces, mean.z_centers, mean.N)
         N = np.vstack((N, N, N, N))[:, None, None]
 
+        cg = self._get_cg_r(mean)
         dt_o_dz = config.dt / mean.dz
-        cg = get_cg_r(self._wvn, self._cpt, N, config.f)[..., 1:]
         phi_in, phi_out = get_transports(M, cg, self._edges_cpt, wind, dt_o_dz)
         
         dM = phi_in - phi_out 
@@ -144,6 +147,18 @@ class EulerianPropagator(Propagator):
 
         return out
 
+    def _get_cg_r(self, mean: MeanState) -> np.ndarray:
+        """
+        Get the group velocity to use in the propagation step. The method as
+        implemented here is just a wrapper around the dispersion relation, but
+        the network propagator can override it with a call to the model.
+        """
+
+        N = np.interp(mean.z_faces, mean.z_centers, mean.N)
+        N = np.vstack((N, N, N, N))[:, None, None]
+
+        return get_cg_r(self._wvn, self._cpt, N, config.f)[..., 1:]
+
     def _get_sinks(self, mean: MeanState) -> np.ndarray:
         """
         Determine where polychromatic breaking should occur and reduce the bulk
@@ -170,15 +185,17 @@ class EulerianPropagator(Propagator):
         factor = np.clip(1 - (wvn_hor_sq + m_sq) * kappa, 0, 1)
         return self._M * (1 - factor)
 
-    def _init_edges(self) -> None:
+    @classmethod
+    def _init_edges(cls, n_k: int, n_c: int) -> tuple[np.ndarray, np.ndarray]:
         """
         Initialize the phase speed and wavenumber grids.
         """
 
-        frac = 0.8 if config.extrinsic else 0
-        self._edges_cpt = self._allocate_bins(config.n_c, 0.8)
-        edges_wvl = self._allocate_bins(config.n_k, frac)
+        edges_cpt = cls._allocate_bins(n_c, 0.8)
+        edges_wvl = cls._allocate_bins(n_k, 0.8)
 
         edges_wvl[0] = 0.01 * edges_wvl[1]
         edges_wvl = config.T_hat_source * edges_wvl
-        self._edges_wvn = 2 * np.pi / edges_wvl[::-1]
+        edges_wvn = 2 * np.pi / edges_wvl[::-1]
+
+        return edges_wvn, edges_cpt

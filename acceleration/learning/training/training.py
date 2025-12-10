@@ -405,13 +405,12 @@ def _train(
         seed=n_bins
     )
 
-    *_, Y_trans = transforms
     model = _get_model(trial, n_bins, state)
     optimizer = _get_optimizer(trial, model, state)
     scheduler = _get_scheduler(trial, optimizer, state)
 
     loader_tr, loader_ev = _iter_loaders(trial, tensors, idxs)
-    loss_func = VelocityLoss(trial, loader_tr.dataset.tensors[-1], Y_trans)
+    loss_func = VelocityLoss(trial, loader_tr.dataset.tensors[-1])
     loss_func = loss_func.to(_DEVICE)
 
     state = {}
@@ -543,19 +542,19 @@ def _run_epoch(
     total = 0
 
     for tensors in loader:
-        C, M, Y = [a.to(_DEVICE) for a in tensors]
+        Nf, C, M, Y = [a.to(_DEVICE) for a in tensors]
 
         if optimizer is None:
             with torch.no_grad():
-                Y_hat = model(C, M)
+                Y_hat = model(Nf, C, M)
 
         else:
             optimizer.zero_grad()
-            Y_hat = model(C, M)
+            Y_hat = model(Nf, C, M)
 
         weight = M.shape[0]
         weight_sum = weight_sum + weight
-        loss = loss_func(Y, Y_hat, reduce=True)
+        loss = loss_func(Nf, Y, Y_hat, reduce=True)
         total = total + weight * loss
 
         if optimizer is not None:
