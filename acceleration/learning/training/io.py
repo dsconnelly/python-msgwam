@@ -16,7 +16,7 @@ from ...shared.constants import MIMA_MONTHS
 from ...shared.distributed import add_task_info, combine, get_workload
 
 from .reconstruction import invert_cg
-from .transforms import Transform, apply_smoothing
+from .transforms import Transform, apply_smoothing, get_T_from_logits
 
 CMY = tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
@@ -296,12 +296,17 @@ def prepare_data(
     C_trans = Transform((C_mean, C_std)).float()
     M_trans = Transform(M[idx_tr], True, True, p_M).float()
 
-    Nf = C[:, -config.n_grid:]
+    N = C[:, None, -config.n_grid:-1]
+    f = C[:, -1, None, None]
+
+    logits = get_T_from_logits(N, f, Y[:, 0], inverse=True)
+    Y = torch.stack((logits, Y[:, 1]), dim=1)
+
     if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
 
-    return (Nf, C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans)
+    return (N, f, C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans)
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
     """

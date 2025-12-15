@@ -5,12 +5,13 @@ from typing import Optional
 import torch, torch.nn as nn
 
 from optuna.trial import FixedTrial
-from torch.nn.functional import pad as _PAD
+
+from msgwam import config
 
 from ..architectures import ConvNet
 
 from .io import prepare_data
-from .transforms import Transform
+from .transforms import Transform, get_T_from_logits
 
 def serialize_model(
     model_path: Optional[str]=None,
@@ -59,7 +60,6 @@ class Inferer(nn.Module):
         model: ConvNet,
         C_trans: Transform,
         M_trans: Transform,
-        Y_trans: Transform,
         batch_size: int=64
     ) -> None:
         """
@@ -86,13 +86,12 @@ class Inferer(nn.Module):
 
         self._C_trans = C_trans
         self._M_trans = M_trans
-        self._Y_trans = Y_trans
 
     def forward(
         self,
         C: torch.Tensor,
         M: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Apply the neural network.
 
@@ -108,9 +107,12 @@ class Inferer(nn.Module):
 
         """
 
+        N = C[:, None, -config.n_grid:-1].float()
+        f = C[:, -1, None, None].float()
+    
         n_bins = self._model._n_bins
         C, M = self._C_trans(C.float()), self._M_trans(M.float())
-        out = torch.zeros((M.shape[0], 2, n_bins, M.shape[2])).float()
+        out = torch.zeros((M.shape[0], n_bins, M.shape[2])).float()
 
         i = 0
         while i < M.shape[0]:
@@ -119,8 +121,4 @@ class Inferer(nn.Module):
 
             i = j
 
-        out = self._Y_trans(out, inverse=True)
-        F_v, D = out[:, 0], out[:, 1]
-        F_v = _PAD(F_v, (1, 0))
-
-        return F_v.double(), D.double()
+        return get_T_from_logits(N, f, out).double()

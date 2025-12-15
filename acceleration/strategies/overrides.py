@@ -1,10 +1,6 @@
-import json
-
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from msgwam import config
-
-from ..learning.training.io import get_best_trial
 
 def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     """
@@ -57,8 +53,8 @@ def _get_eulerian_overrides(mode: Literal['fine', 'coarse']) -> dict[str, Any]:
     """Use an Eulerian scheme instead of the ray tracer."""
 
     n_c, n_k = {
-        'fine' : (50, 6),
-        'coarse' : (5, 3)
+        'fine' : (100, 12),
+        'coarse' : (10, 1)
     }[mode]
 
     return {

@@ -116,6 +116,26 @@ def apply_smoothing(a: np.ndarray) -> np.ndarray:
 
     return out / 4
 
+def get_T_from_logits(
+    N: torch.Tensor,
+    f: torch.Tensor,
+    logits: torch.Tensor,
+    inverse: bool=False
+) -> torch.Tensor:
+    """
+    
+    """
+
+    a = 2 * torch.pi / N
+    b = 2 * torch.pi / f
+
+    if inverse:
+        arg = (logits - a) / (b - a)
+        arg = torch.clamp(arg, 1e-7, 1 - 1e-7)
+        return torch.logit(arg)
+
+    return a + (b - a) * torch.sigmoid(logits)
+
 def nonzero_stat(a: np.ndarray, mode=Literal['mean', 'std']) -> np.ndarray:
     """
     Take the mean or standard deviation along the outermost axis, including only

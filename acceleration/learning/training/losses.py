@@ -5,7 +5,7 @@ from optuna.trial import Trial
 
 from ..propagators import EulerianPropagator
 from .reconstruction import get_dM, cg_from_T_hat
-from .transforms import Transform, nonzero_stat
+from .transforms import Transform, get_T_from_logits, nonzero_stat
 
 class VelocityLoss(nn.Module):
     _cpt: torch.Tensor
@@ -30,13 +30,14 @@ class VelocityLoss(nn.Module):
 
         w_T = trial.suggest_float('w_T', 0, 1)
         weights = torch.as_tensor([w_T, 1 - w_T])
-        self.register_buffer('_weights', weights[:, None, None])
+        self.register_buffer('_weights', weights[:, None])
         
     def forward(
         self,
-        Nf: torch.Tensor,
+        N: torch.Tensor,
+        f: torch.Tensor,
         Y: torch.Tensor,
-        T_nn: torch.Tensor,
+        logits_nn: torch.Tensor,
         reduce: bool=True
     ) -> torch.Tensor:
         """
@@ -44,12 +45,19 @@ class VelocityLoss(nn.Module):
         group velocity or just the latter at evaluation time.
         """
 
-        N, f = Nf[:, None, :-1], Nf[:, -1, None, None]
-        cg_nn = cg_from_T_hat(N, f, self._cpt, T_nn)
-        Y_hat = torch.stack((T_nn, cg_nn), dim=1)
+        logits, cg = Y[:, 0], Y[:, 1]
+        loss_T = ((logits - logits_nn) / self._scales[0]) ** 2
 
-        mask = (Y[:, 1] > 1e-14)[:, None]
-        loss = mask * ((Y - Y_hat) / self._scales) ** 2
+        T_nn = get_T_from_logits(N, f, logits_nn)
+        cg_nn = cg_from_T_hat(N, f, self._cpt, T_nn)
+        loss_cg = _smae((cg - cg_nn) / self._scales[1])
+
+        loss = torch.stack((loss_T, loss_cg), dim=1)
+        mask = (cg > 1e-14)[:, None]
+
+        counts = mask.sum(dim=-1)
+        counts = torch.where(counts > 0, counts, 1)
+        loss = (mask * loss).sum(dim=-1) / counts
 
         if self.training:
             loss = (self._weights * loss).sum(dim=1)

@@ -2,7 +2,7 @@ import os
 
 from copy import deepcopy
 from time import time
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 import cftime
 import numpy as np
@@ -17,7 +17,7 @@ from optuna.trial import FixedTrial, Trial, TrialState
 
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import (
-    CosineAnnealingLR,
+    CosineAnnealingWarmRestarts,
     ReduceLROnPlateau,
     LRScheduler
 )
@@ -49,6 +49,21 @@ torch.set_flush_denormal(True)
 
 REFERENCES = {}
 
+class InvalidTrial(Exception):
+    pass
+
+def _catch_invalid(func: Callable[..., float]) -> Callable[..., float]:
+    """Wrap a training routine to return infinity if the trial is invalid."""
+    
+    def _wrapped(*args, **kwargs) -> float:
+        try:
+            return func(*args, **kwargs)
+        
+        except InvalidTrial:
+            return float('inf')
+        
+    return _wrapped
+
 def search_hyperparameters(
     n_hours_small: str | int,
     n_hours_large: str | int
@@ -74,13 +89,10 @@ def search_hyperparameters(
 
     name = hp.training.exp_name
     path = f'sqlite:///data/ml-accel/models/study-{name}.db'
-    n_warmup = max(hp.training.patience, hp.training.n_online_test)
-    pruner = MedianPruner(n_startup_trials=5, n_warmup_steps=n_warmup)
 
-    kwargs = {
-        'gc_after_trial' : True,
-        'catch' : (FloatingPointError, RuntimeError)
-    }
+    n_warmup = max(hp.training.patience, hp.training.n_online_test)
+    pruner = MedianPruner(n_warmup_steps=n_warmup, n_min_trials=5)
+    kwargs = {'gc_after_trial' : True}
 
     study_small = None
     info = get_all_study_names(path)
@@ -119,11 +131,11 @@ def search_hyperparameters(
         if study_small is not None:
             keep = lambda t: t.state == TrialState.COMPLETE
             trials = [t for t in study_small.get_trials() if keep(t)]
-            n_keep = min(5, max(1, int(0.2 * len(trials))))
+            n_keep = min(10, max(1, int(0.2 * len(trials))))
 
             key = lambda t: t.value
             trials = sorted(trials, key=key)[:n_keep]
-            trials = [t for t in trials if t.value < 0.5]
+            trials = [t for t in trials if t.value < 0.1]
             print(f'Enqueuing {len(trials)} trials.\n')
 
             for trial in trials:
@@ -168,9 +180,8 @@ def _get_model(trial: Trial, n_bins: int, state: Optional[dict]=None) -> UNet:
     n_params = sum(param.numel() for param in model.parameters())
     print(f'Initialized model with {n_params} trainable parameters.')
 
-    if n_params > 2000000:
-        print('Model is too complex.')
-        raise TrialPruned()
+    if n_params > 4000000:
+        raise InvalidTrial('Model is too complex.')
 
     if state is not None:
         model.load_state_dict(state['model'])
@@ -203,7 +214,7 @@ def _get_optimizer(
 
     """
 
-    optim_name = trial.suggest_categorical('optimizer', ['AdamW'])
+    optim_name = trial.suggest_categorical('optimizer', ['AdamW', 'SGD'])
     lr_bounds = {'AdamW' : (1e-5, 5e-3), 'SGD' : (1e-2, 5e-1)}[optim_name]
     lr = trial.suggest_float('learning_rate', *lr_bounds, log=True)
     kwargs = {'lr' : lr}
@@ -253,7 +264,7 @@ def _get_scheduler(
     schedulers = {
         'none' : lambda *_: None,
         'plateau' : ReduceLROnPlateau,
-        'cosine' : CosineAnnealingLR
+        'cosine' : CosineAnnealingWarmRestarts
     }
 
     scheduler_name = trial.suggest_categorical('scheduler', schedulers.keys())
@@ -265,12 +276,8 @@ def _get_scheduler(
         kwargs['mode'] = 'min'
 
     elif scheduler_name == 'cosine':
-        kwargs['T_max'] = trial.suggest_int('cosine_T_max', 40, 80)
-        kwargs['eta_min'] = trial.suggest_float(
-            'cosine_eta_min',
-            1e-7, 5e-6,
-            log=True
-        )
+        kwargs['T_0'] = trial.suggest_int('cosine_T_0', 30, 80, step=10)
+        kwargs['T_mult'] = trial.suggest_int('cosine_T_mult', 1, 3)
 
     scheduler = schedulers[scheduler_name](optimizer, **kwargs)
 
@@ -348,6 +355,7 @@ def _init_references():
 
         REFERENCES[scenario] = (lat, F_x, F_y)
 
+@_catch_invalid
 def _train(
     trial: Trial,
     n_print: int=1,
@@ -382,7 +390,7 @@ def _train(
     eval_type = 'te' if isinstance(trial, FixedTrial) else 'va'
 
     if eval_type == 'te':
-        n_samples = None
+        n_samples = 2000000
     elif warmup:
         n_samples = 30000
     else:
@@ -393,9 +401,10 @@ def _train(
         kwargs = dict(weights_only=True, map_location=torch.device('cpu'))
         state = torch.load(f'data/ml-accel/models/state-{name}.pkl', **kwargs)
 
-    options = [1, 2, 3, 4, 5]
-    i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
-    n_bins = options[i]
+    # options = [1, 2, 3, 4, 5]
+    # i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
+    # n_bins = options[i]
+    n_bins = 5
 
     tensors, idxs, transforms = prepare_data(
         trial=trial,
@@ -469,8 +478,10 @@ def _train(
                 print('Stopping early due to lack of improvement.')
                 break
 
-        should_prune = np.isnan(loss_ev)
+        if any(map(np.isnan, [loss_bp, loss_tr, loss_ev])):
+            raise InvalidTrial('NaNs detected.')
 
+        should_prune = False
         if hp.training.n_online_test == 0:
             trial.report(loss_ev, n_epoch)
             should_prune = should_prune or trial.should_prune()
@@ -542,19 +553,19 @@ def _run_epoch(
     total = 0
 
     for tensors in loader:
-        Nf, C, M, Y = [a.to(_DEVICE) for a in tensors]
+        N, f, C, M, Y = [a.to(_DEVICE) for a in tensors]
 
         if optimizer is None:
             with torch.no_grad():
-                Y_hat = model(Nf, C, M)
+                Y_hat = model(C, M)
 
         else:
             optimizer.zero_grad()
-            Y_hat = model(Nf, C, M)
+            Y_hat = model(C, M)
 
         weight = M.shape[0]
         weight_sum = weight_sum + weight
-        loss = loss_func(Nf, Y, Y_hat, reduce=True)
+        loss = loss_func(N, f, Y, Y_hat, reduce=True)
         total = total + weight * loss
 
         if optimizer is not None:

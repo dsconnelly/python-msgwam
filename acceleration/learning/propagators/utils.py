@@ -46,11 +46,14 @@ def get_A(
 
     for j, (a_old, b_old) in enumerate(zip(*pairs_old)):
         for i, (a_new, b_new) in enumerate(zip(*pairs_new)):
+            if b_new < a_old:
+                continue
+
+            if b_old < a_new:
+                break
+
             a = max(a_old, a_new)
             b = min(b_old, b_new)
-
-            if a >= b:
-                continue
 
             frac = (b - a) / (b_old - a_old)
             A[i, j] = frac

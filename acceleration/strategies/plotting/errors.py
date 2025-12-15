@@ -24,7 +24,8 @@ _COLORS = {
 _STYLES = {
     'ICONlike' : 'dashed',
     'stochastic-64' : 'dashed',
-    'stochastic-100' : 'dotted'
+    'stochastic-100' : 'dotted',
+    'eulerian-coarse' : 'dotted'
 }
 
 @by_kind
@@ -209,6 +210,10 @@ def _format_strategy(strategy: str) -> str:
 
     if strategy.startswith('network'):
         return 'emulator'
+    
+    if strategy.startswith('eulerian'):
+        _, grain = strategy.split('-')
+        return f'Eulerian ({grain})'
     
     return strategy
 

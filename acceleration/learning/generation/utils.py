@@ -3,6 +3,7 @@ from typing import Any
 import xarray as xr
 
 from ... import hyperparameters as hp
+from ...strategies import get_overrides as _get_strat_overrides
 
 def get_overrides(n: int) -> dict[str, Any]:
     """
@@ -22,22 +23,14 @@ def get_overrides(n: int) -> dict[str, Any]:
 
     year, month, site, lat = get_info(n)
     path = f'data/ml-accel/context/{year}/{site}-{month}.nc'
+    kwargs = _get_strat_overrides('eulerian', 'fine')
 
-    return {
-        'prescribed_mean_file' : path,
-        'latitude' : lat,
+    kwargs['dt'] = hp.generation.dt
+    kwargs['dt_output'] = hp.generation.dt_output
+    kwargs['prescribed_mean_file'] = path
+    kwargs['latitude'] = lat
 
-        'dr_source' : -hp.generation.dt,
-        'n_source' : 256,
-        'dr_min' : 0,
-
-        'dt' : hp.generation.dt,
-        'dt_output' : hp.generation.dt_output,
-    
-        'propagator_type' : 'eulerian',
-        'n_c' : 100,
-        'n_k' : 50,
-    }
+    return kwargs
 
 def get_info(n: int) -> tuple[int, int, str, float]:
     """

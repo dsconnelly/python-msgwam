@@ -34,7 +34,6 @@ class UNet(nn.Module):
 
     def forward(
         self,
-        Nf: torch.Tensor,
         C: torch.Tensor,
         M: torch.Tensor
     ) -> torch.Tensor:
@@ -66,15 +65,8 @@ class UNet(nn.Module):
             Y = maybe_interp(up(Y), skips[i].shape[-1])
             Y = dec(torch.cat((Y, skips[i]), dim=1))
 
-        N = Nf[:, None, :-1]
-        f = Nf[:, -1, None, None]
-        T_min, T_max = 2 * torch.pi / N, 2 * torch.pi / f
-
         mask = (M > M.min() + 1e-14).float()
-        logits = mask * Y + (1 - mask) * 100
-        T_hat = T_min + (T_max - T_min) * torch.sigmoid(logits)
-
-        return T_hat
+        return mask * Y + (1 - mask) * 100
 
     def _init_settings(self, trial: Trial) -> None:
         """Sample general hyperparameters from the trial."""
@@ -83,15 +75,6 @@ class UNet(nn.Module):
         self._use_z = trial.suggest_categorical('use_z', [True, False])
         z = torch.linspace(-1, 1, config.n_grid - 1)
         self.register_buffer('_z', z)
-
-        options = {
-            'relu' : nn.functional.relu,
-            'softplus' : nn.functional.softplus,
-            'exp' : torch.exp
-        }
-
-        func_name = trial.suggest_categorical('pos_func', options.keys())
-        self._pos_func = options[func_name]
 
     def _init_dense(self, trial: Trial) -> None:
         """Initialize the dense layer that processes the metadata."""
