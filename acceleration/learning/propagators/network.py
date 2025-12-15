@@ -23,8 +23,10 @@ class NetworkPropagator(EulerianPropagator):
         self._model = torch.jit.load(config.model_path)
         super().__init__(mean)
 
-    def _get_cg_r(self, mean: MeanState) -> np.ndarray:
-        """The group velocity is obtained by calling the network."""
+    def _get_wvn(self, mean: MeanState) -> np.ndarray:
+        """
+        
+        """
 
         wind = np.vstack((mean.u, mean.v, -mean.u, -mean.v))
         N = np.vstack((mean.N, mean.N, mean.N, mean.N))
@@ -35,6 +37,37 @@ class NetworkPropagator(EulerianPropagator):
 
         with torch.no_grad():
             inputs = map(torch.as_tensor, [C, M])
-            cg = self._model(*inputs)
+            T_hat = self._model(*inputs).numpy()
 
-        return cg.numpy().reshape(4, *self._M.shape[1:])
+        omega_hat = 2 * torch.pi / T_hat[:, None]
+        return np.maximum(omega_hat - f[:, None, None], 1e-8) / self._cpt
+
+import numba as nb
+@nb.njit
+def apply_smoothing(a: np.ndarray) -> np.ndarray:
+    """
+    Apply a Shapiro filter along the last dimension, while respecting initial
+    zeros and so not polluting levels below the source.
+
+    Parameters
+    ----------
+    a
+        Array to filter.
+
+    Returns
+    -------
+    a
+        Array filtered along the last dimension.
+
+    """
+
+    out = np.zeros_like(a)
+    for idx in np.ndindex(a.shape[:-1]):
+        start = np.argmax(a[idx] != 0)
+
+        for k in range(start, a.shape[-1]):
+            out[*idx, k] += a[*idx, max(k - 1, start)]
+            out[*idx, k] += a[*idx, min(k + 1, a.shape[-1] - 1)]
+            out[*idx, k] += 2 * a[*idx, k]
+
+    return out / 4

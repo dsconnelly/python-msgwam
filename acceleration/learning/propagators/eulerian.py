@@ -12,6 +12,7 @@ from .utils import get_cg_r, get_qdx, get_transports, project, recover_omega_hat
 if TYPE_CHECKING:
     from msgwam.means import MeanState
 
+
 class EulerianPropagator(Propagator):
     def __init__(self, mean: MeanState):
         """
@@ -57,16 +58,17 @@ class EulerianPropagator(Propagator):
         M = self._M + self._check_source(mean, n_step)
         wind = np.vstack((mean.u, mean.v, -mean.u, -mean.v))
         N = np.interp(mean.z_faces, mean.z_centers, mean.N)
-        N = np.vstack((N, N, N, N))[:, None, None]
+        N = np.vstack((N, N, N, N))[:, None, None, 1:]
 
-        cg = self._get_cg_r(mean)
+        wvn = self._get_wvn(mean)
         dt_o_dz = config.dt / mean.dz
+        cg = get_cg_r(wvn, self._cpt, N, config.f)
         phi_in, phi_out = get_transports(M, cg, self._edges_cpt, wind, dt_o_dz)
         
         dM = phi_in - phi_out 
         self._M = np.maximum(M + dM, 0)
+        D = self._get_sinks(mean, wvn)
 
-        D = self._get_sinks(mean)
         self._M = self._M - D
         self._M[self._M < 1e-8] = 0
 
@@ -147,31 +149,19 @@ class EulerianPropagator(Propagator):
 
         return out
 
-    def _get_cg_r(self, mean: MeanState) -> np.ndarray:
-        """
-        Get the group velocity to use in the propagation step. The method as
-        implemented here is just a wrapper around the dispersion relation, but
-        the network propagator can override it with a call to the model.
-        """
-
-        N = np.interp(mean.z_faces, mean.z_centers, mean.N)
-        N = np.vstack((N, N, N, N))[:, None, None]
-
-        return get_cg_r(self._wvn, self._cpt, N, config.f)[..., 1:]
-
-    def _get_sinks(self, mean: MeanState) -> np.ndarray:
+    def _get_sinks(self, mean: MeanState, wvn: np.ndarray) -> np.ndarray:
         """
         Determine where polychromatic breaking should occur and reduce the bulk
         momentum density in those cells accordingly.
         """
 
         N2 = mean.N ** 2
-        omega_hat = recover_omega_hat(self._wvn, self._cpt, mean.N, config.f)
+        omega_hat = recover_omega_hat(wvn, self._cpt, mean.N, config.f)
         omega_hat_sq = omega_hat ** 2
-        wvn_hor_sq = self._wvn ** 2
+        wvn_hor_sq = wvn ** 2
 
         m_sq = wvn_hor_sq * (N2 - omega_hat_sq) / (omega_hat_sq - config.f ** 2)
-        Q = self._M * self._wvn * m_sq / omega_hat
+        Q = self._M * wvn * m_sq / omega_hat
         P = Q / (wvn_hor_sq + m_sq)
 
         P = P.sum((0, 1, 2))
@@ -184,6 +174,13 @@ class EulerianPropagator(Propagator):
 
         factor = np.clip(1 - (wvn_hor_sq + m_sq) * kappa, 0, 1)
         return self._M * (1 - factor)
+
+    def _get_wvn(self, mean: MeanState) -> np.ndarray:
+        """
+        
+        """
+
+        return self._wvn
 
     @classmethod
     def _init_edges(cls, n_k: int, n_c: int) -> tuple[np.ndarray, np.ndarray]:
