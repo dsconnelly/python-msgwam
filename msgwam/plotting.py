@@ -100,7 +100,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     axes = [fig.add_subplot(spec[j // 2, j % 2]) for j in range(4)]
     caxes = [fig.add_subplot(spec[i, 2]) for i in range(2)]
 
-    _, u_cbar = plot_time_series(ds['u'], 50, [axes[0], caxes[0]], 'PuOr_r')
+    _, u_cbar = plot_time_series(ds['u'], 75, [axes[0], caxes[0]], 'PuOr_r')
     u_cbar.set_label('$\\bar{u}$ (m / s)') # type: ignore
     axes[0].set_title('mean zonal wind')
 
@@ -108,7 +108,7 @@ def plot_integration(ds: xr.Dataset, output_path: str) -> None:
     pmfs = [ds['pmf_e'] + ds['pmf_w'], ds['pmf_e'], ds['pmf_w']]
 
     for name, pmf, ax in zip(names, pmfs, axes[1:]):
-        _, cbar = plot_time_series(1000 * pmf, 3, [ax, caxes[1]])
+        _, cbar = plot_time_series(1000 * pmf, 4, [ax, caxes[1]])
         cbar.set_label('flux (mPa)') # type: ignore
         ax.set_title(f'{name} gravity wave flux')
         

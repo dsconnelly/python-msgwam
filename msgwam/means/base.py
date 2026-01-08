@@ -216,7 +216,7 @@ class MeanState:
             v = 5 * get_bump(self.z_centers, center + 15e3, 10e3)
             v = v - 5 * get_bump(self.z_centers, center - 15e3, 10e3)
 
-            return np.vstack((u, v)), rho, config.N_ref * ones, G2 * ones
+            return np.vstack((u, v)), rho, config.N_ref * ones, G2
 
         kwargs = {
             'seconds' : min(config.tau_nudge / 4, 86400),
