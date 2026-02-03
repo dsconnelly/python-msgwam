@@ -6,7 +6,11 @@ import xarray as xr
 
 from msgwam import config
 from msgwam.constants import EPOCH
-from msgwam.utils import get_vertical_grids, make_colored_noise as noise
+from msgwam.utils import (
+    get_rho,
+    get_vertical_grids,
+    make_colored_noise as noise
+)
 
 from ..hyperparameters import scenarios as hp
 
@@ -40,9 +44,11 @@ def get_gated_oscillation(seed: int=177485) -> xr.Dataset:
     env = np.exp(-0.5 * ((z - z_gate[:, None]) / hp.gate_width) ** 2)
     u = env * gate[:, None]
 
-    tides = np.sin(2 * np.pi * (days[:, None] + z / hp.wvl))
+    tides = np.sin(2 * np.pi * (days[:, None] / 3 + z / hp.wvl))
     z_tide = noise(days, *hp.time_scales, *hp.z_tide_bounds, rng)
-    env = _make_env(z, z_tide[:, None], width=hp.shear_width)
+    z_top = 50e3 * np.ones_like(z_tide)[:, None]
+
+    env = _make_env(z, z_tide[:, None], z_top, width=hp.shear_width)
     u = u + env * hp.wave_amp * tides
 
     u = u + hp.noise_amp * noise(
@@ -56,6 +62,11 @@ def get_gated_oscillation(seed: int=177485) -> xr.Dataset:
     data = {'time' : time, 'z_centers' : z}
     data['u'] = (('time', 'z_centers'), u)
     data['v'] = (('time', 'z_centers'), v)
+
+    ones = np.ones((len(time), len(z)))
+    data['rho'] = (('time', 'z_centers'), get_rho(z) * ones)
+    data['N2'] = (('time', 'z_centers'), config.N_ref ** 2 * ones)
+    data['G2'] = (('time', 'z_centers'), 0 * ones)
 
     return xr.Dataset(data)
 

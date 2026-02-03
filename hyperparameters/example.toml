@@ -1,0 +1,49 @@
+[scenarios]
+
+components = 'x'
+spectrum_type = 'gaussians'
+
+gate_closed = 40
+gate_open_t = [30, -45]
+gate_period = 3.1
+gate_width = 2e3
+noise_amp = 10
+noise_cutoffs_t = [0.1, 1.2e3]
+noise_decays_t = [1, 5e3]
+shear_width = 3e3
+time_scales_t = [2, 1]
+wave_amp = 35
+wvl = 20e3
+z_gate_bounds_t = [18e3, 22e3]
+z_tide_bounds_t = [30e3, 45e3]
+
+# [strategies]
+# debug = false
+# dr_min = 500
+# dr_max = 5000
+# n_dr = 10
+# n_ensemble = 25
+# n_n_source = 10
+# n_source_min = 8
+# n_source_max = 44
+
+# [generation]
+# filter_hours = 1
+# filter_meters = 1000
+# n_samples = 25000
+
+# [architectures]
+# batch_norm_pos = 1
+# dropout_rate = 0.1
+
+# n_blocks = 2
+# n_hidden = 512
+# n_latent = 1024
+# n_per_block = 4
+
+# [training]
+# batch_size = 256
+# learning_rate = 1e-3
+# max_epochs = 5
+# max_hours = 4
+# weight_decay = 0

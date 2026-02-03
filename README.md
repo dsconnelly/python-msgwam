@@ -11,15 +11,17 @@ parameterization, including machine learning approaches.
 
 ## From the command line
 
-To run the ray tracer you will need a Python 3 interpreter and an environment
-configured as in `environment.yml`. The ray tracer can be started by calling the
-`msgwam` directory as a module. You must pass a path to a configuration TOML
-file. For example
+The ray tracer can be started by calling the `msgwam` directory as a module. You
+must pass a path to a configuration TOML file. For example
 ```
+mkdir -p data/example/input
+mkdir -p plots/example
+
+python -m acceleration config/example.toml save-mean-state:gated-oscillation
 python -m msgwam config/gaussians.toml
 ```
-will save the integration output to `data/gaussians/integration.nc` and a plot
-to `plots/gaussians/integration.png`. For details on the various configuration
+will save the integration output to `data/example/integration.nc` and a plot
+to `plots/example/integration.png`. For details on the various configuration
 options, consult `config.py`.
 ![A high-resolution integration](integration.png)
 The figure above shows a fairly high-resolution integration of the model and was
