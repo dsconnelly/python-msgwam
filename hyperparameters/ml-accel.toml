@@ -16,7 +16,7 @@ n_source_max = 40
 [generation]
 dt = 120
 dt_output = 1200
-n_bins = 10
+n_bins = 6
 
 [architectures]
 learn_deltas = true
@@ -24,10 +24,10 @@ max_sink = 0.1
 
 [training]
 batch_size = 512
-exp_name = 'oneonta'
+exp_name = 'yakutsk'
 loss_func = 'mse'
 M_transform = 'constant'
-max_epochs = 30
+max_epochs = 60
 min_delta = 0.0002
 n_online_test = 0
 n_smoothing = 1

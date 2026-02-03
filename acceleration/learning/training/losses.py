@@ -19,7 +19,7 @@ class VelocityLoss(nn.Module):
 
         super().__init__()
 
-        _, edges_cpt = EulerianPropagator._init_edges(1, Y.shape[-2])
+        edges_cpt = EulerianPropagator._allocate_bins(Y.shape[-2], 0.9)
         cpt = torch.as_tensor((edges_cpt[:-1] + edges_cpt[1:]) / 2)
         self.register_buffer('_cpt', cpt[:, None])
 
@@ -28,9 +28,9 @@ class VelocityLoss(nn.Module):
         scales = nonzero_stat(Y.cpu().numpy(), mode='std')[..., None]
         self.register_buffer('_scales', torch.as_tensor(scales))
 
-        w_T = trial.suggest_float('w_T', 0, 1)
-        weights = torch.as_tensor([w_T, 1 - w_T])
-        self.register_buffer('_weights', weights[:, None])
+        self._w_T = trial.suggest_float('w_T', 0, 1)
+        # weights = torch.as_tensor([w_T, 1 - w_T])
+        # self.register_buffer('_weights', weights[:, None])
         
     def forward(
         self,
@@ -47,29 +47,27 @@ class VelocityLoss(nn.Module):
 
         logits, cg = Y[:, 0], Y[:, 1]
         loss_T = ((logits - logits_nn) / self._scales[0]) ** 2
+        # loss_T = _smae((logits - logits_nn) / self._scales[0])
 
         T_nn = get_T_from_logits(N, f, logits_nn)
         cg_nn = cg_from_T_hat(N, f, self._cpt, T_nn)
         loss_cg = _smae((cg - cg_nn) / self._scales[1])
 
-        loss = torch.stack((loss_T, loss_cg), dim=1)
-        mask = (cg > 1e-14)[:, None]
+        mask = (cg > 0)
+        mask[..., -5:] = 0
 
-        counts = mask.sum(dim=-1)
-        counts = torch.where(counts > 0, counts, 1)
-        loss = (mask * loss).sum(dim=-1) / counts
+        if not reduce:
+            return mask[:, None] * torch.stack((loss_T, loss_cg), dim=1)
 
-        if self.training:
-            loss = (self._weights * loss).sum(dim=1)
+        n_nonzero = mask.sum()
+        loss_T = (mask * loss_T).sum() / n_nonzero
+        loss_cg = (mask * loss_cg).sum() / n_nonzero
 
-        else:
-            loss = loss[:, 1]
-
-        if reduce:
-            return loss.mean()
+        if not self.training:
+            return loss_cg
         
-        return loss
-
+        return self._w_T * loss_T + (1 - self._w_T) * loss_cg
+ 
 class FluxLoss(nn.Module):
     _scales: torch.Tensor
     _weights: torch.Tensor

@@ -53,14 +53,16 @@ def _get_eulerian_overrides(mode: Literal['fine', 'coarse']) -> dict[str, Any]:
     """Use an Eulerian scheme instead of the ray tracer."""
 
     n_c, n_k = {
-        'fine' : (100, 12),
-        'coarse' : (10, 1)
+        'fine' : (300, 30),
+        'coarse' : (5, 1)
     }[mode]
+
+    print(n_c, n_k)
 
     return {
         'propagator_type' : 'eulerian',
         'dr_source' : -config.dt,
-        'n_source' : 256,
+        'n_source' : 400,
         'dr_min' : 0,
         'n_c' : n_c,
         'n_k' : n_k,

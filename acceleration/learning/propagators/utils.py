@@ -9,6 +9,47 @@ from ...hyperparameters import generation as hp
 _Array = np.ndarray | torch.Tensor
 
 @nb.njit
+def correct_bins(
+    data: np.ndarray,
+    edges_old: np.ndarray,
+    edges_new: np.ndarray,
+    conservative: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    
+    """
+
+    n_bins = len(data)
+    fracs = np.zeros(n_bins)
+    out = np.zeros(n_bins)
+
+    edges_new[-1] = max(edges_old[-1], edges_new[-1])
+    if conservative:
+        edges_new[0] = min(edges_old[0], edges_new[0])
+
+    i, j = 0, 0
+    while i < n_bins:
+
+        a_old, b_old = edges_old[i:(i + 2)]
+        a_new, b_new = edges_new[j:(j + 2)]
+
+        a = max(a_old, a_new)
+        b = min(b_old, b_new)
+
+        frac = (b - a) / (b_old - a_old)
+        frac = max(0, min(1, frac))
+
+        fracs[i] = fracs[i] + frac
+        out[j] = out[j] + frac * data[i]
+
+        if b_old > b_new:
+            j = j + 1
+        else:
+            i = i + 1
+
+    return fracs, out
+
+@nb.njit
 def get_A(
     edges_old: np.ndarray,
     edges_new: np.ndarray,
@@ -189,10 +230,16 @@ def get_transports(
                 if k < n_z - 1:
                     edges_old = edges + wind[q, k]
                     edges_new = edges + wind[q, k + 1]
-                    A = get_A(edges_old, edges_new, conservative=False)
 
-                    phi_in[q, i, :, k + 1] = A @ phi_out[q, i, :, k]
-                    phi_out[q, i, :, k] = A.sum(0) * phi_out[q, i, :, k]
+                    fracs, out = correct_bins(
+                        phi_out[q, i, :, k],
+                        edges_old,
+                        edges_new,
+                        False
+                    )
+
+                    phi_in[q, i, :, k + 1] = out
+                    phi_out[q, i, :, k] = fracs * phi_out[q, i, :, k]
 
     return phi_in, phi_out
 
@@ -242,16 +289,20 @@ def project(
         if np.isnan(v) or q < 0:
             continue
 
-        j = int((c_lo[i] - edges_c[0]) / (edges_c[1] - edges_c[0]))
-        k = int((r_lo[i] - edges_z[0]) / (edges_z[1] - edges_z[0]))
+        j = 0
+        while c_lo[i] > edges_c[j + 1]:
+            j = j + 1
+
+        k_start = int((r_lo[i] - edges_z[0]) / (edges_z[1] - edges_z[0]))
 
         while j < edges_c.shape[0] - 1:
             if edges_c[j] > c_hi[i]:
                 break
 
             frac_c = min(edges_c[j + 1], c_hi[i]) - max(edges_c[j], c_lo[i])
-            frac_c = frac_c / (c_hi[i] - c_lo[i])
+            frac_c = frac_c / (edges_c[j + 1] - edges_c[j])
 
+            k = k_start
             while k < edges_z.shape[0] - 1:
                 if edges_z[k] > r_hi[i]:
                     break

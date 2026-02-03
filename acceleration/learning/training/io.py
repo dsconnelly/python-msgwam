@@ -283,7 +283,8 @@ def prepare_data(
 
     C, meta = C[:, :-1], C[:, -1:]
     C = C.reshape(-1, 2, config.n_grid - 1)
-
+    M = M * (M > 1e-14)
+    
     ones = torch.ones(config.n_grid - 1)
     C_mean = C.mean(dim=(0, 2))[:, None] * ones
     C_std = C.std(dim=(0, 2))[:, None] * ones
@@ -299,13 +300,15 @@ def prepare_data(
     N = C[:, None, -config.n_grid:-1]
     f = C[:, -1, None, None]
 
-    logits = get_T_from_logits(N, f, Y[:, 0], inverse=True)
-    Y = torch.stack((logits, Y[:, 1]), dim=1)
+    mask = (M > 0).float()
+    T = mask * Y[:, 0] + (1 - mask) * 2 * torch.pi / f
+    logits = get_T_from_logits(N, f, T, inverse=True)
+    Y = torch.stack((logits, mask * Y[:, 1]), dim=1)
 
     if apply_transforms:
         C = C_trans(C)
         M = M_trans(M)
-
+    
     return (N, f, C, M, Y), (idx_tr, idx_ev), (C_trans, M_trans)
 
 def _parse_column(ds: xr.Dataset) -> np.ndarray:
@@ -337,8 +340,8 @@ def _parse_column(ds: xr.Dataset) -> np.ndarray:
     wind[quad > 1] = -wind[quad > 1]
 
     shape = (-1, config.n_grid - 1)
-    wind = wind[:-1].reshape(*shape)
-    N = N[:-1].reshape(*shape)
+    wind = wind[1:-1].reshape(*shape)
+    N = N[1:-1].reshape(*shape)
 
     return np.hstack((wind, N))
 
@@ -352,20 +355,20 @@ def _parse_momentum(
     relevant training inputs and targets.
     """
 
-    M = ds['M_bulk'].values[:-1]
-    cg = ds['cg_bulk'].values[:-1]
+    M = ds['M_bulk'].values[1:-1]
+    cg = ds['cg_bulk'].values[1:-1]
+
     shape = (M.shape[0] * M.shape[1], *M.shape[2:])
     M, cg = M.reshape(*shape), cg.reshape(*shape)
-
-    cg = (M * cg).sum(axis=1)
-    M = M.sum(axis=1)
-
-    idx = M > 0
-    cg[idx] = cg[idx] / M[idx]
+    F = M * cg
 
     for _ in range(hp.training.n_smoothing):
         M = apply_smoothing(M)
-        cg = apply_smoothing(cg)
+        F = apply_smoothing(F)
+
+    idx = M > 0
+    cg = np.zeros_like(M)
+    cg[idx] = F[idx] / M[idx]
 
     T_hat, keep = invert_cg(N, f, cg)
     Y = np.stack((T_hat, cg), axis=1)

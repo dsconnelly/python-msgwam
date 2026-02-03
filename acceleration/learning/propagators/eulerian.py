@@ -24,6 +24,7 @@ class EulerianPropagator(Propagator):
 
         edges_wvn, edges_cpt = self._init_edges(config.n_k, config.n_c)
         self._edges_wvn, self._edges_cpt = edges_wvn, edges_cpt
+        self._dc = np.diff(edges_cpt)[:, None]
 
         mid = lambda a: (a[:-1] + a[1:]) / 2
         wvn = 1 / mid(1 / self._edges_wvn)
@@ -67,10 +68,10 @@ class EulerianPropagator(Propagator):
         
         dM = phi_in - phi_out 
         self._M = np.maximum(M + dM, 0)
-        D = self._get_sinks(mean, wvn)
+        D = self._get_sinks(mean, self._wvn)
 
         self._M = self._M - D
-        self._M[self._M < 1e-8] = 0
+        self._M[self._M < 1e-14] = 0
 
         F = phi_out / dt_o_dz
         self._F[..., 1:] = F.sum((1, 2))
@@ -126,8 +127,10 @@ class EulerianPropagator(Propagator):
 
         omega_hat_lo = get_omega_hat(k, l, m - 0.5 * dm, N, G2)
         omega_hat_hi = get_omega_hat(k, l, m + 0.5 * dm, N, G2)
+        
         c_lo = (omega_hat_lo - abs(config.f)) / wvn
         c_hi = (omega_hat_hi - abs(config.f)) / wvn
+        mom = mom / abs(c_hi - c_lo)
 
         qdx = get_qdx(k, l)
         pairs = (self._edges_wvn[:-1], self._edges_wvn[1:])
@@ -147,7 +150,7 @@ class EulerianPropagator(Propagator):
                 out[:, i]
             )
 
-        return out
+        return out * self._dc
 
     def _get_sinks(self, mean: MeanState, wvn: np.ndarray) -> np.ndarray:
         """
@@ -188,7 +191,7 @@ class EulerianPropagator(Propagator):
         Initialize the phase speed and wavenumber grids.
         """
 
-        edges_cpt = cls._allocate_bins(n_c, 0.8)
+        edges_cpt = cls._allocate_bins(n_c, 0.9)
         edges_wvl = cls._allocate_bins(n_k, 0.8)
 
         edges_wvl[0] = 0.01 * edges_wvl[1]

@@ -111,6 +111,7 @@ def plot_error_profiles(kind: str, prefix: str, *strategies: str) -> None:
             factor, xmax, cname, unit = _get_plot_specs(kind, c)
             factor, xmax = (1, 1) if task == 'rel' else (factor, xmax)
             xmax = 4 if len(rnames) > 1 and task == 'abs' else xmax
+            xmax = 4
 
             suffix = f'normalized error' if task == 'rel' else f'RMSE ({unit})'
             xlabel = f'{cname} {suffix}'

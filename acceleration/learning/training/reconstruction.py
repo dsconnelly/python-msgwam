@@ -44,12 +44,14 @@ def invert_cg(
     N = torch.as_tensor(N)[:, None]
     f = torch.as_tensor(f)[:, None, None]
 
-    _, edges = EulerianPropagator._init_edges(1, cg.shape[1])
+    edges = EulerianPropagator._allocate_bins(cg.shape[1], 0.9)
     cpt = torch.as_tensor((edges[:-1] + edges[1:]) / 2)[:, None]
 
     mask = cg > 1e-14
     cg[~mask] = np.nan
+
     scales = np.nanstd(cg, (0, -1))[..., None]
+    scales[np.isnan(scales)] = 1
     cg[~mask] = 0
 
     mask = torch.as_tensor(mask).float()

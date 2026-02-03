@@ -65,7 +65,7 @@ class UNet(nn.Module):
             Y = maybe_interp(up(Y), skips[i].shape[-1])
             Y = dec(torch.cat((Y, skips[i]), dim=1))
 
-        mask = (M > M.min() + 1e-14).float()
+        mask = (M > M.min()).float()
         return mask * Y + (1 - mask) * 100
 
     def _init_settings(self, trial: Trial) -> None:

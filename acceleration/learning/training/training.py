@@ -404,7 +404,7 @@ def _train(
     # options = [1, 2, 3, 4, 5]
     # i = trial.suggest_int('n_bin_idx', 1, len(options) - 1)
     # n_bins = options[i]
-    n_bins = 5
+    n_bins = 6
 
     tensors, idxs, transforms = prepare_data(
         trial=trial,
@@ -427,7 +427,7 @@ def _train(
     n_epoch, waited = 1, 0
 
     patience = hp.training.patience if eval_type == 'va' else 30
-    max_epochs = hp.training.max_epochs if eval_type == 'va' else -180
+    max_epochs = hp.training.max_epochs if eval_type == 'va' else 10
 
     if warmup:
         max_epochs = int(1.5 * max_epochs)

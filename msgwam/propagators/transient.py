@@ -172,6 +172,11 @@ class TransientPropagator(Propagator):
         bottom boundary condition is enforced and new rays are instantiated.
         """
 
+        cg = self._get_cg_r(mean)
+        wvn = np.sqrt(self.k ** 2 + self.l ** 2)
+        cpt = (self._get_omega_hat(mean) - abs(config.f)) / wvn
+        self._cache = [wvn * self.action, cg, cpt]
+
         dt = self._get_dt(mean)
         for _ in range(config.dt // dt):    
             self._take_RK4_step(mean, dt)
