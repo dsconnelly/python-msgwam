@@ -13,7 +13,7 @@ _DEFAULTS = {}
 # global integration settings
 ################################################################################∂
 propagator_type: Literal['eulerian', 'instantaneous', 'network', 'transient']
-source_type: Literal['constant', 'packet', 'stochastic']
+source_type: Literal['constant', 'intermittent', 'packet', 'stochastic']
 spectrum_type: Literal['mima', 'custom']
 
 ################################################################################
