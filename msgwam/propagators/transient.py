@@ -289,15 +289,15 @@ class TransientPropagator(Propagator):
         if config.n_chromatic == 0:
             return
 
-        threshold = mean.rho / 2
-        S = self.action * wvn_hor_sq * self.m ** 2 / (omega_hat * wvn_sq)
+        threshold = config.epsilon * mean.rho * mean.N ** 2
+        S = 2 * self.action * omega_hat * self.m ** 2
         
         if config.n_chromatic == -1:
             pdx = np.zeros(self._n_max).astype(int)
         else:
             _, pdx = self._get_packet_info()
 
-        data = np.vstack((S, S * wvn_sq)) / config.epsilon
+        data = np.vstack((S, S * wvn_sq))
         P, Q = self._project(data, mean.z_faces, pdx)
         P = P - threshold
 
@@ -306,7 +306,7 @@ class TransientPropagator(Propagator):
         kappa[idx] = P[idx] / Q[idx]
 
         maxes = get_max_intersects(self.r, self.dr, mean.z_faces, kappa, pdx)
-        factor = np.maximum(0, 1 - config.epsilon * wvn_sq * maxes)
+        factor = np.maximum(0, 1 - wvn_sq * maxes)
         factor[self._notouch & (self.age > 0)] = 1
 
         self._data[11] += (1 - factor) * wvn * self.action
