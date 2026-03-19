@@ -12,7 +12,7 @@ class IntermittentSource(Source):
         """
 
         super().__init__()
-        self._timer = np.zeros(config.n_source, dtype=np.int_)
+        self._timer = np.zeros(config.n_source)
 
     def _postprocess(
         self, *,
@@ -28,12 +28,9 @@ class IntermittentSource(Source):
         timers for the remaining rays.
         """
 
-        ns = config.dr_source / (config.epsilon * config.dt * cg_r)
-        round_up = np.random.rand(config.n_source) < ns - np.floor(ns)
-        ns = np.floor(ns) + round_up.astype(int)
+        idx = self._timer <= 0
+        distances = config.epsilon * cg_r * config.dt
+        self._timer[~idx] = self._timer[~idx] - distances[~idx]
+        self._timer[idx] = config.dr_source
 
-        idx = self._timer == 0
-        self._timer[idx] = ns[idx]
-        self._timer[~idx] = self._timer[~idx] - 1
-        
         return data[:, idx], cdx[idx]

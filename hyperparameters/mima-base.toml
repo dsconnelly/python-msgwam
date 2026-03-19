@@ -14,22 +14,22 @@ n_source_min = 4
 n_source_max = 40
 
 [generation]
-dt = 60
-dt_output = 1800
-n_bins = 10
+# dt = 60
+# dt_output = 1800
+# n_bins = 10
 
 [architectures]
-batch_norm_pos = [-1, 0, 1]
-block_depth = [3, 6]
-n_bins = 2
-n_blocks = [2, 4]
-n_hidden = [256, 1024]
+# batch_norm_pos = [-1, 0, 1]
+# block_depth = [3, 6]
+# n_bins = 2
+# n_blocks = [2, 4]
+# n_hidden = [256, 1024]
 
 [training]
-batch_size = 32
-in_transform = ['minmax', 'robust', 'z']
-learning_rate = 1e-3
-max_epochs = 10
-max_hours = 5
-n_smoothing = 10
-output_scale = 1e4
+# batch_size = 32
+# in_transform = ['minmax', 'robust', 'z']
+# learning_rate = 1e-3
+# max_epochs = 10
+# max_hours = 5
+# n_smoothing = 10
+# output_scale = 1e4

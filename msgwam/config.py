@@ -207,7 +207,7 @@ def _add_derived(config: dict[str, Any]) -> None:
     latitude = np.deg2rad(config['latitude'])
     config['f'] = 2 * ROT_EARTH * np.sin(latitude)
 
-    if config['source_type'] != 'stochastic':
+    if config['source_type'] not in ['stochastic', 'intermittent']:
         config['epsilon'] = 1
 
     if isinstance(config['r_source'], str):

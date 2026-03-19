@@ -15,6 +15,7 @@ _COLORS = {
     'MiMAlike' : 'k',
     'ICONlike' : 'k',
     'instantaneous' : 'tab:red',
+    'intermittent' : 'royalblue',
     'stochastic' : 'royalblue',
     'coarse' : 'forestgreen',
     'network' : 'darkviolet',
@@ -23,6 +24,8 @@ _COLORS = {
 
 _STYLES = {
     'ICONlike' : 'dashed',
+    'intermittent-4' : 'dashed',
+    'intermittent-25' : 'dotted',
     'stochastic-64' : 'dashed',
     'stochastic-100' : 'dotted',
     'eulerian-coarse' : 'dotted'
