@@ -31,8 +31,9 @@ def get_integration() -> xr.Dataset:
 
     """
 
+    includes = ['intermittent', 'stochastic']
     func = lambda i: integrate().assign_coords(member=i)
-    ensemble = (config.jitter > 0) or (config.source_type == 'stochastic')
+    ensemble = (config.jitter > 0) or (config.source_type in includes)
     datasets = map(func, range(hp.n_ensemble if ensemble else 1))
 
     return xr.concat(datasets, dim='member')

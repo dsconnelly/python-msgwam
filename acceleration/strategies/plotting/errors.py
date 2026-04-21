@@ -24,8 +24,8 @@ _COLORS = {
 
 _STYLES = {
     'ICONlike' : 'dashed',
-    'intermittent-4' : 'dashed',
-    'intermittent-25' : 'dotted',
+    'intermittent-25' : 'dashed',
+    'intermittent-reference' : 'dashed',
     'stochastic-64' : 'dashed',
     'stochastic-100' : 'dotted',
     'eulerian-coarse' : 'dotted'

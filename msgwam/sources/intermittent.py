@@ -12,7 +12,8 @@ class IntermittentSource(Source):
         """
 
         super().__init__()
-        self._timer = np.zeros(config.n_source)
+        self._timer = config.dr_source * np.random.rand(config.n_source)
+        self._timer = self._timer - np.sqrt(config.epsilon) * config.dr_source
 
     def _postprocess(
         self, *,

@@ -86,13 +86,29 @@ def _get_instantaneous_overrides() -> dict[str, Any]:
     n_source = _get_reference_overrides()['n_source']
     return {'propagator_type' : 'instantaneous', 'n_source' : n_source}
 
-def _get_intermittent_overrides(speedup_str: str) -> dict[str, Any]:
+def _get_intermittent_overrides(mimic: str) -> dict[str, Any]:
     """Use an intermittent source instead of a constant-flux source."""
 
-    kwargs = _get_stochastic_overrides(speedup_str)
-    kwargs['source_type'] = 'intermittent'
+    try:
+        kwargs = get_overrides(mimic)
+        a = config.dr_source / kwargs['dr_source']
+        b = int(kwargs['n_source'] / config.n_source)
 
-    return kwargs
+    except KeyError:
+        speedup = int(mimic)
+        a = b = int(speedup ** 0.5)
+
+        kwargs = {
+            'dr_source' : config.dr_source / a,
+            'n_source' : b * config.n_source
+        }
+
+    return {
+        'epsilon' : 1 / (a * b),
+        'dr_source' : kwargs['dr_source'],
+        'n_source' : kwargs['n_source'],
+        'source_type' : 'intermittent'
+    }
 
 def _get_MiMAlike_overrides() -> dict[str, Any]:
     """Use a configuration similar to that of online tests in MiMA."""
