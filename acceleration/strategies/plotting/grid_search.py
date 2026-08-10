@@ -1,3 +1,5 @@
+from typing import Literal
+
 import matplotlib.gridspec as gs
 import matplotlib.pyplot as plt
 import numpy as np
@@ -10,15 +12,20 @@ from msgwam import config
 
 from ...hyperparameters import scenarios as hp
 
-from ..coarsenings import get_global_scores
+from ..grid_search import get_grid_search_dir, get_global_scores
 from ..utils import by_kind, get_rnames
 
 @by_kind
-def plot_coarse_errors(kind: str, prefix: str='') -> None:
+def plot_grid_search_errors(
+    kind: str,
+    prefix: str='',
+    base: Literal['coarse', 'mima']='coarse'
+) -> None:
     """
-    Plot the normalized error for each coarse resolution. If only plotting data
-    from one run, also plot the RMSE as a function of height for each pair. If
-    plotting data from multiple runs, show the average errors.
+    Plot the normalized error for each candidate source resolution in the grid
+    search. If only plotting data from one run, also plot the RMSE as a
+    function of height for each pair. If plotting data from multiple runs,
+    show the average errors.
 
     Parameters
     ----------
@@ -26,6 +33,9 @@ def plot_coarse_errors(kind: str, prefix: str='') -> None:
         What field to plot the errors in.
     prefix
         Prefix to use to select runs to include.
+    base
+        Which grid search to plot: `'coarse'` (n_max = 250) or `'mima'`
+        (n_max = 2500).
 
     """
 
@@ -43,7 +53,7 @@ def plot_coarse_errors(kind: str, prefix: str='') -> None:
         caxes = [fig.add_subplot(spec[0, 2])]
         aaxes = gaxes
 
-        scores = get_global_scores(kind, *rnames)
+        scores = get_global_scores(kind, *rnames, base=base)
 
     else:
         n_rows = len(hp.components)
@@ -58,7 +68,7 @@ def plot_coarse_errors(kind: str, prefix: str='') -> None:
         caxes = [fig.add_subplot(spec[i, 2]) for i in range(2)]
         aaxes = [zaxes[0], gaxes[0], zaxes[1], gaxes[1]]
 
-        path = f'data/{config.name}/coarsenings/coarse-errors-{kind}.nc'
+        path = f'{get_grid_search_dir(config.name, base)}/grid-search-errors-{kind}.nc'
         with xr.open_dataset(path) as ds:
             profiles = ds['error']
             rms = ds['rms']
@@ -160,7 +170,7 @@ def plot_coarse_errors(kind: str, prefix: str='') -> None:
         ax.set_title(f'({chr(i + 97)})')
 
     tag = '-global' if len(rnames) > 1 else ''
-    path = f'plots/{config.name}/coarsenings-{kind}{tag}.png'
+    path = f'plots/{config.name}/grid-search-{kind}-{base}{tag}.png'
     plt.savefig(path, dpi=400, bbox_inches='tight')
 
 def _get_dc(n: int) -> float:

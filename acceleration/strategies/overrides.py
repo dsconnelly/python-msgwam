@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from msgwam import config
 
+from .. import hyperparameters as hp
+
 def get_overrides(strategy: str, *args: str) -> dict[str, Any]:
     """
     Load the configuration overrides particular to a given strategy. Implemented
@@ -110,8 +112,28 @@ def _get_intermittent_overrides(mimic: str) -> dict[str, Any]:
         'source_type' : 'intermittent'
     }
 
-def _get_MiMAlike_overrides() -> dict[str, Any]:
-    """Use a configuration similar to that of online tests in MiMA."""
+def _get_MiMAlike_overrides(
+    mode: Literal['fixed', 'calibrated']='fixed'
+) -> dict[str, Any]:
+    """
+    Use a configuration similar to that of online tests in MiMA.
+
+    Parameters
+    ----------
+    mode
+        If `'fixed'`, use the source resolution from past work with MS-GWaM at
+        this `n_max`. If `'calibrated'`, use the source resolution found by the
+        grid search over the `'mima'` base in `grid_search.py`, which must have
+        already been run (see `grid_search.update_config`).
+
+    """
+
+    if mode == 'calibrated':
+        return {
+            'dr_source' : hp.strategies.mima_dr_source,
+            'n_max' : 2500,
+            'n_source' : hp.strategies.mima_n_source
+        }
 
     return {
         'dr_source' : 1500,

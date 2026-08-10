@@ -27,7 +27,7 @@ for i in "${!sites[@]}"; do
     sed -i "s/^latitude = .*/latitude = $lat/" config/mima-$site.toml
     sed -i "s/^extrinsic = .*/extrinsic = $extr/" config/mima-$site.toml
 
-    job_ids+=($(./submit.sh mima-$site save-reference save-coarsenings))
+    job_ids+=($(./submit.sh mima-$site save-reference save-grid-search))
     rnames+=("mima-${site}")
 done
 
@@ -45,7 +45,7 @@ job_id=$(sbatch \
     --dependency=afterok:${dep_list} \
     submit.slurm config/$site.toml \
         update-config:${rname_args} \
-        plot-coarse-errors:${rname_args}
+        plot-grid-search-errors:${rname_args}
 )
 
 for i in "${!sites[@]}"; do

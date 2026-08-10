@@ -30,7 +30,8 @@ tasks=("$@")
 
 cd /home/dsc7746/python-msgwam
 
-mkdir -p data/$name/coarsenings
+mkdir -p data/$name/grid-search-coarse
+mkdir -p data/$name/grid-search-mima
 mkdir -p data/$name/input
 mkdir -p data/$name/strategies
 mkdir -p data/$name/training

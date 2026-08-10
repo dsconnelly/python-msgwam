@@ -9,10 +9,10 @@ job_id=$(sbatch \
     --mem=32G \
     --time=1:00:00 \
     -a 0-24 \
-    -J "${name}-coarsenings" \
-    -o logs/$name/coarsening-%a.out \
+    -J "${name}-grid-search" \
+    -o logs/$name/grid-search-%a.out \
     $dep_arg \
-    submit.slurm config/$name.toml save-coarsenings
+    submit.slurm config/$name.toml save-grid-search
 )
 
 job_id=$(sbatch \
@@ -21,11 +21,11 @@ job_id=$(sbatch \
     --mem=32G \
     --time=1:30:00 \
     -J "${name}-update" \
-    -o logs/$name/coarsening-update.out \
+    -o logs/$name/grid-search-update.out \
     --dependency=afterok:$job_id \
     submit.slurm config/$name.toml \
-        save-coarse-errors:all \
-        plot-coarse-errors:all \
+        save-grid-search-errors:all \
+        plot-grid-search-errors:all \
         update-config:flux
 )
 

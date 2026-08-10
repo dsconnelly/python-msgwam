@@ -1,6 +1,8 @@
 debug: bool
 dr_min: int
 dr_max: int
+mima_dr_source: int
+mima_n_source: int
 n_dr: int
 n_ensemble: int
 n_n_source: int
