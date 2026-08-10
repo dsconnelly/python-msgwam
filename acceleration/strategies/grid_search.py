@@ -72,13 +72,13 @@ def save_grid_search(base: Literal['coarse', 'mima']='coarse') -> None:
     base
         Which regime to search over: `'coarse'` (n_max = 250, overrides taken
         from the `coarse` strategy) or `'mima'` (n_max = 2500, overrides taken
-        from the `MiMAlike` strategy). Both searches share the same grid of
+        from the `MiMAlike` strategy). Each base has its own grid of
         `dr_source`/`n_source` candidates from `_get_grid`.
 
     """
 
     kwargs = get_overrides(_BASE_STRATEGIES[base])
-    for dr, n_source in product(*_get_grid()):
+    for dr, n_source in product(*_get_grid(base)):
         kwargs['dr_source'] = float(dr)
         kwargs['n_source'] = n_source
 
@@ -117,7 +117,7 @@ def update_config(
     rnames = get_rnames(prefix)
     scores = get_global_scores(kind, *rnames, base=base).sel(component='x')
     i, j = (da.item() for da in scores.argmin(...).values())
-    drs, n_sources = _get_grid()
+    drs, n_sources = _get_grid(base)
 
     if base == 'coarse':
         for rname in rnames:
@@ -146,7 +146,7 @@ def save_grid_search_errors(
 
     """
 
-    drs, n_sources = _get_grid()
+    drs, n_sources = _get_grid(base)
     components = list(hp.scenarios.components)
     z = get_vertical_grids()[kind != 'flux']
 
@@ -189,10 +189,16 @@ def save_grid_search_errors(
         'rms' : (('component', 'z'), rms)
     }).to_netcdf(f'{get_grid_search_dir(config.name, base)}/grid-search-errors-{kind}.nc')
 
-def _get_grid() -> tuple[list[int], list[int]]:
+def _get_grid(base: Literal['coarse', 'mima']='coarse') -> tuple[list[int], list[int]]:
     """
     Return lists of values for `config.dr_source` and `config.n_source` within
     which to search for the optimal source resolution.
+
+    Parameters
+    ----------
+    base
+        Whether the grid search is being done for the coarse (n_max = 250) or
+        MiMAlike (n_max = 2500) setup.
 
     Returns
     -------
@@ -202,8 +208,17 @@ def _get_grid() -> tuple[list[int], list[int]]:
     """
 
     _hp = hp.strategies
-    drs = np.linspace(_hp.dr_min, _hp.dr_max, _hp.n_dr)
-    n_sources = np.linspace(_hp.n_source_min, _hp.n_source_max, _hp.n_n_source)
+
+    if base == 'coarse':
+        dr_min, dr_max = _hp.dr_min, _hp.dr_max
+        n_source_min, n_source_max = _hp.n_source_min, _hp.n_source_max
+
+    else:
+        dr_min, dr_max = 100, 2100
+        n_source_min, n_source_max = 24, 240
+
+    drs = np.linspace(dr_min, dr_max, _hp.n_dr)
+    n_sources = np.linspace(n_source_min, n_source_max, _hp.n_n_source)
     drs, n_sources = drs.astype(int), n_sources.astype(int)[::-1]
 
     return drs.tolist(), n_sources.tolist()
