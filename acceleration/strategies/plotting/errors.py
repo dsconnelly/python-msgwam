@@ -28,7 +28,8 @@ _STYLES = {
     'intermittent-reference' : 'dashed',
     'stochastic-64' : 'dashed',
     'stochastic-100' : 'dotted',
-    'eulerian-coarse' : 'dotted'
+    'eulerian-coarse' : 'dotted',
+    'MiMAlike-optimal' : 'dashed'
 }
 
 @by_kind
@@ -202,7 +203,13 @@ def _format_strategy(strategy: str) -> str:
     """
 
     if strategy.startswith('MiMAlike'):
-        return 'MiMA-like'
+        out = 'MiMA-like'
+
+        parts = strategy.split('-')
+        if len(parts) > 1:
+            out = out + f' ({parts[1]})'
+
+        return out
 
     if strategy.startswith('coarse'):
         _, *suffix = strategy.split('-')

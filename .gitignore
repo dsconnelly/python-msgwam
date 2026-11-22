@@ -7,6 +7,8 @@ experiments/debug
 logs/*
 plots/*
 
+CLAUDE.md
+
 compare/*
 config/mima-*.toml
 !config/mima-base.toml

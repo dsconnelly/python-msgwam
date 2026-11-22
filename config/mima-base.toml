@@ -44,6 +44,7 @@ dt_launch = -1
 equal_flux = false
 extrinsic = true
 n_source = 16
+strict_source = false
 
 ################################################################################
 # 'transient' propagator
