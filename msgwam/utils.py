@@ -378,7 +378,8 @@ def open_dataset(*args, **kwargs) -> xr.Dataset:
 
     """
 
-    return xr.open_dataset(*args, use_cftime=True, **kwargs)
+    coder = xr.coders.CFDatetimeCoder(use_cftime=True)
+    return xr.open_dataset(*args, decode_times=coder, **kwargs)
 
 def shapiro_filter(data: np.ndarray) -> np.ndarray:
     """
